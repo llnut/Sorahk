@@ -1,15 +1,29 @@
 [package]
 name = "sorahk"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [dependencies]
 windows = { version = "0.62.0", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
     "Win32_System_Threading",
     "Win32_Foundation",
     "Win32_Security",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Console",
+    "Win32_System_LibraryLoader",
 ] }
 serde = { version = "1.0.226", features = ["derive"] }
-toml = { version = "0.9.7", features = ["display"] }
+toml = "0.9.7"
+anyhow = "1.0.100"
+
+[profile.release]
+#debug = false
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+#panic = "abort"
+strip = true
+incremental = false

@@ -1,14 +1,16 @@
-input_timeout = 10      # 输入超时时间, 设置过大会导致连发无法及时结束
-interval = 5            # 默认连发间隔(ms)
-event_duration = 5      # 模拟按下到弹起的时间(ms)
-switch_key = "DELETE"   # 开发开关
+show_tray_icon = true       # 是否显示托盘图标
+show_notifications = false  # 是否显示通知，对于某些精简系统无效
+input_timeout = 10          # 输入超时时间, 设置过小会导致连发无法及时结束，过大会影响连发速度
+interval = 5                # 默认连发间隔(ms)
+event_duration = 5          # 模拟按下到弹起的时间(ms)
+switch_key = "DELETE"       # 开发开关
 
 # 按键映射配置
 [[mappings]]
-trigger_key = "S"       # 触发键
-target_key = "D"        # 目标键
-interval = 5            # 可选: 特定间隔(覆盖默认值)
-event_duration = 5      # 可选: 按下持续时间(覆盖默认值)
+trigger_key = "A"           # 触发键
+target_key = "A"            # 目标键
+interval = 5                # 可选: 特定间隔(覆盖默认值)
+event_duration = 5          # 可选: 按下持续时间(覆盖默认值)
 
 [[mappings]]
 trigger_key = "A"
