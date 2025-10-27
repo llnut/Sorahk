@@ -7,7 +7,7 @@
 ## ✨ Features
 
 - ⚡ **Extreme Performance** – Pure Rust implementation with zero-cost abstractions and consistent sub-millisecond response.
-- 📦 **Minimal Footprint** – Highly optimized binary under 500 KB; ideal for portable or low-resource use.
+- 📦 **Minimal Footprint** – Highly optimized binary size; ideal for portable or low-resource use.
 - 🪟 **Zero External Dependencies** – Built solely on the official `windows` crate; no .NET, C++ runtimes, or third-party DLLs.
 - 🖥️ **Optional Tray Icon** – Runs silently in the background with a native Windows system tray interface.
 - ⚙️ **Simple TOML Configuration** – Define trigger/target key pairs and repeat interval in `Config.toml`; no scripting required.
