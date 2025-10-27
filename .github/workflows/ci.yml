@@ -1,0 +1,97 @@
+name: ci
+
+on:
+  push:
+    branches: [ "master", "ci/test-actions" ]
+  pull_request:
+    branches: [ "master", "ci/test-actions" ]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to run the workflow on'
+        required: true
+        default: 'master'
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO: cargo
+      TARGET_FLAGS:
+      TARGET_DIR: ./target
+      # Emit backtraces on panics.
+      RUST_BACKTRACE: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - build: win-msvc
+          os: windows-latest
+          rust: stable
+          target: x86_64-pc-windows-msvc
+
+        - build: win-gnu
+          os: windows-latest
+          rust: stable-x86_64-gnu
+          target: x86_64-pc-windows-gnu
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ github.event.inputs.branch || github.ref }}
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+        target: ${{ matrix.target }}
+
+    - name: Set target variables
+      shell: bash
+      run: |
+        echo "TARGET_FLAGS=--target ${{ matrix.target }}" >> $GITHUB_ENV
+        echo "TARGET_DIR=./target/${{ matrix.target }}" >> $GITHUB_ENV
+
+    - name: Show command used for Cargo
+      shell: bash
+      run: |
+        echo "cargo command is: ${{ env.CARGO }}"
+        echo "target flag is: ${{ env.TARGET_FLAGS }}"
+        echo "target dir is: ${{ env.TARGET_DIR }}"
+
+    - name: Build release binary
+      shell: bash
+      run: |
+        ${{ env.CARGO }} build --verbose --release ${{ env.TARGET_FLAGS }}
+        bin="target/${{ matrix.target }}/release/sorahk.exe"
+        echo "BIN=$bin" >> $GITHUB_ENV
+
+    - name: Determine archive name
+      shell: bash
+      run: |
+        version="$(grep -m1 -E "^version[[:space:]]*=[[:space:]]*\"[^\"]+\"" Cargo.toml | sed -E 's/^version[[:space:]]*=[[:space:]]*\"([^"]+)\"/\1/')"
+        if [ -z "$version" ]; then
+          echo "Failed to extract version from Cargo.toml" 1>&2
+          exit 1
+        fi
+        echo "ARCHIVE=sorahk-$version-${{ matrix.target }}" >> $GITHUB_ENV
+
+    - name: Creating directory for archive
+      shell: bash
+      run: |
+        mkdir -p "$ARCHIVE"
+        cp "$BIN" "$ARCHIVE"/
+        cp {CHANGELOG.md,README.md,Config.toml,LICENSE} "$ARCHIVE"
+
+    - name: Upload archive
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ARCHIVE }}
+        path: ${{ env.ARCHIVE }}
+
