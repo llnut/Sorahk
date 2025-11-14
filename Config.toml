@@ -3,6 +3,7 @@ show_notifications = false   # Enable/disable system notifications (may not work
 input_timeout = 10           # Input timeout in ms (affects rapid-fire sequence termination)
 interval = 5                 # Default repeat interval between keystrokes (ms)
 event_duration = 5           # Duration of each simulated key press (ms)
+worker_count = 0             # Number of turbo workers (0 = auto-detect based on CPU cores, max value capped at CPU count)
 switch_key = "DELETE"        # Reserved key to toggle SoraHK behavior (optional)
 
 # Key mapping definitions

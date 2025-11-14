@@ -1,58 +1,72 @@
 ## 🌟 Sorahk
 
-  Sorahk is a pure Rust implementation of an AHK turbo function tool for Windows. it built solely on the windows crate and provides low-latency, low-overhead key repeat automation with a minimal binary footprint. Sorahk runs silently in the system tray and offers precise control over trigger-to-target key mapping and repeat intervals—ideal for users who need reliable, high-performance input macros without the bloat of a full scripting engine.
+Sorahk is a Rust-based auto-key press tool for Windows, providing configurable key repeat automation with a graphical interface. Built using the Windows crate, it offers low-latency input handling and runs efficiently in the system tray with minimal resource usage.
 
-    ⚠️ Windows Only: Sorahk is designed specifically for Windows and will not work on macOS, Linux, or other operating systems.
+⚠️ **Windows Only**: This application is designed specifically for Windows and requires Windows 10 or later.
 
 ## ✨ Features
 
-- ⚡ **Extreme Performance** – Pure Rust implementation with zero-cost abstractions and consistent sub-millisecond response.
-- 📦 **Minimal Footprint** – Highly optimized binary size; ideal for portable or low-resource use.
-- 🪟 **Zero External Dependencies** – Built solely on the official `windows` crate; no .NET, C++ runtimes, or third-party DLLs.
-- 🖥️ **Optional Tray Icon** – Runs silently in the background with a native Windows system tray interface.
-- ⚙️ **Simple TOML Configuration** – Define trigger/target key pairs and repeat interval in `Config.toml`; no scripting required.
-- 🔑 **Decoupled Trigger & Target Keys** – Bind any virtual key to auto-repeat a different target key.
-- ⏱️ **Adjustable Repeat Interval** – Set inter-keystroke delay from 10 ms upward with millisecond precision.
-- 🔒 **Low-Level Input Injection** – Uses Windows’ native keyboard event injection for reliable, high-priority delivery.
+- 🖥️ **Graphical Interface** – Modern GUI with settings management and real-time status monitoring
+- 🎨 **Theme Support** – Configurable light/dark themes with persistent preferences
+- 🎯 **Process Whitelist** – Optional filtering to restrict turbo-fire to specific applications
+- 🔔 **System Notifications** – Windows Toast notifications for status updates
+- ⚙️ **TOML Configuration** – Simple configuration file with automatic generation of defaults
+- 🔑 **Flexible Key Mapping** – Map any trigger key to auto-repeat any target key
+- ⏱️ **Adjustable Intervals** – Configure repeat interval and press duration per mapping
+- 🪟 **System Tray Integration** – Optional tray icon for background operation
+- ⚡ **Multi-threaded Processing** – Worker pool with load balancing for efficient key handling
+- 🔒 **Native Input Injection** – Uses Windows keyboard event APIs for reliable operation
 
 ## 🛠️ Configuration
 
-Sorahk reads its settings from a `Config.toml` file located in the same directory as the executable.
-Example Config.toml:
+Sorahk reads settings from `Config.toml` in the executable directory. If the file doesn't exist, a default configuration is created automatically.
+
+Example `Config.toml`:
 
 ```toml
 show_tray_icon = true        # Show system tray icon on startup
-show_notifications = false   # Enable/disable system notifications (may not work on stripped-down Windows)
-input_timeout = 10           # Input timeout in ms (affects rapid-fire sequence termination)
+show_notifications = true    # Enable/disable system notifications
+always_on_top = false        # Keep window always on top of other windows
+dark_mode = false            # Use dark theme (false = light theme, true = dark theme)
+input_timeout = 10           # Input timeout in ms
 interval = 5                 # Default repeat interval between keystrokes (ms)
 event_duration = 5           # Duration of each simulated key press (ms)
-switch_key = "DELETE"        # Reserved key to toggle Sorahk behavior (optional)
+worker_count = 0             # Number of turbo workers (0 = auto-detect based on CPU cores)
+switch_key = "DELETE"        # Reserved key to toggle Sorahk behavior
+
+# Process whitelist (empty = all processes enabled)
+# Only processes in this list will have turbo-fire enabled
+process_whitelist = []       # Example: ["notepad.exe", "game.exe"]
 
 # Key mapping definitions
 [[mappings]]
-trigger_key = "A"            # Physical key you press
-target_key = "A"             # Key that gets repeatedly sent
+trigger_key = "Q"            # Physical key you press
+target_key = "Q"             # Key that gets repeatedly sent
 interval = 5                 # Optional: override global interval
 event_duration = 5           # Optional: override global press duration
 
 [[mappings]]
-trigger_key = "B"
-target_key = "F"             # Pressing 'B' will rapidly fire 'F'
+trigger_key = "W"
+target_key = "F"             # Pressing 'W' will rapidly fire 'F'
 ```
 
-    💡 Note: Key names must match Windows virtual key names (e.g., "A", "F1", "LWIN", "RETURN", "DELETE"). Full support for standard keys is included.
+💡 **Note**: Key names must match Windows virtual key codes (e.g., "A", "F1", "LWIN", "RETURN", "DELETE"). Full support for standard keys is included.
 
+## ▶️ Usage
+
+1. Download or build `sorahk.exe`
+2. Place it in any directory
+3. Run the executable - it will create a default `Config.toml` if none exists
+4. Use the GUI to modify settings or edit `Config.toml` directly
+5. Press the configured switch key (default: DELETE) to enable/disable turbo-fire
 
 ## 🧪 Building from Source
 
-Sorahk requires Rust (stable channel) and is Windows-only.
+**Prerequisites:**
+- Rust (stable channel) via [rustup](https://rustup.rs/)
+- Windows 10 or later
 
-Prerequisites:
-
-    Install Rust via rustup.
-    If you're using the GNU toolchain (e.g., x86_64-pc-windows-gnu), ensure MinGW-w64 is installed and available in your PATH. The MSVC toolchain (default on Windows) does not require MinGW.
-
-Build Steps:
+**Build Steps:**
 
 ```bash
 git clone https://github.com/llnut/Sorahk.git
@@ -60,16 +74,11 @@ cd Sorahk
 cargo build --release
 ```
 
-The optimized executable will be generated at:
-`target\release\sorahk.exe`
-
-    ✅ Tip: For maximum portability and smallest size, the release binary is statically linked and requires no external DLLs when built with the MSVC toolchain.
+The executable will be at: `target\release\sorahk.exe`
 
 ## 🤝 Contributing
 
-Contributions are welcome! Whether it’s reporting bugs, suggesting new features, improving documentation, or submitting code—feel free to open an Issue or Pull Request on GitHub.
-
-Please ensure your code follows Rust best practices and maintains the project’s focus on performance, simplicity.
+Contributions are welcome! Please open issues for bugs or feature requests, and submit pull requests for improvements. Ensure code follows Rust conventions and maintains the project's focus on reliability and efficiency.
 
 ## 📄 License
 
@@ -77,7 +86,7 @@ MIT License
 
 ## 🙌 Acknowledgements
 
-- Built in Rust for memory safety and performance.
-- Relies exclusively on the [`windows`](https://crates.io/crates/windows) crate for direct, safe access to Windows APIs.
-- Designed for simplicity: drop `sorahk.exe` and `Config.toml` anywhere on Windows to run—no installation required.
-
+- Built with Rust for memory safety and concurrency
+- Uses the [`windows`](https://crates.io/crates/windows) crate for Windows API access
+- UI powered by [`egui`](https://crates.io/crates/egui) and [`eframe`](https://crates.io/crates/eframe)
+- Toast notifications via Windows Runtime APIs

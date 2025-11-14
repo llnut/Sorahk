@@ -11,7 +11,6 @@ pub fn set_control_ctrl_handler() -> Result<()> {
 unsafe extern "system" fn console_handler(ctrl_type: u32) -> BOOL {
     match ctrl_type {
         CTRL_C_EVENT | CTRL_BREAK_EVENT | CTRL_CLOSE_EVENT => {
-            println!("Received the exit signal, exiting...");
             match get_global_state() {
                 Some(state) => state.exit(),   // graceful shutdown
                 None => std::process::exit(0), // force shutdown

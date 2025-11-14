@@ -1,6 +1,12 @@
 use windows::{
-    Win32::Foundation::*, Win32::Graphics::Gdi::*, Win32::System::LibraryLoader::GetModuleHandleW,
-    Win32::System::Threading::Sleep, Win32::UI::Shell::*, Win32::UI::WindowsAndMessaging::*,
+    Data::Xml::Dom::XmlDocument,
+    UI::Notifications::{ToastNotification, ToastNotificationManager},
+    Win32::Foundation::*,
+    Win32::Graphics::Gdi::*,
+    Win32::System::LibraryLoader::GetModuleHandleW,
+    Win32::System::Threading::Sleep,
+    Win32::UI::Shell::*,
+    Win32::UI::WindowsAndMessaging::*,
     core::*,
 };
 
@@ -27,13 +33,23 @@ impl TrayIcon {
         let window_class = w!("SorahkWindowClass");
         let instance = unsafe { GetModuleHandleW(None)? };
 
+        // Try to load embedded icon for window class
+        let window_icon = unsafe {
+            let embedded = LoadIconW(Some(instance.into()), PCWSTR::from_raw(std::ptr::dangling::<u16>()));
+            if embedded.is_ok() {
+                embedded?
+            } else {
+                LoadIconW::<PCWSTR>(None, IDI_APPLICATION)?
+            }
+        };
+
         let wc = WNDCLASSW {
             style: CS_HREDRAW | CS_VREDRAW,
             lpfnWndProc: Some(Self::window_procedure),
             cbClsExtra: 0,
             cbWndExtra: 0,
             hInstance: instance.into(),
-            hIcon: unsafe { LoadIconW::<PCWSTR>(None, IDI_APPLICATION)? },
+            hIcon: window_icon,
             hCursor: unsafe { LoadCursorW::<PCWSTR>(None, IDC_ARROW)? },
             hbrBackground: unsafe { GetSysColorBrush(SYS_COLOR_INDEX(COLOR_WINDOW.0 + 1)) },
             lpszMenuName: PCWSTR::null(),
@@ -63,8 +79,21 @@ impl TrayIcon {
             )
         }?;
 
-        // Initial tray icon
-        let initial_icon = unsafe { LoadIconW::<PCWSTR>(None, IDI_APPLICATION)? };
+        // Load embedded icon (ID: 1) or fallback to system icon
+        let initial_icon = unsafe {
+            // Try to load embedded icon from resources
+            let embedded_icon = LoadIconW(Some(instance.into()), PCWSTR::from_raw(std::ptr::dangling::<u16>()));
+
+            // If embedded icon fails, use system default
+            if embedded_icon.is_err() {
+                println!(
+                    "Note: Using system default icon. To use custom icon, place sorahk.ico in resources/ and rebuild."
+                );
+                LoadIconW::<PCWSTR>(None, IDI_APPLICATION)?
+            } else {
+                embedded_icon?
+            }
+        };
         // Set the tray icon data
         let mut nid = NOTIFYICONDATAW {
             cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
@@ -173,41 +202,151 @@ impl TrayIcon {
         nid.szTip[..copy_len].copy_from_slice(&tip_wide[..copy_len]);
     }
 
-    /// Show notification
+    /// Show notification using modern Windows Toast Notifications (Windows 10+)
+    /// This supports multiple notifications and automatic updates
     pub fn show_notification(
         &mut self,
         title: &str,
         message: &str,
         icon_type: NOTIFY_ICON_INFOTIP_FLAGS,
     ) -> Result<()> {
-        // Backup old flags
+        // For Win32 apps, Toast Notifications can be unreliable without proper AUMID registration
+        // We'll try Toast first, but quickly fallback to legacy which is more reliable
+
+        // Option 1: Force legacy notifications (uncomment to always use legacy)
+        // return self.show_legacy_notification(title, message, icon_type);
+
+        // Option 2: Try Toast with quick timeout
+        match Self::show_toast_notification(title, message) {
+            Ok(_) => {
+                // Even if Toast doesn't error, it might not show for Win32 apps
+                // Also show legacy as backup for better reliability
+                let _ = self.show_legacy_notification(title, message, icon_type);
+                Ok(())
+            }
+            Err(e) => {
+                // Fallback to legacy Shell_NotifyIcon on older Windows or if Toast fails
+                eprintln!("Toast notification failed: {}, falling back to legacy", e);
+                self.show_legacy_notification(title, message, icon_type)
+            }
+        }
+    }
+
+    /// Modern Toast Notification implementation (Windows 10+)
+    fn show_toast_notification(title: &str, message: &str) -> Result<()> {
+        println!("Attempting to show Toast notification...");
+
+        // Try multiple AUMID strategies
+        let app_ids = [
+            "Sorahk.AutoKeyPress",         // Custom AUMID
+            "Microsoft.Windows.Explorer",  // Windows Explorer (usually works)
+            "Microsoft.WindowsPowerShell", // PowerShell
+            "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe", // Full PowerShell
+        ];
+
+        // Create XML content for the toast with more complete template
+        let toast_xml = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<toast duration="short">
+    <visual>
+        <binding template="ToastGeneric">
+            <text>{}</text>
+            <text>{}</text>
+        </binding>
+    </visual>
+    <audio silent="true"/>
+</toast>"#,
+            Self::xml_escape(title),
+            Self::xml_escape(message)
+        );
+
+        // Try each AUMID until one works
+        for (idx, app_id_str) in app_ids.iter().enumerate() {
+            println!("Trying AUMID #{}: {}", idx + 1, app_id_str);
+
+            match Self::try_show_toast_with_aumid(&toast_xml, app_id_str) {
+                Ok(_) => {
+                    println!(
+                        "Toast notification sent successfully with AUMID: {}",
+                        app_id_str
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    eprintln!("Failed with AUMID '{}': {}", app_id_str, e);
+                    if idx == app_ids.len() - 1 {
+                        // Last attempt failed, return error
+                        return Err(anyhow!("All AUMID attempts failed. Last error: {}", e));
+                    }
+                    // Continue to next AUMID
+                }
+            }
+        }
+
+        Err(anyhow!("Failed to show toast notification with any AUMID"))
+    }
+
+    /// Try to show toast with a specific AUMID
+    fn try_show_toast_with_aumid(toast_xml: &str, app_id: &str) -> Result<()> {
+        // Create XML document
+        let xml_doc = XmlDocument::new()?;
+        xml_doc.LoadXml(&HSTRING::from(toast_xml))?;
+
+        // Create toast notification
+        let toast = ToastNotification::CreateToastNotification(&xml_doc)?;
+
+        // Get toast notifier with specific AUMID
+        let aumid = HSTRING::from(app_id);
+        let notifier = ToastNotificationManager::CreateToastNotifierWithId(&aumid)?;
+
+        // Show the toast
+        notifier.Show(&toast)?;
+
+        Ok(())
+    }
+
+    /// Fallback: Legacy notification using Shell_NotifyIcon
+    fn show_legacy_notification(
+        &mut self,
+        title: &str,
+        message: &str,
+        icon_type: NOTIFY_ICON_INFOTIP_FLAGS,
+    ) -> Result<()> {
+        println!("Using legacy Shell_NotifyIcon notification");
+
         let original_flags = self.nid.uFlags;
 
-        // Set new flags
-        self.nid.uFlags |= NIF_INFO;
-        self.nid.dwInfoFlags = icon_type;
-
-        // 添加图标后
-        self.nid.Anonymous = NOTIFYICONDATAW_0 {
-            uVersion: NOTIFYICON_VERSION,
-        };
-        if !unsafe { Shell_NotifyIconW(NIM_SETVERSION, &self.nid).into() } {
-            return Err(anyhow!("Failed to set notification version"));
-        }
+        // Set notification flags and info
+        self.nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP | NIF_INFO;
+        self.nid.dwInfoFlags = icon_type | NIIF_NOSOUND; // Use NIIF_NOSOUND instead of RESPECT_QUIET_TIME
 
         Self::set_notification_text(&mut self.nid, title, message);
-        Self::set_notification_timeout(&mut self.nid, 1000);
+        self.nid.Anonymous = NOTIFYICONDATAW_0 { uTimeout: 5000 }; // 5 seconds
 
-        if !unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.nid).into() } {
-            return Err(anyhow!("Failed to show notification"));
+        println!("Calling Shell_NotifyIconW with NIM_MODIFY...");
+        let result = unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.nid) };
+
+        if !result.as_bool() {
+            eprintln!("Shell_NotifyIconW failed!");
+            self.nid.uFlags = original_flags;
+            return Err(anyhow!("Failed to show legacy notification"));
         }
 
-        // Restore flags to backup version
+        println!("Legacy notification sent successfully");
         self.nid.uFlags = original_flags;
         Ok(())
     }
 
-    /// Set the title and message text of the notification
+    /// Escape XML special characters
+    fn xml_escape(s: &str) -> String {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+            .replace('\'', "&apos;")
+    }
+
+    /// Set the title and message text of the notification (for legacy notifications)
     fn set_notification_text(nid: &mut NOTIFYICONDATAW, title: &str, message: &str) {
         // Set title
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
@@ -218,10 +357,6 @@ impl TrayIcon {
         let message_wide: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
         let message_len = message_wide.len().min(nid.szInfo.len());
         nid.szInfo[..message_len].copy_from_slice(&message_wide[..message_len]);
-    }
-
-    fn set_notification_timeout(nid: &mut NOTIFYICONDATAW, timeout: u32) {
-        nid.Anonymous = NOTIFYICONDATAW_0 { uTimeout: timeout };
     }
 
     /// Show notification of a info level
@@ -248,24 +383,36 @@ impl TrayIcon {
         let (event_tx, event_rx) = channel();
         state.set_notification_sender(event_tx);
 
-        let show_notifications = state.show_notifications;
-
         let mut msg = MSG::default();
         while !self.should_exit() {
             if let Ok(event) = event_rx.try_recv() {
-                let _ = self.set_icon_by_status();
+                // Don't change icon dynamically to keep custom ico
+                // let _ = self.set_icon_by_status();
+
+                // Check show_notifications dynamically (in case user changed it in settings)
+                let show_notifications = state.show_notifications();
+
                 if show_notifications {
+                    println!("Sending notification: {:?}", event);
                     match event {
                         NotificationEvent::Info(message) => {
-                            let _ = self.show_info("Sorahk", &message);
+                            if let Err(e) = self.show_info("Sorahk", &message) {
+                                eprintln!("Failed to show info notification: {}", e);
+                            }
                         }
                         NotificationEvent::Warning(message) => {
-                            let _ = self.show_warning("Sorahk", &message);
+                            if let Err(e) = self.show_warning("Sorahk", &message) {
+                                eprintln!("Failed to show warning notification: {}", e);
+                            }
                         }
                         NotificationEvent::Error(message) => {
-                            let _ = self.show_error("Sorahk", &message);
+                            if let Err(e) = self.show_error("Sorahk", &message) {
+                                eprintln!("Failed to show error notification: {}", e);
+                            }
                         }
                     }
+                } else {
+                    println!("Notification disabled, skipping: {:?}", event);
                 }
             }
 
@@ -315,7 +462,10 @@ impl TrayIcon {
                 }
             }
             WM_LBUTTONDBLCLK => {
-                println!("Tray icon double clicked");
+                println!("Tray icon double clicked - showing window");
+                if let Some(state) = get_global_state() {
+                    state.request_show_window();
+                }
             }
             _ => {}
         }
@@ -342,20 +492,22 @@ impl TrayIcon {
                             let _ = sender
                                 .send(NotificationEvent::Info("Sorahk activiting".to_string()));
                         }
-                        println!("Sorahk activiting");
-                    } else {
-                        if let Some(sender) = state.get_notification_sender() {
-                            let _ =
-                                sender.send(NotificationEvent::Info("Sorahk paused".to_string()));
-                        }
-                        println!("Sorahk paused");
+                    } else if let Some(sender) = state.get_notification_sender() {
+                        let _ =
+                            sender.send(NotificationEvent::Info("Sorahk paused".to_string()));
                     }
                 }
-                //1001 => {
-                //    if let Err(e) = AboutWindow::show() {
-                //        eprintln!("创建关于窗口失败: {:?}", e);
-                //    }
-                //}
+                1020 => {
+                    // Show Window
+                    println!("Show window requested from tray menu");
+                    state.request_show_window();
+                }
+                1030 => {
+                    // Show About dialog
+                    println!("Show about requested from tray menu");
+                    state.request_show_window(); // First show the window
+                    state.request_show_about(); // Then show about dialog
+                }
                 1000 => {
                     state.exit();
                 }
@@ -376,14 +528,16 @@ impl TrayIcon {
                 MF_STRING,
                 1010,
                 if state.is_paused() {
-                    w!("Activate Sorahk")
+                    w!("✓ Activate Sorahk")
                 } else {
-                    w!("Pause Sorahk")
+                    w!("⏸ Pause Sorahk")
                 },
             )?;
             AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null())?;
-            //AppendMenuW(menu, MF_STRING, 1001, w!("About Sorahk"))?;
-            AppendMenuW(menu, MF_STRING, 1000, w!("Exit"))?;
+            AppendMenuW(menu, MF_STRING, 1020, w!("🪟 Show Window"))?;
+            AppendMenuW(menu, MF_STRING, 1030, w!("❤ About"))?;
+            AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null())?;
+            AppendMenuW(menu, MF_STRING, 1000, w!("🚪 Exit Program"))?;
 
             // Get the mouse position
             let mut pos = POINT::default();

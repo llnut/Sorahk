@@ -1,12 +1,22 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, LazyLock, OnceLock, RwLock};
 
+use windows::Win32::Foundation::MAX_PATH;
+use windows::Win32::System::Threading::{
+    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+};
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::PWSTR;
 
 use crate::config::AppConfig;
+
+// Simplified reference interface for WorkerPool
+pub trait EventDispatcher: Send + Sync {
+    fn dispatch(&self, event: KeyEvent);
+}
 
 pub const SIMULATED_EVENT_MARKER: usize = 0x4659;
 
@@ -26,6 +36,7 @@ pub enum KeyEvent {
     Released(u32),
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct KeyMappingInfo {
     pub target_scancode: u16,
     pub interval: u64,
@@ -33,15 +44,25 @@ pub struct KeyMappingInfo {
 }
 
 pub struct AppState {
-    pub show_tray_icon: bool,
-    pub show_notifications: bool,
-    switch_key: u32,
+    show_tray_icon: AtomicBool,
+    show_notifications: AtomicBool,
+    switch_key: RwLock<u32>,
     pub should_exit: Arc<AtomicBool>,
     is_paused: AtomicBool,
-    input_timeout: u64,
-    key_mappings: HashMap<u32, KeyMappingInfo>,
-    event_sender: OnceLock<Sender<KeyEvent>>,
+    show_window_requested: AtomicBool,
+    show_about_requested: AtomicBool,
+    input_timeout: AtomicU64,
+    worker_count: AtomicU64, // Store actual worker count after initialization
+    configured_worker_count: usize, // Store configured value for display
+    key_mappings: RwLock<HashMap<u32, KeyMappingInfo>>,
+    // Pre-computed static mapping: vkCode -> worker_index
+    // Array access is ~10x faster than HashMap lookup (1-3ns vs 10-20ns)
+    // Only 256 bytes of memory for all possible vkCodes
+    vk_to_worker: [u8; 256],
+    worker_pool: OnceLock<Arc<dyn EventDispatcher>>,
     notification_sender: OnceLock<Sender<NotificationEvent>>,
+    // Process whitelist (empty = all processes enabled)
+    process_whitelist: RwLock<Vec<String>>,
 }
 
 impl AppState {
@@ -51,23 +72,73 @@ impl AppState {
 
         let key_mappings = Self::create_key_mappings(&config)?;
 
-        println!("Loaded {} key mappings", key_mappings.len());
+        // Pre-compute vk_to_worker mapping array for fast dispatch
+        // Use mapping index for balanced distribution
+        let mut vk_to_worker = [0u8; 256];
+        for (idx, mapping) in config.mappings.iter().enumerate() {
+            if let Some(trigger_vk) = Self::key_name_to_vk(&mapping.trigger_key)
+                && trigger_vk < 256
+            {
+                // Store mapping index directly (will be modulo'd with worker_count in dispatch)
+                // Using u8 to save memory and improve cache efficiency
+                vk_to_worker[trigger_vk as usize] = idx as u8;
+            }
+        }
 
         Ok(Self {
-            show_tray_icon: config.show_tray_icon,
-            show_notifications: config.show_notifications,
-            switch_key,
+            show_tray_icon: AtomicBool::new(config.show_tray_icon),
+            show_notifications: AtomicBool::new(config.show_notifications),
+            switch_key: RwLock::new(switch_key),
             should_exit: Arc::new(AtomicBool::new(false)),
             is_paused: AtomicBool::new(false),
-            input_timeout: config.input_timeout,
-            key_mappings,
-            event_sender: OnceLock::new(),
+            show_window_requested: AtomicBool::new(false),
+            show_about_requested: AtomicBool::new(false),
+            input_timeout: AtomicU64::new(config.input_timeout),
+            worker_count: AtomicU64::new(0), // Will be set later
+            process_whitelist: RwLock::new(config.process_whitelist.clone()),
+            configured_worker_count: config.worker_count,
+            key_mappings: RwLock::new(key_mappings),
+            vk_to_worker,
+            worker_pool: OnceLock::new(),
             notification_sender: OnceLock::new(),
         })
     }
 
-    pub fn set_event_sender(&self, sender: Sender<KeyEvent>) {
-        let _ = self.event_sender.set(sender);
+    pub fn reload_config(&self, config: AppConfig) -> anyhow::Result<()> {
+        // Update switch key
+        let new_switch_key = Self::key_name_to_vk(&config.switch_key)
+            .ok_or_else(|| anyhow::anyhow!("Invalid switch key: {}", config.switch_key))?;
+
+        if let Ok(mut switch_key) = self.switch_key.write() {
+            *switch_key = new_switch_key;
+        }
+
+        // Update show_tray_icon and show_notifications
+        self.show_tray_icon
+            .store(config.show_tray_icon, Ordering::Relaxed);
+        self.show_notifications
+            .store(config.show_notifications, Ordering::Relaxed);
+
+        // Update input timeout
+        self.input_timeout
+            .store(config.input_timeout, Ordering::Relaxed);
+
+        // Update key mappings
+        let new_mappings = Self::create_key_mappings(&config)?;
+        if let Ok(mut mappings) = self.key_mappings.write() {
+            *mappings = new_mappings;
+        }
+
+        // Update process whitelist
+        if let Ok(mut whitelist) = self.process_whitelist.write() {
+            *whitelist = config.process_whitelist.clone();
+        }
+
+        Ok(())
+    }
+
+    pub fn set_worker_pool(&self, pool: Arc<dyn EventDispatcher>) {
+        let _ = self.worker_pool.set(pool);
     }
 
     pub fn set_notification_sender(&self, sender: Sender<NotificationEvent>) {
@@ -95,12 +166,63 @@ impl AppState {
         self.is_paused.load(Ordering::Relaxed)
     }
 
-    pub fn input_timeout(&self) -> u64 {
-        self.input_timeout
+    pub fn show_tray_icon(&self) -> bool {
+        self.show_tray_icon.load(Ordering::Relaxed)
     }
 
-    pub fn get_key_mapping(&self, trigger_key: &u32) -> Option<&KeyMappingInfo> {
-        self.key_mappings.get(trigger_key)
+    pub fn show_notifications(&self) -> bool {
+        self.show_notifications.load(Ordering::Relaxed)
+    }
+
+    pub fn request_show_window(&self) {
+        self.show_window_requested.store(true, Ordering::Relaxed);
+    }
+
+    pub fn check_and_clear_show_window_request(&self) -> bool {
+        self.show_window_requested.swap(false, Ordering::Relaxed)
+    }
+
+    pub fn request_show_about(&self) {
+        self.show_about_requested.store(true, Ordering::Relaxed);
+    }
+
+    pub fn check_and_clear_show_about_request(&self) -> bool {
+        self.show_about_requested.swap(false, Ordering::Relaxed)
+    }
+
+    pub fn input_timeout(&self) -> u64 {
+        self.input_timeout.load(Ordering::Relaxed)
+    }
+
+    pub fn get_configured_worker_count(&self) -> usize {
+        self.configured_worker_count
+    }
+
+    pub fn get_actual_worker_count(&self) -> u64 {
+        self.worker_count.load(Ordering::Relaxed)
+    }
+
+    pub fn set_actual_worker_count(&self, count: usize) {
+        self.worker_count.store(count as u64, Ordering::Relaxed);
+    }
+
+    pub fn get_key_mapping(&self, trigger_key: &u32) -> Option<KeyMappingInfo> {
+        self.key_mappings.read().ok()?.get(trigger_key).cloned()
+    }
+
+    #[inline(always)] // Force inline for performance
+    pub fn get_worker_index(&self, vk_code: u32) -> usize {
+        // Bounds check is optimized away by compiler due to u8 cast
+        if vk_code < 256 {
+            self.vk_to_worker[vk_code as usize] as usize
+        } else {
+            // Fallback for out-of-range vkCodes (rare edge case)
+            (vk_code as usize) % 256
+        }
+    }
+
+    pub fn get_switch_key(&self) -> u32 {
+        *self.switch_key.read().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn simulate_key_press(&self, scancode: u16, duration: u64) {
@@ -128,28 +250,88 @@ impl AppState {
         }
     }
 
+    /// Get the process name of the foreground window
+    fn get_foreground_process_name() -> Option<String> {
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            if hwnd.0.is_null() {
+                return None;
+            }
+
+            let mut process_id: u32 = 0;
+            GetWindowThreadProcessId(hwnd, Some(&mut process_id as *mut u32));
+            if process_id == 0 {
+                return None;
+            }
+
+            let process_handle =
+                match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id) {
+                    Ok(handle) => handle,
+                    Err(_) => return None,
+                };
+
+            let mut buffer = [0u16; MAX_PATH as usize];
+            let mut size = buffer.len() as u32;
+
+            match QueryFullProcessImageNameW(
+                process_handle,
+                PROCESS_NAME_WIN32,
+                PWSTR(buffer.as_mut_ptr()),
+                &mut size,
+            ) {
+                Ok(_) => {
+                    let path = String::from_utf16_lossy(&buffer[..size as usize]);
+                    // Extract filename from full path
+                    path.split('\\').next_back().map(|s| s.to_lowercase())
+                }
+                Err(_) => None,
+            }
+        }
+    }
+
+    /// Check if current foreground process is in whitelist (empty whitelist = all allowed)
+    fn is_process_whitelisted(&self) -> bool {
+        let whitelist = self.process_whitelist.read().unwrap();
+
+        // Empty whitelist means all processes are enabled
+        if whitelist.is_empty() {
+            return true;
+        }
+
+        // Get current foreground process name
+        if let Some(process_name) = Self::get_foreground_process_name() {
+            // Check if process is in whitelist (case-insensitive)
+            whitelist.iter().any(|p| p.to_lowercase() == process_name)
+        } else {
+            // If we can't get process name, allow by default
+            true
+        }
+    }
+
     #[allow(non_snake_case)]
     pub fn handle_key_event(&self, message: u32, vk_code: u32) -> bool {
         let mut should_block = false;
+        let switch_key = self.get_switch_key();
 
         if !self.is_paused()
-            && self.key_mappings.contains_key(&vk_code)
-            && let Some(sender) = self.event_sender.get()
+            && self.get_key_mapping(&vk_code).is_some()
+            && self.is_process_whitelisted()
+            && let Some(pool) = self.worker_pool.get()
         {
             match message {
                 WM_KEYDOWN | WM_SYSKEYDOWN => {
-                    let _ = sender.send(KeyEvent::Pressed(vk_code));
+                    pool.dispatch(KeyEvent::Pressed(vk_code));
                     should_block = true;
                 }
                 WM_KEYUP | WM_SYSKEYUP => {
-                    let _ = sender.send(KeyEvent::Released(vk_code));
+                    pool.dispatch(KeyEvent::Released(vk_code));
                     should_block = true;
                 }
                 _ => {}
             }
         }
 
-        if vk_code == self.switch_key {
+        if vk_code == switch_key {
             match message {
                 WM_KEYUP | WM_SYSKEYUP => {
                     let was_paused = self.toggle_paused();
@@ -158,13 +340,9 @@ impl AppState {
                             let _ = sender
                                 .send(NotificationEvent::Info("Sorahk activiting".to_string()));
                         }
-                        println!("Sorahk activiting");
-                    } else {
-                        if let Some(sender) = self.notification_sender.get() {
-                            let _ =
-                                sender.send(NotificationEvent::Info("Sorahk paused".to_string()));
-                        }
-                        println!("Sorahk paused");
+                    } else if let Some(sender) = self.notification_sender.get() {
+                        let _ =
+                            sender.send(NotificationEvent::Info("Sorahk paused".to_string()));
                     }
                     should_block = true;
                 }
@@ -202,16 +380,6 @@ impl AppState {
                     interval,
                     event_duration,
                 },
-            );
-
-            println!(
-                "Mapping: {} (VK:{:02X}) -> {} (SC:{:02X}), interval:{}ms, duration:{}ms",
-                mapping.trigger_key,
-                trigger_vk,
-                mapping.target_key,
-                target_scancode,
-                interval,
-                event_duration
             );
         }
 
