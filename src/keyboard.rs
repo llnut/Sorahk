@@ -137,10 +137,7 @@ impl KeyboardHook {
             }
 
             unsafe {
-                let result = PostThreadMessageA(main_thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
-                if result.is_err() {
-                    eprintln!("Failed to send WM_QUIT message");
-                }
+                let _ = PostThreadMessageA(main_thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
             }
         });
 
@@ -150,10 +147,7 @@ impl KeyboardHook {
             loop {
                 let result = GetMessageA(&mut msg, None, 0, 0);
 
-                if result.0 == 0 {
-                    break;
-                } else if result.0 == -1 {
-                    eprintln!("GetMessage error");
+                if result.0 == 0 || result.0 == -1 {
                     break;
                 }
 

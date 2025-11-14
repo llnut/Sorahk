@@ -341,8 +341,7 @@ impl AppState {
                                 .send(NotificationEvent::Info("Sorahk activiting".to_string()));
                         }
                     } else if let Some(sender) = self.notification_sender.get() {
-                        let _ =
-                            sender.send(NotificationEvent::Info("Sorahk paused".to_string()));
+                        let _ = sender.send(NotificationEvent::Info("Sorahk paused".to_string()));
                     }
                     should_block = true;
                 }

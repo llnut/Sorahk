@@ -17,6 +17,7 @@ windows = { version = "0.62.2", features = [
     "Win32_Graphics_Gdi",
     "Win32_System_Console",
     "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
     "Data_Xml_Dom",
     "UI_Notifications",
 ] }
@@ -29,10 +30,9 @@ ico = "0.4"
 rfd = "0.15.4"
 
 [profile.release]
-#debug = false
 opt-level = 3
-lto = "thin"
+lto = "fat"
 codegen-units = 1
-#panic = "abort"
+panic = "abort"
 strip = true
 incremental = false

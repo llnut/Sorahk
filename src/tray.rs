@@ -4,6 +4,7 @@ use windows::{
     Win32::Foundation::*,
     Win32::Graphics::Gdi::*,
     Win32::System::LibraryLoader::GetModuleHandleW,
+    Win32::System::Registry::*,
     Win32::System::Threading::Sleep,
     Win32::UI::Shell::*,
     Win32::UI::WindowsAndMessaging::*,
@@ -21,6 +22,7 @@ use crate::state::{NotificationEvent, get_global_state};
 //use crate::about::AboutWindow;
 
 const TRAY_MESSAGE_ID: u32 = WM_APP + 1;
+const AUMID: &str = "Sorahk.AutoKeyPress";
 
 pub struct TrayIcon {
     nid: NOTIFYICONDATAW,
@@ -35,7 +37,8 @@ impl TrayIcon {
 
         // Try to load embedded icon for window class
         let window_icon = unsafe {
-            let embedded = LoadIconW(Some(instance.into()), PCWSTR::from_raw(std::ptr::dangling::<u16>()));
+            #[allow(clippy::manual_dangling_ptr)]
+            let embedded = LoadIconW(Some(instance.into()), PCWSTR::from_raw(1 as *const u16));
             if embedded.is_ok() {
                 embedded?
             } else {
@@ -82,16 +85,14 @@ impl TrayIcon {
         // Load embedded icon (ID: 1) or fallback to system icon
         let initial_icon = unsafe {
             // Try to load embedded icon from resources
-            let embedded_icon = LoadIconW(Some(instance.into()), PCWSTR::from_raw(std::ptr::dangling::<u16>()));
+            #[allow(clippy::manual_dangling_ptr)]
+            let embedded_icon = LoadIconW(Some(instance.into()), PCWSTR::from_raw(1 as *const u16));
 
             // If embedded icon fails, use system default
-            if embedded_icon.is_err() {
-                println!(
-                    "Note: Using system default icon. To use custom icon, place sorahk.ico in resources/ and rebuild."
-                );
-                LoadIconW::<PCWSTR>(None, IDI_APPLICATION)?
+            if let Ok(icon) = embedded_icon {
+                icon
             } else {
-                embedded_icon?
+                LoadIconW::<PCWSTR>(None, IDI_APPLICATION)?
             }
         };
         // Set the tray icon data
@@ -111,7 +112,107 @@ impl TrayIcon {
         // Add the tray icon
         let _ = unsafe { Shell_NotifyIconW(NIM_ADD, &nid) };
 
+        // Register AUMID for Toast notifications
+        let _ = Self::register_aumid();
+
         Ok(Self { nid, should_exit })
+    }
+
+    /// Register AUMID in the registry for Toast notifications
+    fn register_aumid() -> Result<()> {
+        unsafe {
+            // Registry path: HKEY_CURRENT_USER\Software\Classes\AppUserModelId\{AUMID}
+            let registry_path = format!("Software\\Classes\\AppUserModelId\\{}", AUMID);
+            let registry_path_wide: Vec<u16> = registry_path
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+
+            let mut hkey = HKEY::default();
+            let result = RegCreateKeyExW(
+                HKEY_CURRENT_USER,
+                PCWSTR::from_raw(registry_path_wide.as_ptr()),
+                Some(0),
+                None,
+                REG_OPTION_NON_VOLATILE,
+                KEY_WRITE,
+                None,
+                &mut hkey,
+                None,
+            );
+
+            if result.is_err() {
+                return Err(anyhow!("Failed to create registry key: {:?}", result));
+            }
+
+            // Set DisplayName
+            let display_name = "Sorahk - Auto Keypress Tool";
+            let display_name_wide: Vec<u16> = display_name
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+            let display_name_bytes = std::slice::from_raw_parts(
+                display_name_wide.as_ptr() as *const u8,
+                display_name_wide.len() * 2,
+            );
+
+            let result = RegSetValueExW(
+                hkey,
+                w!("DisplayName"),
+                Some(0),
+                REG_SZ,
+                Some(display_name_bytes),
+            );
+
+            if result.is_err() {
+                let _ = RegCloseKey(hkey);
+                return Err(anyhow!("Failed to set DisplayName: {:?}", result));
+            }
+
+            // Set IconUri to the executable path (Windows will extract icon from exe)
+            if let Ok(exe_path) = std::env::current_exe() {
+                let icon_uri = exe_path.to_string_lossy().to_string();
+                let icon_uri_wide: Vec<u16> =
+                    icon_uri.encode_utf16().chain(std::iter::once(0)).collect();
+                let icon_uri_bytes = std::slice::from_raw_parts(
+                    icon_uri_wide.as_ptr() as *const u8,
+                    icon_uri_wide.len() * 2,
+                );
+
+                let result =
+                    RegSetValueExW(hkey, w!("IconUri"), Some(0), REG_SZ, Some(icon_uri_bytes));
+
+                // Continue anyway, DisplayName is more important
+                let _ = result;
+            }
+
+            // Close registry key
+            let _ = RegCloseKey(hkey);
+
+            Ok(())
+        }
+    }
+
+    /// Unregister AUMID from registry (cleanup)
+    fn unregister_aumid() -> Result<()> {
+        unsafe {
+            let registry_path = format!("Software\\Classes\\AppUserModelId\\{}", AUMID);
+            let registry_path_wide: Vec<u16> = registry_path
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+
+            let result = RegDeleteTreeW(
+                HKEY_CURRENT_USER,
+                PCWSTR::from_raw(registry_path_wide.as_ptr()),
+            );
+
+            if result.is_ok() {
+                Ok(())
+            } else {
+                Err(anyhow!("Failed to unregister AUMID: {:?}", result))
+            }
+        }
     }
 
     /// Set new tray icon
@@ -210,23 +311,11 @@ impl TrayIcon {
         message: &str,
         icon_type: NOTIFY_ICON_INFOTIP_FLAGS,
     ) -> Result<()> {
-        // For Win32 apps, Toast Notifications can be unreliable without proper AUMID registration
-        // We'll try Toast first, but quickly fallback to legacy which is more reliable
-
-        // Option 1: Force legacy notifications (uncomment to always use legacy)
-        // return self.show_legacy_notification(title, message, icon_type);
-
-        // Option 2: Try Toast with quick timeout
+        // Try Toast notification with registered AUMID
         match Self::show_toast_notification(title, message) {
-            Ok(_) => {
-                // Even if Toast doesn't error, it might not show for Win32 apps
-                // Also show legacy as backup for better reliability
-                let _ = self.show_legacy_notification(title, message, icon_type);
-                Ok(())
-            }
-            Err(e) => {
-                // Fallback to legacy Shell_NotifyIcon on older Windows or if Toast fails
-                eprintln!("Toast notification failed: {}, falling back to legacy", e);
+            Ok(_) => Ok(()),
+            Err(_) => {
+                // Fallback to legacy Shell_NotifyIcon if Toast fails
                 self.show_legacy_notification(title, message, icon_type)
             }
         }
@@ -234,17 +323,8 @@ impl TrayIcon {
 
     /// Modern Toast Notification implementation (Windows 10+)
     fn show_toast_notification(title: &str, message: &str) -> Result<()> {
-        println!("Attempting to show Toast notification...");
-
-        // Try multiple AUMID strategies
-        let app_ids = [
-            "Sorahk.AutoKeyPress",         // Custom AUMID
-            "Microsoft.Windows.Explorer",  // Windows Explorer (usually works)
-            "Microsoft.WindowsPowerShell", // PowerShell
-            "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe", // Full PowerShell
-        ];
-
-        // Create XML content for the toast with more complete template
+        // Create XML content for the toast
+        // Note: IconUri is set in registry, Windows will use it automatically
         let toast_xml = format!(
             r#"<?xml version="1.0" encoding="utf-8"?>
 <toast duration="short">
@@ -260,30 +340,8 @@ impl TrayIcon {
             Self::xml_escape(message)
         );
 
-        // Try each AUMID until one works
-        for (idx, app_id_str) in app_ids.iter().enumerate() {
-            println!("Trying AUMID #{}: {}", idx + 1, app_id_str);
-
-            match Self::try_show_toast_with_aumid(&toast_xml, app_id_str) {
-                Ok(_) => {
-                    println!(
-                        "Toast notification sent successfully with AUMID: {}",
-                        app_id_str
-                    );
-                    return Ok(());
-                }
-                Err(e) => {
-                    eprintln!("Failed with AUMID '{}': {}", app_id_str, e);
-                    if idx == app_ids.len() - 1 {
-                        // Last attempt failed, return error
-                        return Err(anyhow!("All AUMID attempts failed. Last error: {}", e));
-                    }
-                    // Continue to next AUMID
-                }
-            }
-        }
-
-        Err(anyhow!("Failed to show toast notification with any AUMID"))
+        // Use the registered AUMID
+        Self::try_show_toast_with_aumid(&toast_xml, AUMID)
     }
 
     /// Try to show toast with a specific AUMID
@@ -312,8 +370,6 @@ impl TrayIcon {
         message: &str,
         icon_type: NOTIFY_ICON_INFOTIP_FLAGS,
     ) -> Result<()> {
-        println!("Using legacy Shell_NotifyIcon notification");
-
         let original_flags = self.nid.uFlags;
 
         // Set notification flags and info
@@ -323,16 +379,13 @@ impl TrayIcon {
         Self::set_notification_text(&mut self.nid, title, message);
         self.nid.Anonymous = NOTIFYICONDATAW_0 { uTimeout: 5000 }; // 5 seconds
 
-        println!("Calling Shell_NotifyIconW with NIM_MODIFY...");
         let result = unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.nid) };
 
         if !result.as_bool() {
-            eprintln!("Shell_NotifyIconW failed!");
             self.nid.uFlags = original_flags;
             return Err(anyhow!("Failed to show legacy notification"));
         }
 
-        println!("Legacy notification sent successfully");
         self.nid.uFlags = original_flags;
         Ok(())
     }
@@ -393,26 +446,17 @@ impl TrayIcon {
                 let show_notifications = state.show_notifications();
 
                 if show_notifications {
-                    println!("Sending notification: {:?}", event);
                     match event {
                         NotificationEvent::Info(message) => {
-                            if let Err(e) = self.show_info("Sorahk", &message) {
-                                eprintln!("Failed to show info notification: {}", e);
-                            }
+                            let _ = self.show_info("Sorahk", &message);
                         }
                         NotificationEvent::Warning(message) => {
-                            if let Err(e) = self.show_warning("Sorahk", &message) {
-                                eprintln!("Failed to show warning notification: {}", e);
-                            }
+                            let _ = self.show_warning("Sorahk", &message);
                         }
                         NotificationEvent::Error(message) => {
-                            if let Err(e) = self.show_error("Sorahk", &message) {
-                                eprintln!("Failed to show error notification: {}", e);
-                            }
+                            let _ = self.show_error("Sorahk", &message);
                         }
                     }
-                } else {
-                    println!("Notification disabled, skipping: {:?}", event);
                 }
             }
 
@@ -432,7 +476,6 @@ impl TrayIcon {
             }
         }
 
-        println!("Exiting the tray message loop...");
         Ok(())
     }
 
@@ -457,12 +500,9 @@ impl TrayIcon {
     fn handle_tray_message(hwnd: HWND, lparam: LPARAM) -> LRESULT {
         match lparam.0 as u32 {
             WM_RBUTTONUP => {
-                if let Err(e) = Self::show_context_menu(hwnd) {
-                    eprintln!("Failed to show context menu: {}", e);
-                }
+                let _ = Self::show_context_menu(hwnd);
             }
             WM_LBUTTONDBLCLK => {
-                println!("Tray icon double clicked - showing window");
                 if let Some(state) = get_global_state() {
                     state.request_show_window();
                 }
@@ -493,18 +533,15 @@ impl TrayIcon {
                                 .send(NotificationEvent::Info("Sorahk activiting".to_string()));
                         }
                     } else if let Some(sender) = state.get_notification_sender() {
-                        let _ =
-                            sender.send(NotificationEvent::Info("Sorahk paused".to_string()));
+                        let _ = sender.send(NotificationEvent::Info("Sorahk paused".to_string()));
                     }
                 }
                 1020 => {
                     // Show Window
-                    println!("Show window requested from tray menu");
                     state.request_show_window();
                 }
                 1030 => {
                     // Show About dialog
-                    println!("Show about requested from tray menu");
                     state.request_show_window(); // First show the window
                     state.request_show_about(); // Then show about dialog
                 }
@@ -534,7 +571,7 @@ impl TrayIcon {
                 },
             )?;
             AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null())?;
-            AppendMenuW(menu, MF_STRING, 1020, w!("🪟 Show Window"))?;
+            AppendMenuW(menu, MF_STRING, 1020, w!("✨️ Show Window"))?;
             AppendMenuW(menu, MF_STRING, 1030, w!("❤ About"))?;
             AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null())?;
             AppendMenuW(menu, MF_STRING, 1000, w!("🚪 Exit Program"))?;
@@ -591,5 +628,8 @@ impl Drop for TrayIcon {
             // Note: We do not destroy system icons; we only destroy custom-created icons
             // In practical applications, if it is necessary to destroy custom icons, it should be handled here
         }
+
+        // Unregister AUMID from registry
+        let _ = Self::unregister_aumid();
     }
 }

@@ -14,7 +14,7 @@ use std::thread;
 
 use anyhow::Result;
 use config::AppConfig;
-use gui::SorahkGui;
+use gui::{SorahkGui, show_error};
 use keyboard::KeyboardHook;
 use state::AppState;
 use tray::TrayIcon;
@@ -26,11 +26,8 @@ fn main() -> Result<()> {
     let config = match AppConfig::load_or_create("Config.toml") {
         Ok(cfg) => cfg,
         Err(e) => {
-            // If config loading fails, show error via GUI
             let error_msg = format!("Failed to load configuration: {}", e);
-            eprintln!("{}", error_msg);
-            // Start GUI with error message
-            return SorahkGui::show_error(&error_msg);
+            return show_error(&error_msg);
         }
     };
 
@@ -38,8 +35,7 @@ fn main() -> Result<()> {
         Ok(state) => state,
         Err(e) => {
             let error_msg = format!("Failed to initialize application state: {}", e);
-            eprintln!("{}", error_msg);
-            return SorahkGui::show_error(&error_msg);
+            return show_error(&error_msg);
         }
     });
 
@@ -48,10 +44,7 @@ fn main() -> Result<()> {
     let keyboard_state = app_state.clone();
     thread::spawn(move || match KeyboardHook::new(keyboard_state) {
         Ok(hook) => hook.run_message_loop(),
-        Err(e) => {
-            eprintln!("Failed to create keyboard hook: {}", e);
-            Err(e)
-        }
+        Err(e) => Err(e),
     });
 
     // Give keyboard hook time to initialize
@@ -63,18 +56,10 @@ fn main() -> Result<()> {
         thread::spawn(move || {
             let mut tray =
                 TrayIcon::new(tray_state.should_exit.clone()).expect("Failed to create tray icon");
-            if let Err(e) = tray.show_info("Sorahk launched", "Sorahk is running in the background")
-            {
-                eprintln!("Failed to show notification: {}", e);
-            }
+            let _ = tray.show_info("Sorahk launched", "Sorahk is running in the background");
             let _ = tray.run_message_loop();
         });
     }
 
-    // Run GUI in main thread (GUI must run on main thread for proper window handling)
-    
-
-    // Exit immediately - the OS will clean up all resources (threads, windows, etc.)
-    // This provides the smoothest user experience with no black window
     SorahkGui::run(app_state.clone(), config)
 }
