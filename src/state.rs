@@ -1,3 +1,8 @@
+//! Application state management.
+//!
+//! Provides centralized state management for the key remapping application,
+//! including configuration, keyboard event handling, and process filtering.
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
@@ -13,15 +18,17 @@ use windows::core::PWSTR;
 
 use crate::config::AppConfig;
 
-// Simplified reference interface for WorkerPool
+/// Trait for dispatching keyboard events to worker threads.
 pub trait EventDispatcher: Send + Sync {
     fn dispatch(&self, event: KeyEvent);
 }
 
+/// Marker value to identify simulated keyboard events.
 pub const SIMULATED_EVENT_MARKER: usize = 0x4659;
 
 static GLOBAL_STATE: OnceLock<Arc<AppState>> = OnceLock::new();
 
+/// Notification event types for user feedback.
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub enum NotificationEvent {
@@ -30,42 +37,67 @@ pub enum NotificationEvent {
     Error(String),
 }
 
+/// Keyboard event type with associated virtual key code.
 #[derive(Debug, Clone, Copy)]
 pub enum KeyEvent {
     Pressed(u32),
     Released(u32),
 }
 
+/// Configuration for a single key mapping.
 #[derive(Debug, Clone, Copy)]
 pub struct KeyMappingInfo {
+    /// Target key scancode
     pub target_scancode: u16,
+    /// Repeat interval in milliseconds
     pub interval: u64,
+    /// Key press duration in milliseconds
     pub event_duration: u64,
 }
 
+/// Central application state manager.
+///
+/// Manages all runtime state including configuration, key mappings,
+/// worker threads, and process filtering.
 pub struct AppState {
+    /// Tray icon visibility flag
     show_tray_icon: AtomicBool,
+    /// Notification display flag
     show_notifications: AtomicBool,
+    /// Toggle hotkey virtual key code
     switch_key: RwLock<u32>,
+    /// Application exit flag
     pub should_exit: Arc<AtomicBool>,
+    /// Key repeat pause state
     is_paused: AtomicBool,
+    /// Window show request flag
     show_window_requested: AtomicBool,
+    /// About dialog request flag
     show_about_requested: AtomicBool,
+    /// Input timeout in milliseconds
     input_timeout: AtomicU64,
-    worker_count: AtomicU64, // Store actual worker count after initialization
-    configured_worker_count: usize, // Store configured value for display
+    /// Active worker thread count
+    worker_count: AtomicU64,
+    /// Configured worker count for display
+    configured_worker_count: usize,
+    /// Key mapping configuration
     key_mappings: RwLock<HashMap<u32, KeyMappingInfo>>,
-    // Pre-computed static mapping: vkCode -> worker_index
-    // Array access is ~10x faster than HashMap lookup (1-3ns vs 10-20ns)
-    // Only 256 bytes of memory for all possible vkCodes
+    /// Pre-computed VK to worker index mapping for fast dispatch
     vk_to_worker: [u8; 256],
+    /// Worker pool for event processing
     worker_pool: OnceLock<Arc<dyn EventDispatcher>>,
+    /// Notification event sender
     notification_sender: OnceLock<Sender<NotificationEvent>>,
-    // Process whitelist (empty = all processes enabled)
+    /// Process whitelist (empty means all processes enabled)
     process_whitelist: RwLock<Vec<String>>,
 }
 
 impl AppState {
+    /// Creates a new application state from configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the toggle key name is invalid or key mappings cannot be created.
     pub fn new(config: AppConfig) -> anyhow::Result<Self> {
         let switch_key = Self::key_name_to_vk(&config.switch_key)
             .ok_or_else(|| anyhow::anyhow!("Invalid switch key: {}", config.switch_key))?;
@@ -104,6 +136,11 @@ impl AppState {
         })
     }
 
+    /// Reloads configuration at runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the new toggle key is invalid or mappings cannot be created.
     pub fn reload_config(&self, config: AppConfig) -> anyhow::Result<()> {
         // Update switch key
         let new_switch_key = Self::key_name_to_vk(&config.switch_key)
@@ -137,67 +174,87 @@ impl AppState {
         Ok(())
     }
 
+    /// Sets the worker pool for event dispatching.
     pub fn set_worker_pool(&self, pool: Arc<dyn EventDispatcher>) {
         let _ = self.worker_pool.set(pool);
     }
 
+    /// Sets the notification event sender.
     pub fn set_notification_sender(&self, sender: Sender<NotificationEvent>) {
         let _ = self.notification_sender.set(sender);
     }
 
+    /// Returns the notification sender if available.
     pub fn get_notification_sender(&self) -> Option<&Sender<NotificationEvent>> {
         self.notification_sender.get()
     }
 
+    /// Signals the application to exit.
     pub fn exit(&self) {
         self.should_exit.store(true, Ordering::Relaxed);
     }
 
+    /// Checks if the application should exit.
     pub fn should_exit(&self) -> bool {
         self.should_exit.load(Ordering::Relaxed)
     }
 
-    /// toggle ahk status, return old statue
+    /// Toggles pause state and returns the previous state.
     pub fn toggle_paused(&self) -> bool {
         self.is_paused.fetch_xor(true, Ordering::Relaxed)
     }
 
+    /// Returns the current pause state.
     pub fn is_paused(&self) -> bool {
         self.is_paused.load(Ordering::Relaxed)
     }
 
+    /// Sets the pause state.
+    pub fn set_paused(&self, paused: bool) {
+        self.is_paused.store(paused, Ordering::Relaxed);
+    }
+
+    /// Returns whether the tray icon should be shown.
     pub fn show_tray_icon(&self) -> bool {
         self.show_tray_icon.load(Ordering::Relaxed)
     }
 
+    /// Returns whether notifications should be displayed.
     pub fn show_notifications(&self) -> bool {
         self.show_notifications.load(Ordering::Relaxed)
     }
 
+    /// Requests the main window to be shown.
     pub fn request_show_window(&self) {
         self.show_window_requested.store(true, Ordering::Relaxed);
     }
 
+    /// Checks and clears the show window request flag.
     pub fn check_and_clear_show_window_request(&self) -> bool {
         self.show_window_requested.swap(false, Ordering::Relaxed)
     }
 
+    /// Requests the about dialog to be shown.
     pub fn request_show_about(&self) {
         self.show_about_requested.store(true, Ordering::Relaxed);
     }
 
+    /// Checks and clears the show about request flag.
     pub fn check_and_clear_show_about_request(&self) -> bool {
         self.show_about_requested.swap(false, Ordering::Relaxed)
     }
 
+    /// Returns the input timeout in milliseconds.
     pub fn input_timeout(&self) -> u64 {
         self.input_timeout.load(Ordering::Relaxed)
     }
 
+    /// Returns the configured worker thread count.
     pub fn get_configured_worker_count(&self) -> usize {
         self.configured_worker_count
     }
 
+    /// Returns the actual number of active worker threads.
     pub fn get_actual_worker_count(&self) -> u64 {
         self.worker_count.load(Ordering::Relaxed)
     }

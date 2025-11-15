@@ -1,8 +1,8 @@
-// About dialog
+//! About dialog implementation.
 
 use eframe::egui;
 
-/// Render about dialog with application information
+/// Renders the about dialog showing application information.
 pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dialog: &mut bool) {
     // Pre-calculate all colors based on theme
     let (
@@ -38,6 +38,12 @@ pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dial
         )
     };
 
+    let dialog_bg = if dark_mode {
+        egui::Color32::from_rgb(30, 32, 42)
+    } else {
+        egui::Color32::from_rgb(252, 248, 255)
+    };
+
     egui::Window::new("about_sorahk")
         .id(egui::Id::new("about_dialog_window"))
         .title_bar(false)
@@ -45,6 +51,18 @@ pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dial
         .resizable(false)
         .fixed_size([500.0, 550.0])
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .frame(
+            egui::Frame::window(&ctx.style())
+                .fill(dialog_bg)
+                .corner_radius(egui::CornerRadius::same(20))
+                .stroke(egui::Stroke::NONE)
+                .shadow(egui::epaint::Shadow {
+                    offset: [0, 5],
+                    blur: 22,
+                    spread: 2,
+                    color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 45),
+                }),
+        )
         .show(ctx, |ui| {
             // Use a simpler layout without excessive centering
             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
@@ -69,14 +87,14 @@ pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dial
                 // Version card - simplified Frame
                 ui.scope(|ui| {
                     ui.set_max_width(460.0);
-                    egui::Frame::none()
+                    egui::Frame::NONE
                         .fill(card_bg)
-                        .rounding(15.0)
-                        .inner_margin(egui::Margin::symmetric(20.0, 15.0))
+                        .corner_radius(15.0)
+                        .inner_margin(egui::Margin::symmetric(20, 15))
                         .show(ui, |ui| {
                             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                                 ui.label(
-                                    egui::RichText::new("✨ Version 0.1.2")
+                                    egui::RichText::new("✨ Version 0.2.0")
                                         .size(18.0)
                                         .strong()
                                         .color(version_color),
@@ -126,10 +144,11 @@ pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dial
                                     .strong()
                                     .color(label_color),
                             );
-                            ui.label(
-                                egui::RichText::new("github.com/llnut/sorahk")
+                            ui.hyperlink_to(
+                                egui::RichText::new("https://github.com/llnut/Sorahk")
                                     .size(14.0)
-                                    .color(text_color),
+                                    .color(label_color),
+                                "https://github.com/llnut/Sorahk",
                             );
                             ui.end_row();
 
@@ -184,7 +203,7 @@ pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dial
                                 .strong(),
                         )
                         .fill(egui::Color32::from_rgb(216, 191, 216))
-                        .rounding(15.0),
+                        .corner_radius(15.0),
                     )
                     .clicked()
                 {

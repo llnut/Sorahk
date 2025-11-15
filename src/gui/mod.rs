@@ -1,4 +1,7 @@
-// GUI module
+//! GUI module for application interface components.
+//!
+//! This module provides the graphical user interface using the `egui` framework,
+//! including the main window, dialogs, and utility functions.
 
 mod about_dialog;
 mod error_dialog;
@@ -13,33 +16,48 @@ use crate::state::AppState;
 use eframe::egui;
 use std::sync::Arc;
 
-// Public exports
 pub use error_dialog::show_error;
 
-/// Main GUI application structure
+/// Main GUI application structure.
+///
+/// Manages the application window state, dialogs, and user interactions.
 pub struct SorahkGui {
+    /// Shared application state
     pub(super) app_state: Arc<AppState>,
+    /// Application configuration
     pub(super) config: AppConfig,
+    /// Close confirmation dialog visibility
     pub(super) show_close_dialog: bool,
+    /// Settings dialog visibility
     pub(super) show_settings_dialog: bool,
+    /// About dialog visibility
     pub(super) show_about_dialog: bool,
+    /// Whether to minimize to tray on close
     pub(super) minimize_on_close: bool,
+    /// Current theme mode
     pub(super) dark_mode: bool,
-    // Temporary settings for editing
+    /// Temporary config during settings edit
     pub(super) temp_config: Option<AppConfig>,
-    // UI state for editing
+    /// New mapping trigger key input
     pub(super) new_mapping_trigger: String,
+    /// New mapping target key input
     pub(super) new_mapping_target: String,
+    /// New mapping interval input
     pub(super) new_mapping_interval: String,
+    /// New mapping duration input
     pub(super) new_mapping_duration: String,
+    /// New process name input
     pub(super) new_process_name: String,
-    // Key capture state
+    /// Current key capture state
     pub(super) key_capture_mode: KeyCaptureMode,
-    // Close dialog highlight effect
+    /// Close dialog highlight expiration time
     pub(super) dialog_highlight_until: Option<std::time::Instant>,
+    /// Pause state before entering settings
+    pub(super) was_paused_before_settings: Option<bool>,
 }
 
 impl SorahkGui {
+    /// Creates a new GUI instance with the given state and configuration.
     pub fn new(app_state: Arc<AppState>, config: AppConfig) -> Self {
         let dark_mode = config.dark_mode;
 
@@ -59,15 +77,21 @@ impl SorahkGui {
             new_mapping_duration: String::new(),
             new_process_name: String::new(),
             key_capture_mode: KeyCaptureMode::None,
+            was_paused_before_settings: None,
         }
     }
 
+    /// Launches the GUI application.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the GUI framework fails to initialize or run.
     pub fn run(app_state: Arc<AppState>, config: AppConfig) -> anyhow::Result<()> {
         let icon = crate::gui::utils::create_icon();
 
         let mut viewport = egui::ViewportBuilder::default()
-            .with_inner_size([580.0, 530.0])
-            .with_min_inner_size([500.0, 480.0])
+            .with_inner_size([580.0, 550.0])
+            .with_min_inner_size([580.0, 550.0])
             .with_resizable(true)
             .with_title("Sorahk - Auto Key Press Tool")
             .with_icon(icon)

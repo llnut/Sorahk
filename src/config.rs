@@ -1,34 +1,56 @@
+//! Application configuration management.
+//!
+//! Handles loading, saving, and validation of application settings
+//! including key mappings and runtime parameters.
+
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 
+/// Main application configuration structure.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AppConfig {
+    /// Display tray icon
     pub show_tray_icon: bool,
+    /// Show notification messages
     pub show_notifications: bool,
+    /// Keep window always on top
     #[serde(default)]
     pub always_on_top: bool,
-    #[serde(default)] // Default to false (light theme) for backward compatibility
+    /// Use dark theme mode
+    #[serde(default)]
     pub dark_mode: bool,
+    /// Toggle hotkey name
     pub switch_key: String,
+    /// Key mapping configurations
     pub mappings: Vec<KeyMapping>,
+    /// Input timeout in milliseconds
     #[serde(default = "default_input_timeout")]
     pub input_timeout: u64,
+    /// Default key repeat interval in milliseconds
     #[serde(default = "default_interval")]
     pub interval: u64,
+    /// Default key press duration in milliseconds
     #[serde(default = "default_event_duration")]
     pub event_duration: u64,
+    /// Worker thread count (0 for auto-detection)
     #[serde(default = "default_worker_count")]
     pub worker_count: usize,
+    /// Process whitelist (empty means all processes)
     #[serde(default)]
     pub process_whitelist: Vec<String>,
 }
 
+/// Key mapping configuration for trigger-target pairs.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct KeyMapping {
+    /// Trigger key name
     pub trigger_key: String,
+    /// Target key name to send
     pub target_key: String,
+    /// Optional override for repeat interval
     #[serde(default)]
     pub interval: Option<u64>,
+    /// Optional override for press duration
     #[serde(default)]
     pub event_duration: Option<u64>,
 }
@@ -47,7 +69,7 @@ fn default_worker_count() -> usize {
 }
 
 impl AppConfig {
-    /// Create a default configuration
+    /// Creates a default configuration with sensible defaults.
     pub fn default() -> Self {
         Self {
             show_tray_icon: true,
@@ -69,7 +91,11 @@ impl AppConfig {
         }
     }
 
-    /// Load config from file, or create default if not exists
+    /// Loads configuration from file, creating default if not found.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if file operations fail.
     pub fn load_or_create<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         if !path.as_ref().exists() {
             let default_config = Self::default();
@@ -79,6 +105,11 @@ impl AppConfig {
         Self::load_from_file(path)
     }
 
+    /// Loads configuration from a TOML file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read or parsed.
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let content = fs::read_to_string(path)?;
         let mut config: AppConfig = toml::from_str(&content)?;
@@ -97,6 +128,11 @@ impl AppConfig {
         Ok(config)
     }
 
+    /// Saves configuration to a TOML file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be written or serialized.
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<()> {
         // Add comments to make the config file more readable
         let commented = format!(

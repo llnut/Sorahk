@@ -1,30 +1,36 @@
 show_tray_icon = true        # Show system tray icon on startup
-show_notifications = false   # Enable/disable system notifications (may not work on stripped-down Windows)
-input_timeout = 10           # Input timeout in ms (affects rapid-fire sequence termination)
+show_notifications = false   # Enable/disable system notifications
+always_on_top = false        # Keep window always on top of other windows
+dark_mode = false            # Use dark theme (false = light theme, true = dark theme)
+input_timeout = 10           # Input timeout in ms
 interval = 5                 # Default repeat interval between keystrokes (ms)
 event_duration = 5           # Duration of each simulated key press (ms)
-worker_count = 0             # Number of turbo workers (0 = auto-detect based on CPU cores, max value capped at CPU count)
-switch_key = "DELETE"        # Reserved key to toggle SoraHK behavior (optional)
+worker_count = 0             # Number of turbo workers (0 = auto-detect based on CPU cores)
+switch_key = "DELETE"        # Reserved key to toggle SoraHK behavior
+
+# Process whitelist (empty = all processes enabled)
+# Only processes in this list will have turbo-fire enabled
+process_whitelist = []       # Example: ["notepad.exe", "game.exe"]
 
 # Key mapping definitions
 [[mappings]]
 trigger_key = "A"            # Physical key you press
 target_key = "A"             # Key that gets repeatedly sent
-interval = 5                 # Optional: override global interval
-event_duration = 5           # Optional: override global press duration
+interval = 5                 # Override global interval
+event_duration = 5           # Override global press duration
 
 [[mappings]]
-trigger_key = "B"
-target_key = "F"             # Pressing 'B' will rapidly fire 'F'
+trigger_key = "B"            # Physical key you press
+target_key = "F"             # Key that gets repeatedly sent
 
 [[mappings]]
-trigger_key = "F1"
-target_key = "1"
+trigger_key = "F1"           # Physical key you press
+target_key = "1"             # Key that gets repeatedly sent
 
 [[mappings]]
-trigger_key = "F2"
-target_key = "2"
+trigger_key = "F2"           # Physical key you press
+target_key = "2"             # Key that gets repeatedly sent
 
 [[mappings]]
-trigger_key = "LSHIFT"
-target_key = "3"
+trigger_key = "LSHIFT"       # Physical key you press
+target_key = "3"             # Key that gets repeatedly sent

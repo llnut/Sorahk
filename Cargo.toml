@@ -1,6 +1,6 @@
 [package]
 name = "sorahk"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 
 [build-dependencies]
@@ -24,8 +24,8 @@ windows = { version = "0.62.2", features = [
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "0.9.8"
 anyhow = "1.0.100"
-eframe = "0.30.0"
-egui = "0.30.0"
+eframe = "0.33.2"
+egui = "0.33.2"
 ico = "0.4"
 rfd = "0.15.4"
 
