@@ -298,7 +298,7 @@ Contributions are welcome! Please open issues for bugs or feature requests, and 
 
 Sorahk is built using modern Rust technologies:
 
-- 🦀 **[Rust](https://www.rust-lang.org/)** – Memory safety and fearless concurrency
+- 🦀 **[Rust](https://www.rust-lang.org/)** – Memory safety and zero-cost abstractions
 - 🪟 **[windows-rs](https://crates.io/crates/windows)** – Native Windows API access
 - 🎨 **[egui](https://crates.io/crates/egui)** – Immediate mode GUI framework
 - 🖼️ **[eframe](https://crates.io/crates/eframe)** – egui application framework
