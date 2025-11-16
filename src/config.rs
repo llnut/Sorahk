@@ -56,13 +56,13 @@ pub struct KeyMapping {
 }
 
 fn default_input_timeout() -> u64 {
-    100
+    10
 }
 fn default_interval() -> u64 {
-    50
+    5
 }
 fn default_event_duration() -> u64 {
-    10
+    5
 }
 fn default_worker_count() -> usize {
     0 // 0 means auto-detect based on CPU cores
@@ -134,20 +134,28 @@ impl AppConfig {
     ///
     /// Returns an error if the file cannot be written or serialized.
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<()> {
-        // Add comments to make the config file more readable
-        let commented = format!(
-            "show_tray_icon = {}        # Show system tray icon on startup\n\
+        // Generate header and main config in one go
+        let header = format!(
+            "# ═══════════════════════════════════════════════════════\n\
+             #  🌸 Sorahk Configuration File 🌸\n\
+             # ═══════════════════════════════════════════════════════\n\n\
+             # ─── General Settings ───\n\
+             show_tray_icon = {}       # Show system tray icon on startup\n\
              show_notifications = {}   # Enable/disable system notifications\n\
-             always_on_top = {}          # Keep window always on top of other windows\n\
-             dark_mode = {}               # Use dark theme (false = light theme, true = dark theme)\n\
-             input_timeout = {}           # Input timeout in ms\n\
-             interval = {}                 # Default repeat interval between keystrokes (ms)\n\
-             event_duration = {}           # Duration of each simulated key press (ms)\n\
-             worker_count = {}             # Number of turbo workers (0 = auto-detect based on CPU cores)\n\
-             switch_key = \"{}\"        # Reserved key to toggle SoraHK behavior\n\n\
+             always_on_top = {}       # Keep window always on top of other windows\n\
+             dark_mode = {}           # Use dark theme (false = light theme, true = dark theme)\n\n\
+             # ─── Performance Settings ───\n\
+             input_timeout = {}          # Input timeout in ms\n\
+             interval = {}                # Default repeat interval between keystrokes (ms)\n\
+             event_duration = {}          # Duration of each simulated key press (ms)\n\
+             worker_count = {}            # Number of turbo workers (0 = auto-detect based on CPU cores)\n\n\
+             # ─── Control Settings ───   \n\
+             switch_key = \"{}\"       # Reserved key to toggle SoraHK behavior\n\n\
+             # ─── Process Whitelist ───\n\
              # Process whitelist (empty = all processes enabled)\n\
              # Only processes in this list will have turbo-fire enabled\n\
-             process_whitelist = {:?}     # Example: [\"notepad.exe\", \"game.exe\"]\n\n\
+             process_whitelist = {:?}      # Example: [\"notepad.exe\", \"game.exe\"]\n\n\
+             # ─── Key Mappings ───\n\
              # Key mapping definitions\n",
             self.show_tray_icon,
             self.show_notifications,
@@ -161,26 +169,27 @@ impl AppConfig {
             self.process_whitelist
         );
 
-        let mut result = commented;
+        // Pre-allocate capacity for better performance
+        let mut result = String::with_capacity(header.len() + self.mappings.len() * 200);
+        result.push_str(&header);
+
+        // Append mappings efficiently
         for mapping in &self.mappings {
             result.push_str("[[mappings]]\n");
             result.push_str(&format!(
-                "trigger_key = \"{}\"            # Physical key you press\n",
-                mapping.trigger_key
-            ));
-            result.push_str(&format!(
-                "target_key = \"{}\"             # Key that gets repeatedly sent\n",
-                mapping.target_key
+                "trigger_key = \"{}\"           # Physical key you press\n\
+                 target_key = \"{}\"            # Key that gets repeatedly sent\n",
+                mapping.trigger_key, mapping.target_key
             ));
             if let Some(interval) = mapping.interval {
                 result.push_str(&format!(
-                    "interval = {}                 # Override global interval\n",
+                    "interval = {}                  # Override global interval\n",
                     interval
                 ));
             }
             if let Some(duration) = mapping.event_duration {
                 result.push_str(&format!(
-                    "event_duration = {}           # Override global press duration\n",
+                    "event_duration = {}                  # Override global press duration\n",
                     duration
                 ));
             }

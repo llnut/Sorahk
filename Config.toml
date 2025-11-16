@@ -1,17 +1,28 @@
+# ═══════════════════════════════════════════════════════
+#  🌸 Sorahk Configuration File 🌸
+# ═══════════════════════════════════════════════════════
+
+# ─── General Settings ───
 show_tray_icon = true        # Show system tray icon on startup
 show_notifications = false   # Enable/disable system notifications
 always_on_top = false        # Keep window always on top of other windows
 dark_mode = false            # Use dark theme (false = light theme, true = dark theme)
+
+# ─── Performance Settings ───
 input_timeout = 10           # Input timeout in ms
 interval = 5                 # Default repeat interval between keystrokes (ms)
 event_duration = 5           # Duration of each simulated key press (ms)
 worker_count = 0             # Number of turbo workers (0 = auto-detect based on CPU cores)
+
+# ─── Control Settings ───
 switch_key = "DELETE"        # Reserved key to toggle SoraHK behavior
 
+# ─── Process Whitelist ───
 # Process whitelist (empty = all processes enabled)
 # Only processes in this list will have turbo-fire enabled
 process_whitelist = []       # Example: ["notepad.exe", "game.exe"]
 
+# ─── Key Mappings ───
 # Key mapping definitions
 [[mappings]]
 trigger_key = "A"            # Physical key you press

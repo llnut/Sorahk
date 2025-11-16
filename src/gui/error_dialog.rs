@@ -47,7 +47,7 @@ impl eframe::App for ErrorDialog {
 
                 ui.add_space(20.0);
 
-                // Error message card - 无边框设计
+                // Error message card
                 egui::Frame::NONE
                     .fill(egui::Color32::from_rgb(45, 40, 52))
                     .corner_radius(egui::CornerRadius::same(16))
