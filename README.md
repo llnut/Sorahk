@@ -145,6 +145,7 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
 
 ### 🎨 **User Interface**
 - **Modern GUI** – Anime-inspired interface with intuitive settings management
+- **Multi-language Support** – 4 languages available: English, 简体中文, 繁體中文, 日本語
 - **Dual Theme Support** – Switch between light and dark themes with persistent preferences
 - **Real-time Status** – Monitor active mappings and system state
 - **System Tray Integration** – Minimize to tray for background operation
@@ -155,6 +156,7 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
 - **Global Toggle** – Quick enable/disable with a single hotkey (default: DELETE)
 - **Process Whitelist** – Optional filtering to restrict turbo-fire to specific applications
 - **Multi-key Support** – Configure multiple independent key mappings simultaneously
+- **Duplicate Prevention** – Validation to prevent duplicate trigger keys from being added
 
 ### 🚀 **Performance & Reliability**
 - **Multi-threaded Processing** – Worker pool with load balancing for efficient key handling
@@ -195,6 +197,7 @@ show_tray_icon = true        # Show system tray icon on startup
 show_notifications = false   # Enable/disable system notifications
 always_on_top = false        # Keep window always on top of other windows
 dark_mode = false            # Use dark theme (false = light theme, true = dark theme)
+language = "English"         # UI language: "English", "SimplifiedChinese", "TraditionalChinese", "Japanese"
 
 # ─── Performance Settings ───
 input_timeout = 10           # Input timeout in ms

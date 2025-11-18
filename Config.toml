@@ -4,9 +4,10 @@
 
 # ─── General Settings ───
 show_tray_icon = true        # Show system tray icon on startup
-show_notifications = false   # Enable/disable system notifications
+show_notifications = true    # Enable/disable system notifications
 always_on_top = false        # Keep window always on top of other windows
 dark_mode = false            # Use dark theme (false = light theme, true = dark theme)
+language = "English"         # Interface language
 
 # ─── Performance Settings ───
 input_timeout = 10           # Input timeout in ms

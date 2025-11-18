@@ -150,7 +150,7 @@ impl AppConfig {
              show_notifications = {}   # Enable/disable system notifications\n\
              always_on_top = {}       # Keep window always on top of other windows\n\
              dark_mode = {}           # Use dark theme (false = light theme, true = dark theme)\n\
-             language = \"{}\"         # Interface language\n\n\
+             language = \"{}\"        # UI language: \"English\", \"SimplifiedChinese\", \"TraditionalChinese\", \"Japanese\"\n\n\
              # ─── Performance Settings ───\n\
              input_timeout = {}          # Input timeout in ms\n\
              interval = {}                # Default repeat interval between keystrokes (ms)\n\
@@ -196,13 +196,13 @@ impl AppConfig {
             ));
             if let Some(interval) = mapping.interval {
                 result.push_str(&format!(
-                    "interval = {}                  # Override global interval\n",
+                    "interval = {}                # Override global interval\n",
                     interval
                 ));
             }
             if let Some(duration) = mapping.event_duration {
                 result.push_str(&format!(
-                    "event_duration = {}                  # Override global press duration\n",
+                    "event_duration = {}          # Override global press duration\n",
                     duration
                 ));
             }

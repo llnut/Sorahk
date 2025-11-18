@@ -1,3 +1,14 @@
+0.3.0
+=====
+Feature enhancements:
+
+* Add i18n module with cached translation system
+* Add support for 4 languages: English, 简体中文, 繁體中文, 日本語
+* Add Windows system font loader with CJK optimization
+* Add language selection in settings dialog with real-time preview
+* Add language field to Config.toml for persistent language preferences
+* Add duplicate trigger key validation in settings dialog to prevent conflicts
+
 0.2.0
 =====
 Feature enhancements:
