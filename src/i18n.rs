@@ -382,11 +382,7 @@ impl CachedTranslations {
 
     // Dynamic worker count formatting (for runtime values)
     pub fn format_worker_count(&self, count: usize) -> String {
-        match self.inner.worker_count_label.chars().next() {
-            Some('工') => format!("⚡ {}个工作线程", count),
-            Some('W') => format!("⚡ {} Worker(s)", count),
-            _ => format!("⚡ {}ワーカー", count),
-        }
+        format!("{} {}", self.inner.worker_count_label, count)
     }
 }
 
@@ -969,10 +965,10 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::TraditionalChinese, RawKey::DefaultDurationLabel) => "預設時長 (毫秒):",
         (Language::Japanese, RawKey::DefaultDurationLabel) => "デフォルト持続時間 (ms):",
 
-        (Language::English, RawKey::WorkerCountLabel) => "Worker Count:",
-        (Language::SimplifiedChinese, RawKey::WorkerCountLabel) => "连发线程数:",
-        (Language::TraditionalChinese, RawKey::WorkerCountLabel) => "連發執行緒數:",
-        (Language::Japanese, RawKey::WorkerCountLabel) => "連打スレッド数:",
+        (Language::English, RawKey::WorkerCountLabel) => "⚡ Worker Count:",
+        (Language::SimplifiedChinese, RawKey::WorkerCountLabel) => "⚡ 连发线程数:",
+        (Language::TraditionalChinese, RawKey::WorkerCountLabel) => "⚡ 連發執行緒數:",
+        (Language::Japanese, RawKey::WorkerCountLabel) => "⚡ 連打スレッド数:",
 
         (Language::English, RawKey::AddNewMappingTitle) => "➕ Add New Mapping",
         (Language::SimplifiedChinese, RawKey::AddNewMappingTitle) => "➕ 添加连发映射",

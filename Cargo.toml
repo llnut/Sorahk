@@ -24,10 +24,9 @@ windows = { version = "0.62.2", features = [
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "0.9.8"
 anyhow = "1.0.100"
-eframe = "0.33.2"
-egui = "0.33.2"
+eframe = { version = "0.33.2", default-features = false, features = ["default_fonts", "glow"] }
 ico = "0.4"
-rfd = "0.15.4"
+rfd = { version = "0.15.4", default-features = false }
 
 [profile.release]
 opt-level = 3

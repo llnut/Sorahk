@@ -1,7 +1,8 @@
 //! Windows system font loading and configuration for multi-language support.
 //!
 //! Loads optimized Windows fonts for English, Simplified Chinese, Traditional Chinese,
-//! and Japanese. Applies vertical offset adjustments for better CJK text alignment.
+//! and Japanese. Uses a ordered font stack to ensure consistent emoji rendering
+//! across all languages while applying language-specific adjustments for CJK text.
 
 use crate::i18n::Language;
 use eframe::egui;
@@ -15,13 +16,19 @@ struct FontConfig {
 
 /// Loads Windows system fonts optimized for the selected language.
 ///
-/// Automatically loads appropriate fonts from Windows system directory and applies
-/// vertical offset adjustments for better CJK text alignment in UI components.
+/// **Font loading strategy:**
+/// 1. egui built-in fonts (default_fonts) - HIGHEST priority for UI consistency
+/// 2. Language-specific CJK fonts - for Chinese/Japanese text
+/// 3. Windows emoji fonts - fallback for characters not in built-in fonts
+///
+/// This ensures emoji from egui while maintaining full CJK support.
 pub fn load_fonts(ctx: &egui::Context, language: Language) {
     let mut fonts = egui::FontDefinitions::default();
-    let font_configs = get_font_configs_for_language(language);
     let mut loaded_count = 0;
 
+    // Load language-specific fonts - WITH y_offset for Japanese
+    // Provide CJK character support
+    let font_configs = get_font_configs_for_language(language);
     let cjk_y_offset = match language {
         Language::Japanese => 0.3,
         Language::English | Language::SimplifiedChinese | Language::TraditionalChinese => 0.0,
@@ -58,11 +65,12 @@ pub fn load_fonts(ctx: &egui::Context, language: Language) {
         }
     }
 
+    // Load Windows emoji fonts as FALLBACK
+    // Used only when egui built-in fonts don't have a character
+    // Priority: egui built-in > Windows emoji fonts
     let emoji_fonts = [
-        ("Segoe UI Emoji", "C:\\Windows\\Fonts\\seguiemj.ttf"),
-        ("Segoe UI Symbol", "C:\\Windows\\Fonts\\seguisym.ttf"),
-        ("MS Gothic", "C:\\Windows\\Fonts\\msgothic.ttc"),
-        ("Arial Unicode MS", "C:\\Windows\\Fonts\\arialuni.ttf"),
+        ("Segoe UI Emoji", "C:\\Windows\\Fonts\\seguiemj.ttf"), // Colorful emoji fallback
+        ("Segoe UI Symbol", "C:\\Windows\\Fonts\\seguisym.ttf"), // Symbol characters fallback
     ];
 
     for (name, path) in emoji_fonts {
@@ -76,13 +84,13 @@ pub fn load_fonts(ctx: &egui::Context, language: Language) {
                 .families
                 .entry(egui::FontFamily::Proportional)
                 .or_default()
-                .push(name.to_string());
+                .push(name.to_string()); // Append as fallback, not insert at front
 
             fonts
                 .families
                 .entry(egui::FontFamily::Monospace)
                 .or_default()
-                .push(name.to_string());
+                .push(name.to_string()); // Append as fallback, not insert at front
         }
     }
 
