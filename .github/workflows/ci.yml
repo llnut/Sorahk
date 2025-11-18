@@ -13,18 +13,23 @@ on:
         default: 'master'
         type: string
 
+# Cancel in-progress runs for the same workflow and ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
+  # Note: Release profile settings are defined in Cargo.toml
 
 jobs:
   build:
-    name: build
+    name: build-${{ matrix.build }}
     runs-on: ${{ matrix.os }}
     env:
       CARGO: cargo
       TARGET_FLAGS:
       TARGET_DIR: ./target
-      # Emit backtraces on panics.
       RUST_BACKTRACE: 1
     strategy:
       fail-fast: false
@@ -52,23 +57,50 @@ jobs:
         toolchain: ${{ matrix.rust }}
         target: ${{ matrix.target }}
 
+    - name: Cache Cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry/index
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.target }}-cargo-registry-
+
+    - name: Cache Cargo registry cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry/cache
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-cache-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.target }}-cargo-cache-
+
+    - name: Cache Cargo git dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-git-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.target }}-cargo-git-
+
+    - name: Cache Cargo build
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('**/*.rs') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ hashFiles('Cargo.lock') }}-
+          ${{ runner.os }}-${{ matrix.target }}-cargo-build-
+
     - name: Set target variables
       shell: bash
       run: |
         echo "TARGET_FLAGS=--target ${{ matrix.target }}" >> $GITHUB_ENV
         echo "TARGET_DIR=./target/${{ matrix.target }}" >> $GITHUB_ENV
 
-    - name: Show command used for Cargo
-      shell: bash
-      run: |
-        echo "cargo command is: ${{ env.CARGO }}"
-        echo "target flag is: ${{ env.TARGET_FLAGS }}"
-        echo "target dir is: ${{ env.TARGET_DIR }}"
-
     - name: Build release binary
       shell: bash
       run: |
-        ${{ env.CARGO }} build --verbose --release ${{ env.TARGET_FLAGS }}
+        echo "Building for target: ${{ matrix.target }}"
+        ${{ env.CARGO }} build --release ${{ env.TARGET_FLAGS }}
         bin="target/${{ matrix.target }}/release/sorahk.exe"
         echo "BIN=$bin" >> $GITHUB_ENV
 
@@ -94,4 +126,6 @@ jobs:
       with:
         name: ${{ env.ARCHIVE }}
         path: ${{ env.ARCHIVE }}
+        compression-level: 9
+        retention-days: 30
 

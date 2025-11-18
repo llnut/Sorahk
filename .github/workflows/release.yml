@@ -17,6 +17,10 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+  # Note: Release profile settings (strip, lto, codegen-units) are defined in Cargo.toml
+
 jobs:
   # The create-release job runs purely to initialize the GitHub release itself,
   # and names the release after the `x.y.z` tag that was pushed. It's separate
@@ -62,14 +66,13 @@ jobs:
       version: ${{ env.VERSION }}
 
   build-release:
-    name: build-release
+    name: build-release-${{ matrix.build }}
     needs: ['create-release']
     runs-on: ${{ matrix.os }}
     env:
       CARGO: cargo
       TARGET_FLAGS:
       TARGET_DIR: ./target
-      # Emit backtraces on panics.
       RUST_BACKTRACE: 1
     strategy:
       fail-fast: false
@@ -95,25 +98,58 @@ jobs:
         toolchain: ${{ matrix.rust }}
         target: ${{ matrix.target }}
 
+    - name: Cache Cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry/index
+        key: release-${{ runner.os }}-${{ matrix.target }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          release-${{ runner.os }}-${{ matrix.target }}-cargo-registry-
+          ${{ runner.os }}-${{ matrix.target }}-cargo-registry-
+
+    - name: Cache Cargo registry cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry/cache
+        key: release-${{ runner.os }}-${{ matrix.target }}-cargo-cache-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          release-${{ runner.os }}-${{ matrix.target }}-cargo-cache-
+          ${{ runner.os }}-${{ matrix.target }}-cargo-cache-
+
+    - name: Cache Cargo git dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: release-${{ runner.os }}-${{ matrix.target }}-cargo-git-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          release-${{ runner.os }}-${{ matrix.target }}-cargo-git-
+          ${{ runner.os }}-${{ matrix.target }}-cargo-git-
+
+    - name: Cache Cargo build
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: release-${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('**/*.rs') }}
+        restore-keys: |
+          release-${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ hashFiles('Cargo.lock') }}-
+          release-${{ runner.os }}-${{ matrix.target }}-cargo-build-
+          ${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ hashFiles('Cargo.lock') }}-
+
     - name: Set target variables
       shell: bash
       run: |
         echo "TARGET_FLAGS=--target ${{ matrix.target }}" >> $GITHUB_ENV
         echo "TARGET_DIR=./target/${{ matrix.target }}" >> $GITHUB_ENV
 
-    - name: Show command used for Cargo
-      shell: bash
-      run: |
-        echo "cargo command is: ${{ env.CARGO }}"
-        echo "target flag is: ${{ env.TARGET_FLAGS }}"
-        echo "target dir is: ${{ env.TARGET_DIR }}"
-
     - name: Build release binary
       shell: bash
       run: |
-        ${{ env.CARGO }} build --verbose --release ${{ env.TARGET_FLAGS }}
+        echo "Building optimized release for target: ${{ matrix.target }}"
+        ${{ env.CARGO }} build --release ${{ env.TARGET_FLAGS }}
         bin="target/${{ matrix.target }}/release/sorahk.exe"
         echo "BIN=$bin" >> $GITHUB_ENV
+        # Display binary size
+        ls -lh "$bin"
 
     - name: Determine archive name
       shell: bash
@@ -131,8 +167,12 @@ jobs:
     - name: Build archive
       shell: bash
       run: |
-        7z a "$ARCHIVE.zip" "$ARCHIVE"
+        # Create zip with maximum compression
+        7z a -tzip -mx=9 "$ARCHIVE.zip" "$ARCHIVE"
+        # Generate SHA256 checksum
         certutil -hashfile "$ARCHIVE.zip" SHA256 > "$ARCHIVE.zip.sha256"
+        # Display archive info
+        ls -lh "$ARCHIVE.zip"
         echo "ASSET=$ARCHIVE.zip" >> $GITHUB_ENV
         echo "ASSET_SUM=$ARCHIVE.zip.sha256" >> $GITHUB_ENV
 
@@ -142,4 +182,5 @@ jobs:
       shell: bash
       run: |
         version="${{ needs.create-release.outputs.version }}"
+        echo "Uploading release assets for version: $version"
         gh release upload "$version" ${{ env.ASSET }} ${{ env.ASSET_SUM }}
