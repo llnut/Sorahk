@@ -12,6 +12,19 @@ impl SorahkGui {
         let mut should_save = false;
         let mut should_cancel = false;
 
+        // Use cached translations if temp config language matches current, otherwise create new one
+        let temp_lang = self
+            .temp_config
+            .as_ref()
+            .map(|c| c.language)
+            .unwrap_or(self.config.language);
+        let t = if temp_lang == self.config.language {
+            &self.translations
+        } else {
+            // Language is being previewed in settings but not saved yet, use current cached translations
+            &self.translations
+        };
+
         // Handle key capture if in capture mode
         if self.key_capture_mode != KeyCaptureMode::None {
             ctx.input(|i| {
@@ -62,8 +75,8 @@ impl SorahkGui {
             .title_bar(false) // Remove default title bar
             .collapsible(false)
             .resizable(true)
-            .default_size([580.0, 530.0])
-            .min_size([580.0, 530.0])
+            .default_size([600.0, 530.0])
+            .min_size([600.0, 530.0])
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .id(egui::Id::new("settings_dialog_window")) // Unique ID to avoid conflicts
             .frame(
@@ -79,7 +92,6 @@ impl SorahkGui {
                     }),
             )
             .show(ctx, |ui| {
-                // Push a unique ID scope for this entire settings dialog
                 ui.push_id("settings_dialog_scope", |ui| {
                     // Custom title bar (matching main window style)
                     ui.horizontal(|ui| {
@@ -87,7 +99,7 @@ impl SorahkGui {
 
                         // Settings title
                         ui.label(
-                            egui::RichText::new("⚙ Settings ~ Configuration Panel ~")
+                            egui::RichText::new(t.settings_dialog_title())
                                 .size(18.0)
                                 .strong()
                                 .color(if self.dark_mode {
@@ -143,7 +155,7 @@ impl SorahkGui {
                                         .show(ui, |ui| {
                                             ui.set_min_width(ui.available_width());
                                             ui.label(
-                                                egui::RichText::new("⌨ Toggle Key")
+                                                egui::RichText::new(t.toggle_key())
                                                     .size(16.0)
                                                     .strong()
                                                     .color(if self.dark_mode {
@@ -155,15 +167,15 @@ impl SorahkGui {
                                             ui.add_space(6.0);
 
                                             ui.horizontal(|ui| {
-                                                ui.label("Key:");
+                                                ui.label(t.key_label());
                                                 ui.add_space(5.0);
 
                                                 let is_capturing = self.key_capture_mode
                                                     == KeyCaptureMode::ToggleKey;
                                                 let button_text = if is_capturing {
-                                                    "⌨ Press any key..."
+                                                    t.press_any_key()
                                                 } else if temp_config.switch_key.is_empty() {
-                                                    "Click to set key"
+                                                    t.click_to_set()
                                                 } else {
                                                     &temp_config.switch_key
                                                 };
@@ -211,7 +223,7 @@ impl SorahkGui {
                                         .show(ui, |ui| {
                                             ui.set_min_width(ui.available_width());
                                             ui.label(
-                                                egui::RichText::new("⚙ Global Configuration")
+                                                egui::RichText::new(t.global_config_title())
                                                     .size(16.0)
                                                     .strong()
                                                     .color(if self.dark_mode {
@@ -228,7 +240,28 @@ impl SorahkGui {
                                                 .spacing([20.0, 8.0])
                                                 .min_col_width(available * 0.35)
                                                 .show(ui, |ui| {
-                                                    ui.label("Input Timeout (ms):");
+                                                    // Language
+                                                    ui.label(t.language());
+                                                    egui::ComboBox::from_id_salt(
+                                                        "language_selector",
+                                                    )
+                                                    .selected_text(
+                                                        temp_config.language.display_name(),
+                                                    )
+                                                    .width(120.0)
+                                                    .show_ui(ui, |ui| {
+                                                        use crate::i18n::Language;
+                                                        for lang in Language::all() {
+                                                            ui.selectable_value(
+                                                                &mut temp_config.language,
+                                                                *lang,
+                                                                lang.display_name(),
+                                                            );
+                                                        }
+                                                    });
+                                                    ui.end_row();
+
+                                                    ui.label(t.input_timeout_label());
                                                     let mut timeout_str =
                                                         temp_config.input_timeout.to_string();
                                                     ui.add_sized(
@@ -247,7 +280,7 @@ impl SorahkGui {
                                                     }
                                                     ui.end_row();
 
-                                                    ui.label("Default Interval (ms):");
+                                                    ui.label(t.default_interval_label());
                                                     let mut interval_str =
                                                         temp_config.interval.to_string();
                                                     ui.add_sized(
@@ -266,7 +299,7 @@ impl SorahkGui {
                                                     }
                                                     ui.end_row();
 
-                                                    ui.label("Default Duration (ms):");
+                                                    ui.label(t.default_duration_label());
                                                     let mut duration_str =
                                                         temp_config.event_duration.to_string();
                                                     ui.add_sized(
@@ -285,7 +318,7 @@ impl SorahkGui {
                                                     }
                                                     ui.end_row();
 
-                                                    ui.label("Worker Count:");
+                                                    ui.label(t.worker_count_label());
                                                     let mut worker_str =
                                                         temp_config.worker_count.to_string();
                                                     ui.add_sized(
@@ -305,25 +338,25 @@ impl SorahkGui {
                                                     }
                                                     ui.end_row();
 
-                                                    ui.label("Show Tray Icon:");
+                                                    ui.label(t.show_tray_icon());
                                                     ui.checkbox(
                                                         &mut temp_config.show_tray_icon,
                                                         "",
                                                     );
                                                     ui.end_row();
 
-                                                    ui.label("Show Notifications:");
+                                                    ui.label(t.show_notifications());
                                                     ui.checkbox(
                                                         &mut temp_config.show_notifications,
                                                         "",
                                                     );
                                                     ui.end_row();
 
-                                                    ui.label("Always On Top:");
+                                                    ui.label(t.always_on_top());
                                                     ui.checkbox(&mut temp_config.always_on_top, "");
                                                     ui.end_row();
 
-                                                    ui.label("Dark Mode:");
+                                                    ui.label(t.dark_mode());
                                                     ui.checkbox(&mut temp_config.dark_mode, "");
                                                     ui.end_row();
                                                 });
@@ -345,7 +378,7 @@ impl SorahkGui {
                                         .show(ui, |ui| {
                                             ui.set_min_width(ui.available_width());
                                             ui.label(
-                                                egui::RichText::new("🔄 Key Mappings")
+                                                egui::RichText::new(t.key_mappings_title())
                                                     .size(16.0)
                                                     .strong()
                                                     .color(if self.dark_mode {
@@ -364,7 +397,7 @@ impl SorahkGui {
                                                 ui.horizontal(|ui| {
                                                     // Fixed-width label for numbering to ensure alignment
                                                     ui.add_sized(
-                                                        [30.0, 24.0],
+                                                        [26.0, 24.0],
                                                         egui::Label::new(
                                                             egui::RichText::new(format!(
                                                                 "{}.",
@@ -380,7 +413,7 @@ impl SorahkGui {
                                                         ),
                                                     );
 
-                                                    ui.label("Trigger:");
+                                                    ui.label(t.trigger_short());
                                                     let is_capturing_trigger = self
                                                         .key_capture_mode
                                                         == KeyCaptureMode::MappingTrigger(idx);
@@ -416,7 +449,7 @@ impl SorahkGui {
                                                             KeyCaptureMode::MappingTrigger(idx);
                                                     }
 
-                                                    ui.label("Target:");
+                                                    ui.label(t.target_short());
                                                     let is_capturing_target = self.key_capture_mode
                                                         == KeyCaptureMode::MappingTarget(idx);
                                                     let target_text = if is_capturing_target {
@@ -451,7 +484,7 @@ impl SorahkGui {
                                                             KeyCaptureMode::MappingTarget(idx);
                                                     }
 
-                                                    ui.label("Int:");
+                                                    ui.label(t.interval_short());
                                                     let mut interval_str = mapping
                                                         .interval
                                                         .unwrap_or(temp_config.interval)
@@ -476,7 +509,7 @@ impl SorahkGui {
                                                         mapping.interval = Some(val.max(5));
                                                     }
 
-                                                    ui.label("Dur:");
+                                                    ui.label(t.duration_short());
                                                     let mut duration_str = mapping
                                                         .event_duration
                                                         .unwrap_or(temp_config.event_duration)
@@ -528,21 +561,21 @@ impl SorahkGui {
 
                                             // Add new mapping
                                             ui.label(
-                                                egui::RichText::new("➕ Add New Mapping")
+                                                egui::RichText::new(t.add_new_mapping_title())
                                                     .size(14.0)
                                                     .strong(),
                                             );
                                             ui.add_space(5.0);
 
                                             ui.horizontal(|ui| {
-                                                ui.label("Trigger:");
+                                                ui.label(t.trigger_short());
                                                 let is_capturing_new_trigger = self
                                                     .key_capture_mode
                                                     == KeyCaptureMode::NewMappingTrigger;
                                                 let new_trigger_text = if is_capturing_new_trigger {
-                                                    "⌨ Press..."
+                                                    t.press_any_key()
                                                 } else if self.new_mapping_trigger.is_empty() {
-                                                    "Click"
+                                                    t.click_text()
                                                 } else {
                                                     &self.new_mapping_trigger
                                                 };
@@ -571,15 +604,17 @@ impl SorahkGui {
                                                 {
                                                     self.key_capture_mode =
                                                         KeyCaptureMode::NewMappingTrigger;
+                                                    // Clear error when user starts to modify trigger
+                                                    self.duplicate_mapping_error = None;
                                                 }
 
-                                                ui.label("Target:");
+                                                ui.label(t.target_short());
                                                 let is_capturing_new_target = self.key_capture_mode
                                                     == KeyCaptureMode::NewMappingTarget;
                                                 let new_target_text = if is_capturing_new_target {
-                                                    "⌨ Press..."
+                                                    t.press_any_key()
                                                 } else if self.new_mapping_target.is_empty() {
-                                                    "Click"
+                                                    t.click_text()
                                                 } else {
                                                     &self.new_mapping_target
                                                 };
@@ -610,7 +645,7 @@ impl SorahkGui {
                                                         KeyCaptureMode::NewMappingTarget;
                                                 }
 
-                                                ui.label("Int:");
+                                                ui.label(t.interval_short());
                                                 let interval_edit = egui::TextEdit::singleline(
                                                     &mut self.new_mapping_interval,
                                                 )
@@ -624,7 +659,7 @@ impl SorahkGui {
                                                 .font(egui::TextStyle::Button);
                                                 ui.add_sized([45.0, 24.0], interval_edit);
 
-                                                ui.label("Dur:");
+                                                ui.label(t.duration_short());
                                                 let duration_edit = egui::TextEdit::singleline(
                                                     &mut self.new_mapping_duration,
                                                 )
@@ -639,7 +674,7 @@ impl SorahkGui {
                                                 ui.add_sized([45.0, 24.0], duration_edit);
 
                                                 let add_btn = egui::Button::new(
-                                                    egui::RichText::new("➕ Add")
+                                                    egui::RichText::new(t.add_button_text())
                                                         .color(egui::Color32::WHITE)
                                                         .strong(),
                                                 )
@@ -650,35 +685,65 @@ impl SorahkGui {
                                                     && !self.new_mapping_trigger.is_empty()
                                                     && !self.new_mapping_target.is_empty()
                                                 {
-                                                    let interval = self
-                                                        .new_mapping_interval
-                                                        .parse::<u64>()
-                                                        .ok()
-                                                        .map(|v| v.max(5));
-                                                    let duration = self
-                                                        .new_mapping_duration
-                                                        .parse::<u64>()
-                                                        .ok()
-                                                        .map(|v| v.max(5));
+                                                    let trigger_upper =
+                                                        self.new_mapping_trigger.to_uppercase();
 
-                                                    temp_config.mappings.push(KeyMapping {
-                                                        trigger_key: self
-                                                            .new_mapping_trigger
-                                                            .to_uppercase(),
-                                                        target_key: self
-                                                            .new_mapping_target
-                                                            .to_uppercase(),
-                                                        interval,
-                                                        event_duration: duration,
-                                                    });
+                                                    // Check for duplicate trigger key
+                                                    let is_duplicate = temp_config
+                                                        .mappings
+                                                        .iter()
+                                                        .any(|m| m.trigger_key == trigger_upper);
 
-                                                    // Clear input fields
-                                                    self.new_mapping_trigger.clear();
-                                                    self.new_mapping_target.clear();
-                                                    self.new_mapping_interval.clear();
-                                                    self.new_mapping_duration.clear();
+                                                    if is_duplicate {
+                                                        self.duplicate_mapping_error = Some(
+                                                            t.duplicate_trigger_error().to_string(),
+                                                        );
+                                                    } else {
+                                                        // Clear any previous error
+                                                        self.duplicate_mapping_error = None;
+
+                                                        let interval = self
+                                                            .new_mapping_interval
+                                                            .parse::<u64>()
+                                                            .ok()
+                                                            .map(|v| v.max(5));
+                                                        let duration = self
+                                                            .new_mapping_duration
+                                                            .parse::<u64>()
+                                                            .ok()
+                                                            .map(|v| v.max(5));
+
+                                                        temp_config.mappings.push(KeyMapping {
+                                                            trigger_key: trigger_upper,
+                                                            target_key: self
+                                                                .new_mapping_target
+                                                                .to_uppercase(),
+                                                            interval,
+                                                            event_duration: duration,
+                                                        });
+
+                                                        // Clear input fields
+                                                        self.new_mapping_trigger.clear();
+                                                        self.new_mapping_target.clear();
+                                                        self.new_mapping_interval.clear();
+                                                        self.new_mapping_duration.clear();
+                                                    }
                                                 }
                                             });
+
+                                            // Display duplicate trigger error if exists
+                                            if let Some(ref error_msg) =
+                                                self.duplicate_mapping_error
+                                            {
+                                                ui.add_space(8.0);
+                                                ui.label(
+                                                    egui::RichText::new(error_msg)
+                                                        .color(egui::Color32::from_rgb(
+                                                            255, 100, 100,
+                                                        ))
+                                                        .size(13.0),
+                                                );
+                                            }
                                         });
 
                                     ui.add_space(8.0);
@@ -697,16 +762,14 @@ impl SorahkGui {
                                         .show(ui, |ui| {
                                             ui.set_min_width(ui.available_width());
                                             ui.label(
-                                                egui::RichText::new(
-                                                    "🎯 Process Whitelist (Empty = All Enabled)",
-                                                )
-                                                .size(16.0)
-                                                .strong()
-                                                .color(if self.dark_mode {
-                                                    egui::Color32::from_rgb(186, 149, 230) // Soft purple
-                                                } else {
-                                                    egui::Color32::from_rgb(100, 50, 150) // Darker purple for contrast
-                                                }),
+                                                egui::RichText::new(t.process_whitelist_hint())
+                                                    .size(16.0)
+                                                    .strong()
+                                                    .color(if self.dark_mode {
+                                                        egui::Color32::from_rgb(186, 149, 230) // Soft purple
+                                                    } else {
+                                                        egui::Color32::from_rgb(100, 50, 150) // Darker purple for contrast
+                                                    }),
                                             );
                                             ui.add_space(6.0);
 
@@ -782,12 +845,12 @@ impl SorahkGui {
                                                 } else {
                                                     egui::Color32::from_rgb(220, 220, 220)
                                                 })
-                                                .hint_text("e.g., notepad.exe")
+                                                .hint_text(t.process_example())
                                                 .desired_width(200.0);
                                                 ui.add(process_edit);
 
                                                 let add_btn = egui::Button::new(
-                                                    egui::RichText::new("➕ Add")
+                                                    egui::RichText::new(t.add_button_text())
                                                         .color(egui::Color32::WHITE)
                                                         .size(12.0)
                                                         .strong(),
@@ -813,7 +876,7 @@ impl SorahkGui {
 
                                                 // Browse button for selecting process
                                                 let browse_btn = egui::Button::new(
-                                                    egui::RichText::new("📁 Browse")
+                                                    egui::RichText::new(t.browse_button())
                                                         .color(egui::Color32::WHITE)
                                                         .size(12.0)
                                                         .strong(),
@@ -864,7 +927,7 @@ impl SorahkGui {
                             }
 
                             let save_btn = egui::Button::new(
-                                egui::RichText::new("💾  Save Changes")
+                                egui::RichText::new(t.save())
                                     .size(14.0) // Slightly smaller for consistency
                                     .color(egui::Color32::WHITE)
                                     .strong(),
@@ -879,7 +942,7 @@ impl SorahkGui {
                             ui.add_space(spacing);
 
                             let cancel_btn = egui::Button::new(
-                                egui::RichText::new("❌  Cancel")
+                                egui::RichText::new(t.cancel())
                                     .size(14.0)
                                     .color(egui::Color32::WHITE)
                                     .strong(),
@@ -898,12 +961,10 @@ impl SorahkGui {
                     // Hint
                     ui.vertical_centered(|ui| {
                         ui.label(
-                            egui::RichText::new(
-                                "* Changes will take effect immediately after saving",
-                            )
-                            .size(12.0)
-                            .color(egui::Color32::from_rgb(100, 220, 100))
-                            .italics(),
+                            egui::RichText::new(t.changes_take_effect_hint())
+                                .size(12.0)
+                                .color(egui::Color32::from_rgb(100, 220, 100))
+                                .italics(),
                         );
                     });
                 }); // End of ui.push_id
@@ -916,6 +977,8 @@ impl SorahkGui {
                 let always_on_top_changed = temp_config.always_on_top != self.config.always_on_top;
                 // Check if dark_mode changed
                 let dark_mode_changed = temp_config.dark_mode != self.config.dark_mode;
+                // Check if language changed
+                let language_changed = temp_config.language != self.config.language;
 
                 // Save to file
                 if temp_config.save_to_file("Config.toml").is_ok() {
@@ -928,6 +991,12 @@ impl SorahkGui {
                     // Apply theme change immediately
                     if dark_mode_changed {
                         self.dark_mode = self.config.dark_mode;
+                    }
+
+                    if language_changed {
+                        self.update_translations(self.config.language);
+                        use crate::gui::fonts;
+                        fonts::load_fonts(ctx, self.config.language);
                     }
 
                     // Apply always_on_top change immediately

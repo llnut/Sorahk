@@ -1,9 +1,16 @@
 //! About dialog implementation.
 
+use crate::i18n::CachedTranslations;
 use eframe::egui;
 
 /// Renders the about dialog showing application information.
-pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dialog: &mut bool) {
+pub fn render_about_dialog(
+    ctx: &egui::Context,
+    dark_mode: bool,
+    show_about_dialog: &mut bool,
+    translations: &CachedTranslations,
+) {
+    let t = translations;
     // Pre-calculate all colors based on theme
     let (
         title_color,
@@ -94,21 +101,19 @@ pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dial
                         .show(ui, |ui| {
                             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                                 ui.label(
-                                    egui::RichText::new("✨ Version 0.2.0")
+                                    egui::RichText::new(t.about_version())
                                         .size(18.0)
                                         .strong()
                                         .color(version_color),
                                 );
                                 ui.add_space(12.0);
                                 ui.label(
-                                    egui::RichText::new(
-                                        "A lightweight, efficient auto key press tool",
-                                    )
-                                    .size(13.0)
-                                    .color(text_secondary),
+                                    egui::RichText::new(t.about_description_line1())
+                                        .size(13.0)
+                                        .color(text_secondary),
                                 );
                                 ui.label(
-                                    egui::RichText::new("with beautiful anime-inspired interface")
+                                    egui::RichText::new(t.about_description_line2())
                                         .size(13.0)
                                         .color(text_secondary),
                                 );
@@ -129,7 +134,7 @@ pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dial
                         .show(ui, |ui| {
                             // Author
                             ui.label(
-                                egui::RichText::new("👤 Author:")
+                                egui::RichText::new(t.about_author())
                                     .size(14.0)
                                     .strong()
                                     .color(label_color),
@@ -139,7 +144,7 @@ pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dial
 
                             // GitHub
                             ui.label(
-                                egui::RichText::new("🔗 GitHub:")
+                                egui::RichText::new(t.about_github())
                                     .size(14.0)
                                     .strong()
                                     .color(label_color),
@@ -154,13 +159,13 @@ pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dial
 
                             // License
                             ui.label(
-                                egui::RichText::new("📜 License:")
+                                egui::RichText::new(t.about_license())
                                     .size(14.0)
                                     .strong()
                                     .color(label_color),
                             );
                             ui.label(
-                                egui::RichText::new("MIT License")
+                                egui::RichText::new(t.about_mit_license())
                                     .size(14.0)
                                     .color(text_color),
                             );
@@ -168,13 +173,13 @@ pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dial
 
                             // Built with
                             ui.label(
-                                egui::RichText::new("⚙ Built with:")
+                                egui::RichText::new(t.about_built_with())
                                     .size(14.0)
                                     .strong()
                                     .color(label_color),
                             );
                             ui.label(
-                                egui::RichText::new("Rust + egui")
+                                egui::RichText::new(t.about_rust_egui())
                                     .size(14.0)
                                     .color(text_color),
                             );
@@ -185,7 +190,7 @@ pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dial
 
                 // Inspired note
                 ui.label(
-                    egui::RichText::new("💫 Inspired by Kasugano Sora")
+                    egui::RichText::new(t.about_inspired())
                         .size(12.0)
                         .italics()
                         .color(inspired_color),
@@ -197,7 +202,7 @@ pub fn render_about_dialog(ctx: &egui::Context, dark_mode: bool, show_about_dial
                     .add_sized(
                         [200.0, 32.0],
                         egui::Button::new(
-                            egui::RichText::new("✨ Close")
+                            egui::RichText::new(t.error_close_button())
                                 .size(15.0)
                                 .color(egui::Color32::WHITE)
                                 .strong(),

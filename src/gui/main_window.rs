@@ -88,7 +88,12 @@ impl eframe::App for SorahkGui {
         }
 
         if self.show_about_dialog {
-            render_about_dialog(ctx, self.dark_mode, &mut self.show_about_dialog);
+            render_about_dialog(
+                ctx,
+                self.dark_mode,
+                &mut self.show_about_dialog,
+                &self.translations,
+            );
         }
 
         // Handle keyboard input
@@ -135,6 +140,7 @@ impl SorahkGui {
 
     /// Renders the close confirmation dialog.
     fn render_close_dialog(&mut self, ctx: &egui::Context) {
+        let t = &self.translations;
         let should_highlight = self
             .dialog_highlight_until
             .map(|until| std::time::Instant::now() < until)
@@ -178,7 +184,7 @@ impl SorahkGui {
                 ui.add_space(25.0);
 
                 ui.label(
-                    egui::RichText::new("💫 Close Window")
+                    egui::RichText::new(t.close_window_title())
                         .size(22.0)
                         .strong()
                         .color(if self.dark_mode {
@@ -190,7 +196,7 @@ impl SorahkGui {
 
                 ui.add_space(8.0);
                 ui.label(
-                    egui::RichText::new("What would you like to do?")
+                    egui::RichText::new(t.close_subtitle())
                         .size(13.0)
                         .italics()
                         .color(if self.dark_mode {
@@ -208,7 +214,7 @@ impl SorahkGui {
 
                 if tray_enabled {
                     let minimize_btn = egui::Button::new(
-                        egui::RichText::new("🗕  Minimize to Tray")
+                        egui::RichText::new(t.minimize_to_tray_button())
                             .size(14.0)
                             .color(egui::Color32::WHITE)
                             .strong(),
@@ -228,7 +234,7 @@ impl SorahkGui {
                 }
 
                 let exit_btn = egui::Button::new(
-                    egui::RichText::new("🚪  Exit Program")
+                    egui::RichText::new(t.exit_program_button())
                         .size(14.0)
                         .color(egui::Color32::WHITE)
                         .strong(),
@@ -246,13 +252,15 @@ impl SorahkGui {
 
                 ui.add_space(12.0);
 
-                let cancel_btn = egui::Button::new(egui::RichText::new("Cancel").size(13.0).color(
-                    if self.dark_mode {
-                        egui::Color32::from_rgb(200, 200, 200)
-                    } else {
-                        egui::Color32::from_rgb(80, 80, 80)
-                    },
-                ))
+                let cancel_btn = egui::Button::new(
+                    egui::RichText::new(t.cancel_close_button())
+                        .size(13.0)
+                        .color(if self.dark_mode {
+                            egui::Color32::from_rgb(200, 200, 200)
+                        } else {
+                            egui::Color32::from_rgb(80, 80, 80)
+                        }),
+                )
                 .fill(if self.dark_mode {
                     egui::Color32::from_rgb(60, 60, 60)
                 } else {
@@ -317,11 +325,13 @@ impl SorahkGui {
 
     /// Renders the title bar with theme toggle and menu buttons.
     fn render_title_bar(&mut self, ui: &mut egui::Ui) {
+        let t = &self.translations;
+
         ui.horizontal(|ui| {
             ui.add_space(15.0);
 
             ui.label(
-                egui::RichText::new("🌸 Sorahk ~ Auto Key Press Tool ~")
+                egui::RichText::new(t.app_title())
                     .size(18.0)
                     .strong()
                     .color(if self.dark_mode {
@@ -335,7 +345,11 @@ impl SorahkGui {
                 ui.add_space(10.0);
 
                 let theme_icon = if self.dark_mode { "☀" } else { "🌙" };
-                let theme_text = if self.dark_mode { "Light" } else { "Dark" };
+                let theme_text = if self.dark_mode {
+                    t.dark_theme()
+                } else {
+                    t.light_theme()
+                };
 
                 let theme_btn = egui::Button::new(
                     egui::RichText::new(format!("{}  {}", theme_icon, theme_text))
@@ -361,7 +375,7 @@ impl SorahkGui {
                 ui.add_space(8.0);
 
                 let settings_btn = egui::Button::new(
-                    egui::RichText::new("⚙  Settings")
+                    egui::RichText::new(t.settings_button())
                         .size(13.0)
                         .color(egui::Color32::WHITE),
                 )
@@ -385,7 +399,7 @@ impl SorahkGui {
                 ui.add_space(8.0);
 
                 let about_btn = egui::Button::new(
-                    egui::RichText::new("❤  About")
+                    egui::RichText::new(t.about_button())
                         .size(13.0)
                         .color(egui::Color32::WHITE),
                 )
@@ -401,6 +415,7 @@ impl SorahkGui {
 
     /// Renders the status card with pause/resume and exit controls.
     fn render_status_card(&mut self, ui: &mut egui::Ui) {
+        let t = &self.translations;
         let card_bg = if self.dark_mode {
             egui::Color32::from_rgb(42, 38, 48)
         } else {
@@ -415,21 +430,28 @@ impl SorahkGui {
                 ui.set_min_width(ui.available_width());
 
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("✨ Status:").size(16.0).strong().color(
-                        if self.dark_mode {
-                            egui::Color32::from_rgb(255, 182, 193)
-                        } else {
-                            egui::Color32::from_rgb(220, 20, 60)
-                        },
-                    ));
+                    ui.label(
+                        egui::RichText::new(t.status_title())
+                            .size(16.0)
+                            .strong()
+                            .color(if self.dark_mode {
+                                egui::Color32::from_rgb(255, 182, 193)
+                            } else {
+                                egui::Color32::from_rgb(220, 20, 60)
+                            }),
+                    );
 
                     ui.add_space(10.0);
 
                     let is_paused = self.app_state.is_paused();
                     let (icon, text, color) = if is_paused {
-                        ("⏸", "Paused", egui::Color32::from_rgb(255, 140, 0))
+                        ("⏸", t.paused_status(), egui::Color32::from_rgb(255, 140, 0))
                     } else {
-                        ("▶", "Running", egui::Color32::from_rgb(34, 139, 34))
+                        (
+                            "▶",
+                            t.running_status(),
+                            egui::Color32::from_rgb(34, 139, 34),
+                        )
                     };
 
                     ui.label(egui::RichText::new(icon).size(18.0).color(color));
@@ -439,7 +461,7 @@ impl SorahkGui {
                         let worker_count = self.app_state.get_actual_worker_count();
                         if worker_count > 0 {
                             ui.label(
-                                egui::RichText::new(format!("⚡ {} Worker(s)", worker_count))
+                                egui::RichText::new(t.format_worker_count(worker_count as usize))
                                     .size(13.0)
                                     .color(if self.dark_mode {
                                         egui::Color32::from_rgb(135, 206, 235)
@@ -459,9 +481,9 @@ impl SorahkGui {
 
                     let is_paused = self.app_state.is_paused();
                     let (text, color) = if is_paused {
-                        ("▶  Start", egui::Color32::from_rgb(144, 238, 144))
+                        (t.start_button(), egui::Color32::from_rgb(144, 238, 144))
                     } else {
-                        ("⏸  Pause", egui::Color32::from_rgb(255, 218, 185))
+                        (t.pause_button(), egui::Color32::from_rgb(255, 218, 185))
                     };
 
                     let toggle_btn = egui::Button::new(
@@ -488,7 +510,7 @@ impl SorahkGui {
                     ui.add_space(15.0);
 
                     let exit_btn = egui::Button::new(
-                        egui::RichText::new("❌  Exit")
+                        egui::RichText::new(t.exit_button())
                             .size(14.0)
                             .color(egui::Color32::WHITE)
                             .strong(),
@@ -506,6 +528,7 @@ impl SorahkGui {
 
     /// Renders the hotkey settings card displaying the toggle key.
     fn render_hotkey_card(&self, ui: &mut egui::Ui) {
+        let t = &self.translations;
         let card_bg = if self.dark_mode {
             egui::Color32::from_rgb(35, 42, 50)
         } else {
@@ -520,7 +543,7 @@ impl SorahkGui {
                 ui.set_min_width(ui.available_width());
 
                 ui.label(
-                    egui::RichText::new("🎯 Hotkey Settings")
+                    egui::RichText::new(t.hotkey_settings_title())
                         .size(16.0)
                         .strong()
                         .color(if self.dark_mode {
@@ -533,7 +556,7 @@ impl SorahkGui {
                 ui.add_space(8.0);
 
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Toggle Key:").size(14.0).color(
+                    ui.label(egui::RichText::new(t.toggle_key_label()).size(14.0).color(
                         if self.dark_mode {
                             egui::Color32::from_rgb(200, 200, 200)
                         } else {
@@ -556,6 +579,7 @@ impl SorahkGui {
 
     /// Renders the global configuration card with application settings.
     fn render_config_card(&self, ui: &mut egui::Ui) {
+        let t = &self.translations;
         let card_bg = if self.dark_mode {
             egui::Color32::from_rgb(48, 42, 38)
         } else {
@@ -570,7 +594,7 @@ impl SorahkGui {
                 ui.set_min_width(ui.available_width());
 
                 ui.label(
-                    egui::RichText::new("⚙ Global Configuration")
+                    egui::RichText::new(t.config_settings_title())
                         .size(16.0)
                         .strong()
                         .color(if self.dark_mode {
@@ -591,26 +615,34 @@ impl SorahkGui {
                     .show(ui, |ui| {
                         self.render_config_row(
                             ui,
-                            "Input Timeout:",
+                            t.input_timeout_display(),
                             &format!("{} ms", self.config.input_timeout),
                         );
                         self.render_config_row(
                             ui,
-                            "Default Interval:",
+                            t.default_interval_display(),
                             &format!("{} ms", self.config.interval),
                         );
                         self.render_config_row(
                             ui,
-                            "Default Duration:",
+                            t.default_duration_display(),
                             &format!("{} ms", self.config.event_duration),
                         );
-                        self.render_bool_row(ui, "Show Tray Icon:", self.config.show_tray_icon);
                         self.render_bool_row(
                             ui,
-                            "Show Notifications:",
+                            t.show_tray_icon_display(),
+                            self.config.show_tray_icon,
+                        );
+                        self.render_bool_row(
+                            ui,
+                            t.show_notifications_display(),
                             self.config.show_notifications,
                         );
-                        self.render_bool_row(ui, "Always On Top:", self.config.always_on_top);
+                        self.render_bool_row(
+                            ui,
+                            t.always_on_top_display(),
+                            self.config.always_on_top,
+                        );
                     });
             });
     }
@@ -640,6 +672,7 @@ impl SorahkGui {
 
     /// Renders a single boolean configuration row with checkmark.
     fn render_bool_row(&self, ui: &mut egui::Ui, label: &str, value: bool) {
+        let t = &self.translations;
         ui.label(
             egui::RichText::new(label)
                 .size(14.0)
@@ -649,7 +682,7 @@ impl SorahkGui {
                     egui::Color32::from_rgb(40, 40, 40)
                 }),
         );
-        let text = if value { "Yes" } else { "No" };
+        let text = if value { t.yes() } else { t.no() };
         let color = if value {
             if self.dark_mode {
                 egui::Color32::from_rgb(144, 238, 144)
@@ -667,6 +700,7 @@ impl SorahkGui {
 
     /// Renders the key mappings card showing all configured mappings.
     fn render_mappings_card(&self, ui: &mut egui::Ui) {
+        let t = &self.translations;
         let card_bg = if self.dark_mode {
             egui::Color32::from_rgb(35, 45, 40)
         } else {
@@ -681,7 +715,7 @@ impl SorahkGui {
                 ui.set_min_width(ui.available_width());
 
                 ui.label(
-                    egui::RichText::new("🔄 Key Mappings")
+                    egui::RichText::new(t.key_mappings_title())
                         .size(16.0)
                         .strong()
                         .color(if self.dark_mode {
@@ -758,7 +792,13 @@ impl SorahkGui {
 
     /// Renders the header row for the key mappings table.
     fn render_mapping_header(&self, ui: &mut egui::Ui) {
-        let headers = ["Trigger", "Target", "Interval(ms)", "Duration(ms)"];
+        let t = &self.translations;
+        let headers = [
+            t.trigger_header(),
+            t.target_header(),
+            t.interval_header(),
+            t.duration_header(),
+        ];
         for header in &headers {
             ui.label(
                 egui::RichText::new(*header)

@@ -323,8 +323,6 @@ impl TrayIcon {
 
     /// Modern Toast Notification implementation (Windows 10+)
     fn show_toast_notification(title: &str, message: &str) -> Result<()> {
-        // Create XML content for the toast
-        // Note: IconUri is set in registry, Windows will use it automatically
         let toast_xml = format!(
             r#"<?xml version="1.0" encoding="utf-8"?>
 <toast duration="short">
@@ -621,15 +619,10 @@ impl TrayIcon {
 }
 
 impl Drop for TrayIcon {
-    /// Automatically clean the tray icon
     fn drop(&mut self) {
         unsafe {
             let _ = Shell_NotifyIconW(NIM_DELETE, &self.nid);
-            // Note: We do not destroy system icons; we only destroy custom-created icons
-            // In practical applications, if it is necessary to destroy custom icons, it should be handled here
         }
-
-        // Unregister AUMID from registry
         let _ = Self::unregister_aumid();
     }
 }

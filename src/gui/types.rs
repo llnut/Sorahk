@@ -1,11 +1,11 @@
-// GUI type definitions
+//! GUI type definitions.
 
-/// Key capture mode enumeration for keyboard input handling
+/// Key capture mode for keyboard input handling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyCaptureMode {
     None,
     ToggleKey,
-    MappingTrigger(usize), // Index of mapping being edited
+    MappingTrigger(usize),
     MappingTarget(usize),
     NewMappingTrigger,
     NewMappingTarget,

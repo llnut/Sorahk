@@ -6,6 +6,8 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 
+use crate::i18n::Language;
+
 /// Main application configuration structure.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AppConfig {
@@ -19,6 +21,9 @@ pub struct AppConfig {
     /// Use dark theme mode
     #[serde(default)]
     pub dark_mode: bool,
+    /// Application language
+    #[serde(default)]
+    pub language: Language,
     /// Toggle hotkey name
     pub switch_key: String,
     /// Key mapping configurations
@@ -76,6 +81,7 @@ impl AppConfig {
             show_notifications: true,
             always_on_top: false, // Default: not always on top for backward compatibility
             dark_mode: false,     // Default: light theme for backward compatibility
+            language: Language::default(),
             switch_key: "DELETE".to_string(),
             mappings: vec![KeyMapping {
                 trigger_key: "Q".to_string(),
@@ -143,7 +149,8 @@ impl AppConfig {
              show_tray_icon = {}       # Show system tray icon on startup\n\
              show_notifications = {}   # Enable/disable system notifications\n\
              always_on_top = {}       # Keep window always on top of other windows\n\
-             dark_mode = {}           # Use dark theme (false = light theme, true = dark theme)\n\n\
+             dark_mode = {}           # Use dark theme (false = light theme, true = dark theme)\n\
+             language = \"{}\"         # Interface language\n\n\
              # ─── Performance Settings ───\n\
              input_timeout = {}          # Input timeout in ms\n\
              interval = {}                # Default repeat interval between keystrokes (ms)\n\
@@ -161,6 +168,12 @@ impl AppConfig {
             self.show_notifications,
             self.always_on_top,
             self.dark_mode,
+            match self.language {
+                Language::English => "English",
+                Language::SimplifiedChinese => "SimplifiedChinese",
+                Language::TraditionalChinese => "TraditionalChinese",
+                Language::Japanese => "Japanese",
+            },
             self.input_timeout,
             self.interval,
             self.event_duration,

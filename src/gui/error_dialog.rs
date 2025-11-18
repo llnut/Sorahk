@@ -1,16 +1,22 @@
 //! Error dialog for displaying critical errors.
 
+use crate::gui::fonts;
 use crate::gui::utils::create_icon;
+use crate::i18n::{CachedTranslations, Language};
 use eframe::egui;
 
 /// Error dialog structure for displaying configuration errors.
 struct ErrorDialog {
     /// Error message text
     error_msg: String,
+    /// Cached translations
+    translations: CachedTranslations,
 }
 
 impl eframe::App for ErrorDialog {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let t = &self.translations;
+
         // Apply anime theme with no borders
         let mut visuals = egui::Visuals::dark();
         visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(18);
@@ -38,7 +44,7 @@ impl eframe::App for ErrorDialog {
                 // Error icon and title
                 ui.vertical_centered(|ui| {
                     ui.label(
-                        egui::RichText::new("❌ Configuration Error")
+                        egui::RichText::new(t.error_title())
                             .size(24.0)
                             .color(egui::Color32::from_rgb(255, 100, 130))
                             .strong(),
@@ -71,7 +77,7 @@ impl eframe::App for ErrorDialog {
                 // Close button
                 ui.vertical_centered(|ui| {
                     let close_btn = egui::Button::new(
-                        egui::RichText::new("Close")
+                        egui::RichText::new(t.error_close_button())
                             .size(16.0)
                             .color(egui::Color32::WHITE),
                     )
@@ -107,12 +113,19 @@ pub fn show_error(error_msg: &str) -> anyhow::Result<()> {
         ..Default::default()
     };
 
+    // Error dialog always uses English for better compatibility
+    let language = Language::English;
+
     eframe::run_native(
         "Sorahk Error",
         options,
-        Box::new(|_cc| {
+        Box::new(move |cc| {
+            // Load fonts for proper text rendering
+            fonts::load_fonts(&cc.egui_ctx, language);
+
             Ok(Box::new(ErrorDialog {
                 error_msg: error_msg.to_string(),
+                translations: CachedTranslations::new(language),
             }))
         }),
     )

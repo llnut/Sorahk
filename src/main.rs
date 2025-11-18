@@ -4,6 +4,7 @@
 //mod about;
 mod config;
 mod gui;
+mod i18n;
 mod keyboard;
 mod signal;
 mod state;

@@ -5,6 +5,7 @@
 
 mod about_dialog;
 mod error_dialog;
+mod fonts;
 mod main_window;
 mod settings_dialog;
 mod types;
@@ -12,6 +13,7 @@ mod utils;
 
 use crate::config::AppConfig;
 use crate::gui::types::KeyCaptureMode;
+use crate::i18n::CachedTranslations;
 use crate::state::AppState;
 use eframe::egui;
 use std::sync::Arc;
@@ -26,6 +28,8 @@ pub struct SorahkGui {
     pub(super) app_state: Arc<AppState>,
     /// Application configuration
     pub(super) config: AppConfig,
+    /// Cached translations for high-performance rendering
+    pub(super) translations: CachedTranslations,
     /// Close confirmation dialog visibility
     pub(super) show_close_dialog: bool,
     /// Settings dialog visibility
@@ -54,16 +58,20 @@ pub struct SorahkGui {
     pub(super) dialog_highlight_until: Option<std::time::Instant>,
     /// Pause state before entering settings
     pub(super) was_paused_before_settings: Option<bool>,
+    /// Error message for duplicate mapping
+    pub(super) duplicate_mapping_error: Option<String>,
 }
 
 impl SorahkGui {
     /// Creates a new GUI instance with the given state and configuration.
     pub fn new(app_state: Arc<AppState>, config: AppConfig) -> Self {
         let dark_mode = config.dark_mode;
+        let translations = CachedTranslations::new(config.language);
 
         Self {
             app_state,
             config,
+            translations,
             show_close_dialog: false,
             show_settings_dialog: false,
             show_about_dialog: false,
@@ -78,7 +86,13 @@ impl SorahkGui {
             new_process_name: String::new(),
             key_capture_mode: KeyCaptureMode::None,
             was_paused_before_settings: None,
+            duplicate_mapping_error: None,
         }
+    }
+
+    /// Updates the cached translations for the given language.
+    pub(super) fn update_translations(&mut self, language: crate::i18n::Language) {
+        self.translations = CachedTranslations::new(language);
     }
 
     /// Launches the GUI application.
@@ -90,8 +104,8 @@ impl SorahkGui {
         let icon = crate::gui::utils::create_icon();
 
         let mut viewport = egui::ViewportBuilder::default()
-            .with_inner_size([580.0, 550.0])
-            .with_min_inner_size([580.0, 550.0])
+            .with_inner_size([600.0, 530.0])
+            .with_min_inner_size([600.0, 530.0])
             .with_resizable(true)
             .with_title("Sorahk - Auto Key Press Tool")
             .with_icon(icon)
@@ -106,10 +120,15 @@ impl SorahkGui {
             ..Default::default()
         };
 
+        let language = config.language;
+
         eframe::run_native(
             "Sorahk",
             options,
-            Box::new(|_cc| Ok(Box::new(SorahkGui::new(app_state, config)))),
+            Box::new(move |cc| {
+                fonts::load_fonts(&cc.egui_ctx, language);
+                Ok(Box::new(SorahkGui::new(app_state, config)))
+            }),
         )
         .map_err(|e| anyhow::anyhow!("Failed to run GUI: {}", e))
     }

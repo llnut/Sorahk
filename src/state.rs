@@ -267,9 +267,8 @@ impl AppState {
         self.key_mappings.read().ok()?.get(trigger_key).cloned()
     }
 
-    #[inline(always)] // Force inline for performance
+    #[inline(always)]
     pub fn get_worker_index(&self, vk_code: u32) -> usize {
-        // Bounds check is optimized away by compiler due to u8 cast
         if vk_code < 256 {
             self.vk_to_worker[vk_code as usize] as usize
         } else {

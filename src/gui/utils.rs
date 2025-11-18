@@ -1,8 +1,8 @@
-// GUI utility functions
+//! GUI utility functions.
 
 use eframe::egui;
 
-/// Convert egui::Key to virtual key code string
+/// Converts egui::Key to virtual key code string.
 pub fn key_to_string(key: egui::Key) -> Option<String> {
     let key_name = match key {
         egui::Key::A => "A",
@@ -73,7 +73,7 @@ pub fn key_to_string(key: egui::Key) -> Option<String> {
     Some(key_name.to_string())
 }
 
-/// Convert virtual key code string to egui::Key
+/// Converts virtual key code string to egui::Key.
 pub fn string_to_key(key_name: &str) -> Option<egui::Key> {
     let key_upper = key_name.to_uppercase();
     match key_upper.as_str() {
@@ -144,25 +144,22 @@ pub fn string_to_key(key_name: &str) -> Option<egui::Key> {
     }
 }
 
-/// Load embedded application icon from binary
+/// Loads embedded application icon.
 pub fn create_icon() -> egui::IconData {
-    // Embed icon data directly into binary at compile time
     const ICON_BYTES: &[u8] = include_bytes!("../../resources/sorahk.ico");
 
-    // Parse the embedded icon data
     let icon_dir = ico::IconDir::read(std::io::Cursor::new(ICON_BYTES))
-        .expect("Failed to parse embedded icon data");
+        .expect("Failed to parse embedded icon");
 
-    // Select the best quality icon (prefer 32x32 or larger)
     let entry = icon_dir
         .entries()
         .iter()
         .filter(|e| e.width() >= 32)
         .max_by_key(|e| e.width())
         .or_else(|| icon_dir.entries().first())
-        .expect("No icon entries found in embedded icon");
+        .expect("No icon entries found");
 
-    let image = entry.decode().expect("Failed to decode embedded icon");
+    let image = entry.decode().expect("Failed to decode icon");
     let rgba_data = image.rgba_data().to_vec();
 
     egui::IconData {
