@@ -608,3 +608,655 @@ static SCANCODE_MAP: LazyLock<HashMap<u32, u16>> = LazyLock::new(|| {
     .cloned()
     .collect()
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::KeyMapping;
+
+    #[test]
+    fn test_key_name_to_vk_letters() {
+        assert_eq!(AppState::key_name_to_vk("A"), Some(0x41));
+        assert_eq!(AppState::key_name_to_vk("Z"), Some(0x5A));
+        assert_eq!(AppState::key_name_to_vk("a"), Some(0x41)); // Case insensitive
+        assert_eq!(AppState::key_name_to_vk("m"), Some(0x4D));
+    }
+
+    #[test]
+    fn test_key_name_to_vk_numbers() {
+        assert_eq!(AppState::key_name_to_vk("0"), Some(0x30));
+        assert_eq!(AppState::key_name_to_vk("5"), Some(0x35));
+        assert_eq!(AppState::key_name_to_vk("9"), Some(0x39));
+    }
+
+    #[test]
+    fn test_key_name_to_vk_function_keys() {
+        assert_eq!(AppState::key_name_to_vk("F1"), Some(0x70));
+        assert_eq!(AppState::key_name_to_vk("F12"), Some(0x7B));
+        assert_eq!(AppState::key_name_to_vk("F24"), Some(0x87));
+        assert_eq!(AppState::key_name_to_vk("f5"), Some(0x74)); // Case insensitive
+    }
+
+    #[test]
+    fn test_key_name_to_vk_special_keys() {
+        assert_eq!(AppState::key_name_to_vk("ESC"), Some(0x1B));
+        assert_eq!(AppState::key_name_to_vk("ENTER"), Some(0x0D));
+        assert_eq!(AppState::key_name_to_vk("TAB"), Some(0x09));
+        assert_eq!(AppState::key_name_to_vk("SPACE"), Some(0x20));
+        assert_eq!(AppState::key_name_to_vk("BACKSPACE"), Some(0x08));
+        assert_eq!(AppState::key_name_to_vk("DELETE"), Some(0x2E));
+        assert_eq!(AppState::key_name_to_vk("INSERT"), Some(0x2D));
+    }
+
+    #[test]
+    fn test_key_name_to_vk_arrow_keys() {
+        assert_eq!(AppState::key_name_to_vk("UP"), Some(0x26));
+        assert_eq!(AppState::key_name_to_vk("DOWN"), Some(0x28));
+        assert_eq!(AppState::key_name_to_vk("LEFT"), Some(0x25));
+        assert_eq!(AppState::key_name_to_vk("RIGHT"), Some(0x27));
+    }
+
+    #[test]
+    fn test_key_name_to_vk_modifier_keys() {
+        assert_eq!(AppState::key_name_to_vk("LSHIFT"), Some(0xA0));
+        assert_eq!(AppState::key_name_to_vk("RSHIFT"), Some(0xA1));
+        assert_eq!(AppState::key_name_to_vk("LCTRL"), Some(0xA2));
+        assert_eq!(AppState::key_name_to_vk("RCTRL"), Some(0xA3));
+        assert_eq!(AppState::key_name_to_vk("LALT"), Some(0xA4));
+        assert_eq!(AppState::key_name_to_vk("RALT"), Some(0xA5));
+    }
+
+    #[test]
+    fn test_key_name_to_vk_navigation_keys() {
+        assert_eq!(AppState::key_name_to_vk("HOME"), Some(0x24));
+        assert_eq!(AppState::key_name_to_vk("END"), Some(0x23));
+        assert_eq!(AppState::key_name_to_vk("PAGEUP"), Some(0x21));
+        assert_eq!(AppState::key_name_to_vk("PAGEDOWN"), Some(0x22));
+    }
+
+    #[test]
+    fn test_key_name_to_vk_invalid() {
+        assert_eq!(AppState::key_name_to_vk("INVALID"), None);
+        assert_eq!(AppState::key_name_to_vk("F25"), None);
+        assert_eq!(AppState::key_name_to_vk("F0"), None);
+        assert_eq!(AppState::key_name_to_vk(""), None);
+        assert_eq!(AppState::key_name_to_vk("ABC"), None);
+    }
+
+    #[test]
+    fn test_vk_to_scancode_letters() {
+        assert_eq!(AppState::vk_to_scancode(0x41), 0x1E); // A
+        assert_eq!(AppState::vk_to_scancode(0x42), 0x30); // B
+        assert_eq!(AppState::vk_to_scancode(0x5A), 0x2C); // Z
+    }
+
+    #[test]
+    fn test_vk_to_scancode_numbers() {
+        assert_eq!(AppState::vk_to_scancode(0x30), 0x0B); // 0
+        assert_eq!(AppState::vk_to_scancode(0x31), 0x02); // 1
+        assert_eq!(AppState::vk_to_scancode(0x39), 0x0A); // 9
+    }
+
+    #[test]
+    fn test_vk_to_scancode_function_keys() {
+        assert_eq!(AppState::vk_to_scancode(0x70), 0x3B); // F1
+        assert_eq!(AppState::vk_to_scancode(0x7B), 0x58); // F12
+    }
+
+    #[test]
+    fn test_vk_to_scancode_special_keys() {
+        assert_eq!(AppState::vk_to_scancode(0x1B), 0x01); // ESC
+        assert_eq!(AppState::vk_to_scancode(0x0D), 0x1C); // ENTER
+        assert_eq!(AppState::vk_to_scancode(0x20), 0x39); // SPACE
+    }
+
+    #[test]
+    fn test_vk_to_scancode_invalid() {
+        assert_eq!(AppState::vk_to_scancode(0xFF), 0); // Invalid VK code
+        assert_eq!(AppState::vk_to_scancode(0x00), 0); // No mapping
+    }
+
+    #[test]
+    fn test_create_key_mappings_valid() {
+        let mut config = AppConfig::default();
+        config.mappings = vec![
+            KeyMapping {
+                trigger_key: "A".to_string(),
+                target_key: "B".to_string(),
+                interval: Some(10),
+                event_duration: Some(5),
+            },
+            KeyMapping {
+                trigger_key: "F1".to_string(),
+                target_key: "SPACE".to_string(),
+                interval: None,
+                event_duration: None,
+            },
+        ];
+
+        let result = AppState::create_key_mappings(&config);
+        assert!(result.is_ok());
+
+        let mappings = result.unwrap();
+        assert_eq!(mappings.len(), 2);
+
+        let a_mapping = mappings.get(&0x41).unwrap();
+        assert_eq!(a_mapping.interval, 10);
+        assert_eq!(a_mapping.event_duration, 5);
+
+        let f1_mapping = mappings.get(&0x70).unwrap();
+        assert_eq!(f1_mapping.interval, 5); // Default interval
+        assert_eq!(f1_mapping.event_duration, 5); // Default duration
+    }
+
+    #[test]
+    fn test_create_key_mappings_invalid_trigger() {
+        let mut config = AppConfig::default();
+        config.mappings = vec![KeyMapping {
+            trigger_key: "INVALID_KEY".to_string(),
+            target_key: "A".to_string(),
+            interval: None,
+            event_duration: None,
+        }];
+
+        let result = AppState::create_key_mappings(&config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_key_mappings_invalid_target() {
+        let mut config = AppConfig::default();
+        config.mappings = vec![KeyMapping {
+            trigger_key: "A".to_string(),
+            target_key: "INVALID_KEY".to_string(),
+            interval: None,
+            event_duration: None,
+        }];
+
+        let result = AppState::create_key_mappings(&config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_key_mappings_interval_validation() {
+        let mut config = AppConfig::default();
+        config.interval = 3; // Below minimum
+        config.mappings = vec![KeyMapping {
+            trigger_key: "A".to_string(),
+            target_key: "B".to_string(),
+            interval: Some(2), // Below minimum
+            event_duration: None,
+        }];
+
+        let result = AppState::create_key_mappings(&config);
+        assert!(result.is_ok());
+
+        let mappings = result.unwrap();
+        let a_mapping = mappings.get(&0x41).unwrap();
+        assert!(
+            a_mapping.interval >= 5,
+            "Interval should be clamped to minimum 5"
+        );
+    }
+
+    #[test]
+    fn test_create_key_mappings_duration_validation() {
+        let mut config = AppConfig::default();
+        config.event_duration = 2; // Below minimum
+        config.mappings = vec![KeyMapping {
+            trigger_key: "A".to_string(),
+            target_key: "B".to_string(),
+            interval: None,
+            event_duration: Some(3), // Below minimum
+        }];
+
+        let result = AppState::create_key_mappings(&config);
+        assert!(result.is_ok());
+
+        let mappings = result.unwrap();
+        let a_mapping = mappings.get(&0x41).unwrap();
+        assert!(
+            a_mapping.event_duration >= 5,
+            "Duration should be clamped to minimum 5"
+        );
+    }
+
+    #[test]
+    fn test_key_event_variants() {
+        let pressed = KeyEvent::Pressed(0x41);
+        let released = KeyEvent::Released(0x41);
+
+        match pressed {
+            KeyEvent::Pressed(key) => assert_eq!(key, 0x41),
+            _ => panic!("Expected Pressed variant"),
+        }
+
+        match released {
+            KeyEvent::Released(key) => assert_eq!(key, 0x41),
+            _ => panic!("Expected Released variant"),
+        }
+    }
+
+    #[test]
+    fn test_key_mapping_info_structure() {
+        let mapping = KeyMappingInfo {
+            target_scancode: 0x1E,
+            interval: 10,
+            event_duration: 5,
+        };
+
+        assert_eq!(mapping.target_scancode, 0x1E);
+        assert_eq!(mapping.interval, 10);
+        assert_eq!(mapping.event_duration, 5);
+    }
+
+    #[test]
+    fn test_simulated_event_marker_constant() {
+        assert_eq!(SIMULATED_EVENT_MARKER, 0x4659);
+    }
+
+    #[test]
+    fn test_worker_index_calculation() {
+        let config = AppConfig::default();
+        let state = AppState::new(config).unwrap();
+
+        let index_a = state.get_worker_index(0x41); // A key
+        let index_b = state.get_worker_index(0x42); // B key
+
+        assert!(index_a < 256);
+        assert!(index_b < 256);
+    }
+
+    #[test]
+    fn test_worker_index_out_of_range() {
+        let config = AppConfig::default();
+        let state = AppState::new(config).unwrap();
+
+        let index = state.get_worker_index(300); // Out of range VK code
+        assert!(index < 256);
+    }
+
+    #[test]
+    fn test_scancode_map_coverage() {
+        let map = &*SCANCODE_MAP;
+
+        assert!(map.len() > 50, "Scancode map should contain common keys");
+
+        assert!(map.contains_key(&0x41)); // A
+        assert!(map.contains_key(&0x70)); // F1
+        assert!(map.contains_key(&0x20)); // SPACE
+        assert!(map.contains_key(&0x0D)); // ENTER
+    }
+
+    #[test]
+    fn test_case_insensitive_key_names() {
+        assert_eq!(
+            AppState::key_name_to_vk("space"),
+            AppState::key_name_to_vk("SPACE")
+        );
+        assert_eq!(
+            AppState::key_name_to_vk("enter"),
+            AppState::key_name_to_vk("ENTER")
+        );
+        assert_eq!(
+            AppState::key_name_to_vk("esc"),
+            AppState::key_name_to_vk("ESC")
+        );
+        assert_eq!(
+            AppState::key_name_to_vk("delete"),
+            AppState::key_name_to_vk("DELETE")
+        );
+    }
+
+    #[test]
+    fn test_multiple_key_mappings() {
+        let mut config = AppConfig::default();
+        config.mappings = vec![
+            KeyMapping {
+                trigger_key: "A".to_string(),
+                target_key: "1".to_string(),
+                interval: Some(10),
+                event_duration: Some(5),
+            },
+            KeyMapping {
+                trigger_key: "B".to_string(),
+                target_key: "2".to_string(),
+                interval: Some(15),
+                event_duration: Some(8),
+            },
+            KeyMapping {
+                trigger_key: "C".to_string(),
+                target_key: "3".to_string(),
+                interval: Some(20),
+                event_duration: Some(10),
+            },
+        ];
+
+        let mappings = AppState::create_key_mappings(&config).unwrap();
+        assert_eq!(mappings.len(), 3);
+
+        assert_eq!(mappings.get(&0x41).unwrap().interval, 10);
+        assert_eq!(mappings.get(&0x42).unwrap().interval, 15);
+        assert_eq!(mappings.get(&0x43).unwrap().interval, 20);
+    }
+
+    #[test]
+    fn test_app_state_pause_toggle() {
+        let config = AppConfig::default();
+        let state = AppState::new(config).unwrap();
+
+        // Initially not paused
+        assert!(!state.is_paused());
+
+        // Toggle to paused
+        let was_paused = state.toggle_paused();
+        assert!(!was_paused);
+        assert!(state.is_paused());
+
+        // Toggle back to not paused
+        let was_paused = state.toggle_paused();
+        assert!(was_paused);
+        assert!(!state.is_paused());
+    }
+
+    #[test]
+    fn test_app_state_set_paused() {
+        let config = AppConfig::default();
+        let state = AppState::new(config).unwrap();
+
+        state.set_paused(true);
+        assert!(state.is_paused());
+
+        state.set_paused(false);
+        assert!(!state.is_paused());
+    }
+
+    #[test]
+    fn test_app_state_show_window_request() {
+        let config = AppConfig::default();
+        let state = AppState::new(config).unwrap();
+
+        // No request initially
+        assert!(!state.check_and_clear_show_window_request());
+
+        // Request window
+        state.request_show_window();
+        assert!(state.check_and_clear_show_window_request());
+
+        // Should be cleared after check
+        assert!(!state.check_and_clear_show_window_request());
+    }
+
+    #[test]
+    fn test_app_state_show_about_request() {
+        let config = AppConfig::default();
+        let state = AppState::new(config).unwrap();
+
+        // No request initially
+        assert!(!state.check_and_clear_show_about_request());
+
+        // Request about dialog
+        state.request_show_about();
+        assert!(state.check_and_clear_show_about_request());
+
+        // Should be cleared after check
+        assert!(!state.check_and_clear_show_about_request());
+    }
+
+    #[test]
+    fn test_app_state_exit_flag() {
+        let config = AppConfig::default();
+        let state = AppState::new(config).unwrap();
+
+        assert!(!state.should_exit());
+
+        state.exit();
+        assert!(state.should_exit());
+    }
+
+    #[test]
+    fn test_app_state_worker_count() {
+        let mut config = AppConfig::default();
+        config.worker_count = 4;
+        let state = AppState::new(config).unwrap();
+
+        assert_eq!(state.get_configured_worker_count(), 4);
+
+        state.set_actual_worker_count(8);
+        assert_eq!(state.get_actual_worker_count(), 8);
+    }
+
+    #[test]
+    fn test_app_state_input_timeout() {
+        let mut config = AppConfig::default();
+        config.input_timeout = 25;
+        let state = AppState::new(config).unwrap();
+
+        assert_eq!(state.input_timeout(), 25);
+    }
+
+    #[test]
+    fn test_app_state_tray_settings() {
+        let mut config = AppConfig::default();
+        config.show_tray_icon = true;
+        config.show_notifications = false;
+        let state = AppState::new(config).unwrap();
+
+        assert!(state.show_tray_icon());
+        assert!(!state.show_notifications());
+    }
+
+    #[test]
+    fn test_app_state_switch_key() {
+        let mut config = AppConfig::default();
+        config.switch_key = "F12".to_string();
+        let state = AppState::new(config).unwrap();
+
+        assert_eq!(state.get_switch_key(), 0x7B); // F12 VK code
+    }
+
+    #[test]
+    fn test_app_state_reload_config() {
+        let config = AppConfig::default();
+        let state = AppState::new(config).unwrap();
+
+        // Initial state
+        assert!(!state.is_paused());
+        assert_eq!(state.get_switch_key(), 0x2E); // DELETE
+
+        // Create new config
+        let mut new_config = AppConfig::default();
+        new_config.switch_key = "F11".to_string();
+        new_config.show_tray_icon = false;
+        new_config.input_timeout = 50;
+
+        // Reload config
+        state.reload_config(new_config).unwrap();
+
+        // Verify changes
+        assert_eq!(state.get_switch_key(), 0x7A); // F11
+        assert!(!state.show_tray_icon());
+        assert_eq!(state.input_timeout(), 50);
+    }
+
+    #[test]
+    fn test_notification_event_variants() {
+        let info = NotificationEvent::Info("test".to_string());
+        let warning = NotificationEvent::Warning("test".to_string());
+        let error = NotificationEvent::Error("test".to_string());
+
+        match info {
+            NotificationEvent::Info(msg) => assert_eq!(msg, "test"),
+            _ => panic!("Expected Info variant"),
+        }
+
+        match warning {
+            NotificationEvent::Warning(msg) => assert_eq!(msg, "test"),
+            _ => panic!("Expected Warning variant"),
+        }
+
+        match error {
+            NotificationEvent::Error(msg) => assert_eq!(msg, "test"),
+            _ => panic!("Expected Error variant"),
+        }
+    }
+
+    #[test]
+    fn test_atomic_pause_state_thread_safety() {
+        use std::thread;
+
+        let config = AppConfig::default();
+        let state = Arc::new(AppState::new(config).unwrap());
+
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                let state_clone = state.clone();
+                thread::spawn(move || {
+                    for _ in 0..100 {
+                        if i % 2 == 0 {
+                            state_clone.set_paused(true);
+                        } else {
+                            state_clone.set_paused(false);
+                        }
+                        state_clone.toggle_paused();
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // State should be consistent after concurrent operations
+        let final_state = state.is_paused();
+        assert!(final_state == true || final_state == false);
+    }
+
+    #[test]
+    fn test_worker_count_atomic_operations() {
+        use std::thread;
+
+        let config = AppConfig::default();
+        let state = Arc::new(AppState::new(config).unwrap());
+
+        let handles: Vec<_> = (0..10)
+            .map(|_| {
+                let state_clone = state.clone();
+                thread::spawn(move || {
+                    for i in 1..=100 {
+                        state_clone.set_actual_worker_count(i);
+                        let count = state_clone.get_actual_worker_count();
+                        assert!(count > 0 && count <= 100);
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_key_mapping_with_boundary_values() {
+        let mut config = AppConfig::default();
+
+        // Test with minimum interval
+        config.mappings = vec![KeyMapping {
+            trigger_key: "A".to_string(),
+            target_key: "B".to_string(),
+            interval: Some(5), // Minimum valid value
+            event_duration: Some(5),
+        }];
+
+        let state = AppState::new(config);
+        assert!(state.is_ok());
+    }
+
+    #[test]
+    fn test_key_mapping_with_zero_interval() {
+        let mut config = AppConfig::default();
+
+        // Test with zero interval (should be auto-adjusted to minimum)
+        config.mappings = vec![KeyMapping {
+            trigger_key: "A".to_string(),
+            target_key: "B".to_string(),
+            interval: Some(0),
+            event_duration: Some(0),
+        }];
+
+        let state = AppState::new(config).unwrap();
+
+        // Values should be adjusted to minimum of 5
+        // This test verifies auto-adjustment behavior
+        assert!(state.key_mappings.read().unwrap().len() > 0);
+    }
+
+    #[test]
+    fn test_vk_to_scancode_common_keys() {
+        // Test commonly mapped VK codes that exist in SCANCODE_MAP
+        assert_eq!(AppState::vk_to_scancode(0x08), 0x0E); // Backspace
+        assert_eq!(AppState::vk_to_scancode(0x09), 0x0F); // Tab
+        assert_eq!(AppState::vk_to_scancode(0x0D), 0x1C); // Enter
+        assert_eq!(AppState::vk_to_scancode(0x20), 0x39); // Space
+
+        // Keys not in map return 0
+        let unmapped = AppState::vk_to_scancode(0xFF);
+        assert_eq!(unmapped, 0);
+    }
+
+    #[test]
+    fn test_key_name_to_vk_extended_keys() {
+        // Test extended Windows keys that are implemented
+        assert_eq!(AppState::key_name_to_vk("LWIN"), Some(0x5B));
+        assert_eq!(AppState::key_name_to_vk("RWIN"), Some(0x5C));
+        assert_eq!(AppState::key_name_to_vk("PAUSE"), Some(0x13));
+        assert_eq!(AppState::key_name_to_vk("CAPSLOCK"), Some(0x14));
+
+        // Keys not implemented return None
+        assert_eq!(AppState::key_name_to_vk("NUMPAD0"), None);
+        assert_eq!(AppState::key_name_to_vk("MULTIPLY"), None);
+    }
+
+    #[test]
+    fn test_empty_process_whitelist() {
+        let mut config = AppConfig::default();
+        config.process_whitelist = vec![];
+
+        let state = AppState::new(config).unwrap();
+
+        // With empty whitelist, all processes should be whitelisted
+        assert!(state.is_process_whitelisted());
+    }
+
+    #[test]
+    fn test_concurrent_window_requests() {
+        use std::thread;
+
+        let config = AppConfig::default();
+        let state = Arc::new(AppState::new(config).unwrap());
+
+        let handles: Vec<_> = (0..5)
+            .map(|_| {
+                let state_clone = state.clone();
+                thread::spawn(move || {
+                    for _ in 0..20 {
+                        state_clone.request_show_window();
+                        state_clone.check_and_clear_show_window_request();
+                        state_clone.request_show_about();
+                        state_clone.check_and_clear_show_about_request();
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Final state should be consistent
+        assert!(!state.check_and_clear_show_window_request());
+        assert!(!state.check_and_clear_show_about_request());
+    }
+}

@@ -73,9 +73,9 @@ fn default_worker_count() -> usize {
     0 // 0 means auto-detect based on CPU cores
 }
 
-impl AppConfig {
+impl Default for AppConfig {
     /// Creates a default configuration with sensible defaults.
-    pub fn default() -> Self {
+    fn default() -> Self {
         Self {
             show_tray_icon: true,
             show_notifications: true,
@@ -96,7 +96,9 @@ impl AppConfig {
             process_whitelist: vec![], // Empty means all processes enabled
         }
     }
+}
 
+impl AppConfig {
     /// Loads configuration from file, creating default if not found.
     ///
     /// # Errors
@@ -130,6 +132,10 @@ impl AppConfig {
         if config.event_duration < 5 {
             config.event_duration = 5;
         }
+
+        // Deduplicate process whitelist
+        config.process_whitelist.sort();
+        config.process_whitelist.dedup();
 
         Ok(config)
     }
@@ -187,29 +193,518 @@ impl AppConfig {
         result.push_str(&header);
 
         // Append mappings efficiently
-        for mapping in &self.mappings {
-            result.push_str("[[mappings]]\n");
-            result.push_str(&format!(
-                "trigger_key = \"{}\"           # Physical key you press\n\
-                 target_key = \"{}\"            # Key that gets repeatedly sent\n",
-                mapping.trigger_key, mapping.target_key
-            ));
-            if let Some(interval) = mapping.interval {
+        if self.mappings.is_empty() {
+            // Write empty array to ensure field exists
+            result.push_str("mappings = []\n");
+        } else {
+            for mapping in &self.mappings {
+                result.push_str("[[mappings]]\n");
                 result.push_str(&format!(
-                    "interval = {}                # Override global interval\n",
-                    interval
+                    "trigger_key = \"{}\"           # Physical key you press\n\
+                     target_key = \"{}\"            # Key that gets repeatedly sent\n",
+                    mapping.trigger_key, mapping.target_key
                 ));
+                if let Some(interval) = mapping.interval {
+                    result.push_str(&format!(
+                        "interval = {}                # Override global interval\n",
+                        interval
+                    ));
+                }
+                if let Some(duration) = mapping.event_duration {
+                    result.push_str(&format!(
+                        "event_duration = {}          # Override global press duration\n",
+                        duration
+                    ));
+                }
+                result.push('\n');
             }
-            if let Some(duration) = mapping.event_duration {
-                result.push_str(&format!(
-                    "event_duration = {}          # Override global press duration\n",
-                    duration
-                ));
-            }
-            result.push('\n');
         }
 
         fs::write(path, result)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn get_test_config_path(name: &str) -> PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let mut path = std::env::temp_dir();
+        path.push(format!("sorahk_test_{}_{}.toml", name, timestamp));
+        path
+    }
+
+    fn cleanup_test_file(path: &PathBuf) {
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_default_config_creation() {
+        let config = AppConfig::default();
+
+        assert!(config.show_tray_icon);
+        assert!(config.show_notifications);
+        assert!(!config.always_on_top);
+        assert!(!config.dark_mode);
+        assert_eq!(config.switch_key, "DELETE");
+        assert_eq!(config.input_timeout, 10);
+        assert_eq!(config.interval, 5);
+        assert_eq!(config.event_duration, 5);
+        assert_eq!(config.worker_count, 0);
+        assert!(config.process_whitelist.is_empty());
+        assert_eq!(config.mappings.len(), 1);
+    }
+
+    #[test]
+    fn test_config_save_and_load() {
+        let path = get_test_config_path("save_and_load");
+        cleanup_test_file(&path); // Clean up before test
+
+        let mut config = AppConfig::default();
+        config.show_tray_icon = false;
+        config.show_notifications = false;
+        config.always_on_top = true;
+        config.dark_mode = true;
+        config.switch_key = "F12".to_string();
+        config.input_timeout = 20;
+        config.interval = 10;
+        config.event_duration = 15;
+        config.worker_count = 4;
+
+        config.save_to_file(&path).expect("Failed to save config");
+
+        let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
+
+        assert_eq!(loaded_config.show_tray_icon, config.show_tray_icon);
+        assert_eq!(loaded_config.show_notifications, config.show_notifications);
+        assert_eq!(loaded_config.always_on_top, config.always_on_top);
+        assert_eq!(loaded_config.dark_mode, config.dark_mode);
+        assert_eq!(loaded_config.switch_key, config.switch_key);
+        assert_eq!(loaded_config.input_timeout, config.input_timeout);
+        assert_eq!(loaded_config.interval, config.interval);
+        assert_eq!(loaded_config.event_duration, config.event_duration);
+        assert_eq!(loaded_config.worker_count, config.worker_count);
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_config_validation_input_timeout() {
+        let path = get_test_config_path("validation_timeout");
+        cleanup_test_file(&path);
+
+        let content = r#"
+            show_tray_icon = true
+            show_notifications = true
+            switch_key = "DELETE"
+            input_timeout = 1
+            interval = 5
+            event_duration = 5
+            worker_count = 0
+            process_whitelist = []
+            mappings = []
+        "#;
+
+        fs::write(&path, content).expect("Failed to write test config");
+
+        let config = AppConfig::load_from_file(&path).expect("Failed to load config");
+        assert!(
+            config.input_timeout >= 2,
+            "Input timeout should be clamped to minimum 2"
+        );
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_config_validation_interval() {
+        let path = get_test_config_path("validation_interval");
+        cleanup_test_file(&path);
+
+        let content = r#"
+            show_tray_icon = true
+            show_notifications = true
+            switch_key = "DELETE"
+            input_timeout = 10
+            interval = 2
+            event_duration = 5
+            worker_count = 0
+            process_whitelist = []
+            mappings = []
+        "#;
+
+        fs::write(&path, content).expect("Failed to write test config");
+
+        let config = AppConfig::load_from_file(&path).expect("Failed to load config");
+        assert!(
+            config.interval >= 5,
+            "Interval should be clamped to minimum 5"
+        );
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_config_validation_event_duration() {
+        let path = get_test_config_path("validation_duration");
+        cleanup_test_file(&path);
+
+        let content = r#"
+            show_tray_icon = true
+            show_notifications = true
+            switch_key = "DELETE"
+            input_timeout = 10
+            interval = 5
+            event_duration = 2
+            worker_count = 0
+            process_whitelist = []
+            mappings = []
+        "#;
+
+        fs::write(&path, content).expect("Failed to write test config");
+
+        let config = AppConfig::load_from_file(&path).expect("Failed to load config");
+        assert!(
+            config.event_duration >= 5,
+            "Event duration should be clamped to minimum 5"
+        );
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_load_or_create_missing_file() {
+        let path = get_test_config_path("missing_file");
+        cleanup_test_file(&path);
+
+        let config = AppConfig::load_or_create(&path).expect("Failed to load or create config");
+
+        assert!(path.exists(), "Config file should be created");
+        assert_eq!(config.switch_key, "DELETE");
+        assert_eq!(config.interval, 5);
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_load_or_create_existing_file() {
+        let path = get_test_config_path("existing_file");
+        cleanup_test_file(&path);
+
+        let mut config = AppConfig::default();
+        config.switch_key = "F11".to_string();
+        config.save_to_file(&path).expect("Failed to save config");
+
+        let loaded_config = AppConfig::load_or_create(&path).expect("Failed to load config");
+
+        assert_eq!(loaded_config.switch_key, "F11");
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_key_mapping_with_overrides() {
+        let mapping = KeyMapping {
+            trigger_key: "A".to_string(),
+            target_key: "B".to_string(),
+            interval: Some(10),
+            event_duration: Some(8),
+        };
+
+        assert_eq!(mapping.trigger_key, "A");
+        assert_eq!(mapping.target_key, "B");
+        assert_eq!(mapping.interval, Some(10));
+        assert_eq!(mapping.event_duration, Some(8));
+    }
+
+    #[test]
+    fn test_key_mapping_without_overrides() {
+        let mapping = KeyMapping {
+            trigger_key: "C".to_string(),
+            target_key: "D".to_string(),
+            interval: None,
+            event_duration: None,
+        };
+
+        assert_eq!(mapping.trigger_key, "C");
+        assert_eq!(mapping.target_key, "D");
+        assert_eq!(mapping.interval, None);
+        assert_eq!(mapping.event_duration, None);
+    }
+
+    #[test]
+    fn test_process_whitelist_serialization() {
+        let path = get_test_config_path("whitelist");
+        cleanup_test_file(&path);
+
+        let mut config = AppConfig::default();
+        config.process_whitelist = vec!["notepad.exe".to_string(), "chrome.exe".to_string()];
+
+        config.save_to_file(&path).expect("Failed to save config");
+
+        let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
+
+        assert_eq!(loaded_config.process_whitelist.len(), 2);
+        assert!(
+            loaded_config
+                .process_whitelist
+                .contains(&"notepad.exe".to_string())
+        );
+        assert!(
+            loaded_config
+                .process_whitelist
+                .contains(&"chrome.exe".to_string())
+        );
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_language_serialization() {
+        let languages = vec![
+            Language::English,
+            Language::SimplifiedChinese,
+            Language::TraditionalChinese,
+            Language::Japanese,
+        ];
+
+        for (idx, lang) in languages.iter().enumerate() {
+            let path = get_test_config_path(&format!("language_{}", idx));
+            cleanup_test_file(&path);
+
+            let mut config = AppConfig::default();
+            config.language = *lang;
+
+            config.save_to_file(&path).expect("Failed to save config");
+            let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
+
+            assert_eq!(loaded_config.language, *lang);
+
+            cleanup_test_file(&path);
+        }
+    }
+
+    #[test]
+    fn test_multiple_mappings_serialization() {
+        let path = get_test_config_path("multiple_mappings");
+        cleanup_test_file(&path);
+
+        let mut config = AppConfig::default();
+        config.mappings = vec![
+            KeyMapping {
+                trigger_key: "A".to_string(),
+                target_key: "1".to_string(),
+                interval: Some(10),
+                event_duration: Some(5),
+            },
+            KeyMapping {
+                trigger_key: "B".to_string(),
+                target_key: "2".to_string(),
+                interval: None,
+                event_duration: None,
+            },
+            KeyMapping {
+                trigger_key: "F1".to_string(),
+                target_key: "SPACE".to_string(),
+                interval: Some(20),
+                event_duration: Some(10),
+            },
+        ];
+
+        config.save_to_file(&path).expect("Failed to save config");
+        let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
+
+        assert_eq!(loaded_config.mappings.len(), 3);
+        assert_eq!(loaded_config.mappings[0].trigger_key, "A");
+        assert_eq!(loaded_config.mappings[1].target_key, "2");
+        assert_eq!(loaded_config.mappings[2].interval, Some(20));
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_config_load_invalid_toml() {
+        let path = get_test_config_path("invalid_toml");
+        cleanup_test_file(&path);
+
+        // Write invalid TOML
+        std::fs::write(&path, "invalid [[ toml \n syntax").expect("Failed to write");
+
+        let result = AppConfig::load_from_file(&path);
+        assert!(result.is_err());
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_config_load_nonexistent_file() {
+        let path = get_test_config_path("nonexistent");
+
+        // Ensure file doesn't exist
+        let _ = std::fs::remove_file(&path);
+
+        let result = AppConfig::load_from_file(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_config_with_extreme_values() {
+        let path = get_test_config_path("extreme_values");
+        cleanup_test_file(&path);
+
+        let mut config = AppConfig::default();
+        config.interval = 1000; // Very large interval
+        config.event_duration = 500;
+        config.input_timeout = 10000;
+        config.worker_count = 64; // Large worker count
+
+        config.save_to_file(&path).expect("Failed to save");
+        let loaded = AppConfig::load_from_file(&path).expect("Failed to load");
+
+        assert_eq!(loaded.interval, 1000);
+        assert_eq!(loaded.event_duration, 500);
+        assert_eq!(loaded.input_timeout, 10000);
+        assert_eq!(loaded.worker_count, 64);
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_config_with_special_characters_in_process_name() {
+        let path = get_test_config_path("special_chars");
+        cleanup_test_file(&path);
+
+        let mut config = AppConfig::default();
+        config.process_whitelist = vec![
+            "app-name.exe".to_string(),
+            "app_name.exe".to_string(),
+            "app123.exe".to_string(),
+        ];
+
+        config.save_to_file(&path).expect("Failed to save");
+        let loaded = AppConfig::load_from_file(&path).expect("Failed to load");
+
+        assert_eq!(loaded.process_whitelist.len(), 3);
+        assert!(
+            loaded
+                .process_whitelist
+                .contains(&"app-name.exe".to_string())
+        );
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_config_save_to_readonly_path() {
+        // This test verifies error handling for readonly paths
+        // On Windows, we can't easily create readonly directories in tests
+        // so we test with an invalid path
+        let path = PathBuf::from("/nonexistent/invalid/path/config.toml");
+
+        let config = AppConfig::default();
+        let result = config.save_to_file(&path);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_config_language_default() {
+        let config = AppConfig::default();
+        assert_eq!(config.language, Language::default());
+    }
+
+    #[test]
+    fn test_config_with_duplicate_process_names() {
+        let path = get_test_config_path("duplicate_processes");
+        cleanup_test_file(&path);
+
+        let mut config = AppConfig::default();
+        config.process_whitelist = vec![
+            "app.exe".to_string(),
+            "app.exe".to_string(), // Duplicate
+            "other.exe".to_string(),
+        ];
+
+        config.save_to_file(&path).expect("Failed to save");
+        let loaded = AppConfig::load_from_file(&path).expect("Failed to load");
+
+        assert_eq!(loaded.process_whitelist.len(), 2);
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_config_validation_clamps_negative_values() {
+        let path = get_test_config_path("negative_values");
+        cleanup_test_file(&path);
+
+        // Manually write config with "negative" (actually minimum) values
+        let content = r#"
+            show_tray_icon = true
+            show_notifications = true
+            switch_key = "DELETE"
+            input_timeout = 1
+            interval = 1
+            event_duration = 1
+            worker_count = 0
+            process_whitelist = []
+            mappings = []
+        "#;
+
+        std::fs::write(&path, content).expect("Failed to write");
+        let loaded = AppConfig::load_from_file(&path).expect("Failed to load");
+
+        // Values should be clamped to minimums
+        assert!(loaded.input_timeout >= 2);
+        assert!(loaded.interval >= 5);
+        assert!(loaded.event_duration >= 5);
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_config_deduplicates_process_whitelist() {
+        // Test that duplicate processes are automatically removed when loading config
+        let path = get_test_config_path("process_dedup");
+        cleanup_test_file(&path);
+
+        let content = r#"
+            show_tray_icon = true
+            show_notifications = true
+            switch_key = "DELETE"
+            input_timeout = 10
+            interval = 5
+            event_duration = 5
+            worker_count = 0
+            process_whitelist = ["chrome.exe", "notepad.exe", "chrome.exe", "firefox.exe", "notepad.exe"]
+            mappings = []
+        "#;
+
+        std::fs::write(&path, content).expect("Failed to write test config");
+        let loaded = AppConfig::load_from_file(&path).expect("Failed to load config");
+
+        // Should have exactly 3 unique processes after deduplication
+        assert_eq!(loaded.process_whitelist.len(), 3);
+        assert!(loaded.process_whitelist.contains(&"chrome.exe".to_string()));
+        assert!(
+            loaded
+                .process_whitelist
+                .contains(&"notepad.exe".to_string())
+        );
+        assert!(
+            loaded
+                .process_whitelist
+                .contains(&"firefox.exe".to_string())
+        );
+
+        cleanup_test_file(&path);
     }
 }

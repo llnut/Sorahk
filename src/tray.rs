@@ -626,3 +626,102 @@ impl Drop for TrayIcon {
         let _ = Self::unregister_aumid();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_xml_escape_basic_chars() {
+        assert_eq!(TrayIcon::xml_escape("hello"), "hello");
+        assert_eq!(TrayIcon::xml_escape("test123"), "test123");
+    }
+
+    #[test]
+    fn test_xml_escape_ampersand() {
+        assert_eq!(TrayIcon::xml_escape("A & B"), "A &amp; B");
+        assert_eq!(TrayIcon::xml_escape("&&&"), "&amp;&amp;&amp;");
+    }
+
+    #[test]
+    fn test_xml_escape_less_than() {
+        assert_eq!(TrayIcon::xml_escape("A < B"), "A &lt; B");
+        assert_eq!(TrayIcon::xml_escape("<tag>"), "&lt;tag&gt;");
+    }
+
+    #[test]
+    fn test_xml_escape_greater_than() {
+        assert_eq!(TrayIcon::xml_escape("A > B"), "A &gt; B");
+    }
+
+    #[test]
+    fn test_xml_escape_quotes() {
+        assert_eq!(
+            TrayIcon::xml_escape(r#"He said "hi""#),
+            "He said &quot;hi&quot;"
+        );
+        assert_eq!(TrayIcon::xml_escape("It's ok"), "It&apos;s ok");
+    }
+
+    #[test]
+    fn test_xml_escape_combined() {
+        assert_eq!(
+            TrayIcon::xml_escape(r#"<tag attr="value">&text</tag>"#),
+            "&lt;tag attr=&quot;value&quot;&gt;&amp;text&lt;/tag&gt;"
+        );
+    }
+
+    #[test]
+    fn test_xml_escape_empty_string() {
+        assert_eq!(TrayIcon::xml_escape(""), "");
+    }
+
+    #[test]
+    fn test_loword_extraction() {
+        assert_eq!(TrayIcon::loword(0x12345678), 0x5678);
+        assert_eq!(TrayIcon::loword(0xABCDEF01), 0xEF01);
+        assert_eq!(TrayIcon::loword(0x0000FFFF), 0xFFFF);
+        assert_eq!(TrayIcon::loword(0x12340000), 0x0000);
+    }
+
+    #[test]
+    fn test_notification_text_formatting() {
+        // Test that notification text can be properly formatted
+        let title = "Test Title";
+        let message = "Test Message";
+
+        // XML escape should handle special characters
+        let escaped_title = TrayIcon::xml_escape(title);
+        let escaped_message = TrayIcon::xml_escape(message);
+
+        assert_eq!(escaped_title, "Test Title");
+        assert_eq!(escaped_message, "Test Message");
+    }
+
+    #[test]
+    fn test_notification_with_special_chars() {
+        let title = "Error: Failed <important>";
+        let message = "Details: 5 > 3 & 2 < 4";
+
+        let escaped_title = TrayIcon::xml_escape(title);
+        let escaped_message = TrayIcon::xml_escape(message);
+
+        assert!(escaped_title.contains("&lt;"));
+        assert!(escaped_title.contains("&gt;"));
+        assert!(escaped_message.contains("&amp;"));
+        assert!(escaped_message.contains("&lt;"));
+        assert!(escaped_message.contains("&gt;"));
+    }
+
+    #[test]
+    fn test_aumid_constant() {
+        assert_eq!(AUMID, "Sorahk.AutoKeyPress");
+        assert!(!AUMID.is_empty());
+    }
+
+    #[test]
+    fn test_tray_message_id() {
+        assert!(TRAY_MESSAGE_ID > WM_APP);
+        assert_eq!(TRAY_MESSAGE_ID, WM_APP + 1);
+    }
+}

@@ -860,15 +860,24 @@ impl SorahkGui {
 
                                                 if ui.add_sized([70.0, 24.0], add_btn).clicked() {
                                                     let process_name = self.new_process_name.trim();
-                                                    if !process_name.is_empty()
-                                                        && !temp_config
+                                                    if !process_name.is_empty() {
+                                                        // Check for duplicate process
+                                                        if temp_config
                                                             .process_whitelist
                                                             .contains(&process_name.to_string())
-                                                    {
-                                                        temp_config
-                                                            .process_whitelist
-                                                            .push(process_name.to_string());
-                                                        self.new_process_name.clear();
+                                                        {
+                                                            self.duplicate_process_error = Some(
+                                                                t.duplicate_process_error()
+                                                                    .to_string(),
+                                                            );
+                                                        } else {
+                                                            // Clear any previous error
+                                                            self.duplicate_process_error = None;
+                                                            temp_config
+                                                                .process_whitelist
+                                                                .push(process_name.to_string());
+                                                            self.new_process_name.clear();
+                                                        }
                                                     }
                                                 }
 
@@ -895,10 +904,18 @@ impl SorahkGui {
                                                     {
                                                         let process_name =
                                                             filename.to_string_lossy().to_string();
-                                                        if !temp_config
+                                                        // Check for duplicate process
+                                                        if temp_config
                                                             .process_whitelist
                                                             .contains(&process_name)
                                                         {
+                                                            self.duplicate_process_error = Some(
+                                                                t.duplicate_process_error()
+                                                                    .to_string(),
+                                                            );
+                                                        } else {
+                                                            // Clear any previous error
+                                                            self.duplicate_process_error = None;
                                                             temp_config
                                                                 .process_whitelist
                                                                 .push(process_name);
@@ -906,6 +923,20 @@ impl SorahkGui {
                                                     }
                                                 }
                                             });
+
+                                            // Display duplicate process error if exists
+                                            if let Some(ref error_msg) =
+                                                self.duplicate_process_error
+                                            {
+                                                ui.add_space(8.0);
+                                                ui.label(
+                                                    egui::RichText::new(error_msg)
+                                                        .color(egui::Color32::from_rgb(
+                                                            255, 100, 100,
+                                                        ))
+                                                        .size(13.0),
+                                                );
+                                            }
                                         });
                                 }); // End of ScrollArea
                         }); // End of Frame
@@ -1016,6 +1047,8 @@ impl SorahkGui {
             self.show_settings_dialog = false;
             self.temp_config = None;
             self.key_capture_mode = KeyCaptureMode::None;
+            self.duplicate_mapping_error = None;
+            self.duplicate_process_error = None;
 
             // Restore previous paused state after exiting settings
             if let Some(was_paused) = self.was_paused_before_settings.take()
@@ -1030,6 +1063,8 @@ impl SorahkGui {
             self.show_settings_dialog = false;
             self.temp_config = None;
             self.key_capture_mode = KeyCaptureMode::None;
+            self.duplicate_mapping_error = None;
+            self.duplicate_process_error = None;
             // Clear input fields
             self.new_mapping_trigger.clear();
             self.new_mapping_target.clear();

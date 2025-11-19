@@ -3,6 +3,14 @@ name = "sorahk"
 version = "0.3.0"
 edition = "2024"
 
+[lib]
+name = "sorahk"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sorahk"
+path = "src/main.rs"
+
 [build-dependencies]
 embed-resource = "3.0.6"
 

@@ -20,3 +20,28 @@ unsafe extern "system" fn console_handler(ctrl_type: u32) -> BOOL {
         _ => BOOL(0), // Leave other events to the default handler
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ctrl_event_constants() {
+        // Verify Windows control event constants are defined
+        assert_eq!(CTRL_C_EVENT, 0);
+        assert_eq!(CTRL_BREAK_EVENT, 1);
+        assert_eq!(CTRL_CLOSE_EVENT, 2);
+    }
+
+    #[test]
+    fn test_bool_true_value() {
+        let bool_true = BOOL(1);
+        assert_eq!(bool_true.0, 1);
+    }
+
+    #[test]
+    fn test_bool_false_value() {
+        let bool_false = BOOL(0);
+        assert_eq!(bool_false.0, 0);
+    }
+}

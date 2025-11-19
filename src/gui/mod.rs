@@ -60,6 +60,8 @@ pub struct SorahkGui {
     pub(super) was_paused_before_settings: Option<bool>,
     /// Error message for duplicate mapping
     pub(super) duplicate_mapping_error: Option<String>,
+    /// Error message for duplicate process
+    pub(super) duplicate_process_error: Option<String>,
 }
 
 impl SorahkGui {
@@ -87,6 +89,7 @@ impl SorahkGui {
             key_capture_mode: KeyCaptureMode::None,
             was_paused_before_settings: None,
             duplicate_mapping_error: None,
+            duplicate_process_error: None,
         }
     }
 

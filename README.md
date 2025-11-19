@@ -264,7 +264,7 @@ Full support for standard Windows virtual key codes is included.
 4. **Configure** settings using the GUI or by editing `Config.toml` directly
 5. **Press** the switch key (default: `DELETE`) to toggle turbo-fire on/off
 
-### 🧪 Building from Source
+### 🔨 Building from Source
 
 **Prerequisites:**
 - [Rust](https://rustup.rs/) (stable channel via rustup)
@@ -285,9 +285,45 @@ cargo build --release
 
 ---
 
+## 🧪 Testing
+
+Sorahk includes a test suite covering core functionality. For detailed information, see [TESTING.md](TESTING.md).
+
+### Quick Start
+
+Run all tests on Windows:
+
+```bash
+# Run all tests
+cargo test
+
+# Run specific test module
+cargo test --lib config::tests
+
+# Run with verbose output
+cargo test -- --nocapture
+```
+
+Or use the provided test script:
+
+```batch
+run_tests.bat
+```
+
+### Test Coverage
+
+- **Configuration Management**: Loading, saving, and validation
+- **Key Mapping**: Virtual key code conversion and scancode mapping
+- **Internationalization**: Multi-language support and translations
+- **Integration**: Cross-module interactions and data persistence
+
+For additional testing documentation, see [TESTING.md](TESTING.md).
+
+---
+
 ## 🤝 Contributing
 
-Contributions are welcome! Please open issues for bugs or feature requests, and submit pull requests for improvements. Ensure code follows Rust conventions and maintains the project's focus on reliability and efficiency.
+Contributions are accepted through issues and pull requests. Please report bugs or suggest features via issues. Code contributions should follow Rust conventions and maintain compatibility with existing functionality.
 
 ---
 
