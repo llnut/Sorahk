@@ -169,7 +169,19 @@ impl AppConfig {
              # Only processes in this list will have turbo-fire enabled\n\
              process_whitelist = {:?}      # Example: [\"notepad.exe\", \"game.exe\"]\n\n\
              # ─── Key Mappings ───\n\
-             # Key mapping definitions\n",
+             # Input mapping definitions (supports both keyboard and mouse)\n\
+             # Supported mouse buttons: LBUTTON, RBUTTON, MBUTTON, XBUTTON1, XBUTTON2\n\n\
+             # ─── Mouse Button Examples ───\n\
+             # Uncomment to enable mouse button mappings:\n\
+             # [[mappings]]\n\
+             # trigger_key = \"LBUTTON\"     # Left mouse button trigger\n\
+             # target_key = \"LBUTTON\"      # Auto-click left button\n\n\
+             # [[mappings]]\n\
+             # trigger_key = \"RBUTTON\"     # Right mouse button trigger\n\
+             # target_key = \"SPACE\"        # Press space when right-clicking\n\n\
+             # [[mappings]]\n\
+             # trigger_key = \"XBUTTON1\"    # Side button 1 trigger\n\
+             # target_key = \"F\"            # Auto-press F key\n\n",
             self.show_tray_icon,
             self.show_notifications,
             self.always_on_top,

@@ -151,12 +151,13 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
 - **System Tray Integration** – Minimize to tray for background operation
 
 ### ⚙️ **Core Functionality**
-- **Flexible Key Mapping** – Map any trigger key to auto-repeat any target key
+- **Flexible Input Mapping** – Map any trigger input (keyboard or mouse) to auto-repeat any target action
+- **Mouse Button Support** – Full support for left, right, middle, and side mouse buttons (X1/X2)
 - **Adjustable Timing** – Configure repeat interval and press duration per mapping
 - **Global Toggle** – Quick enable/disable with a single hotkey (default: DELETE)
 - **Process Whitelist** – Optional filtering to restrict turbo-fire to specific applications
-- **Multi-key Support** – Configure multiple independent key mappings simultaneously
-- **Duplicate Prevention** – Validation to prevent duplicate trigger keys from being added
+- **Multi-input Support** – Configure multiple independent input mappings simultaneously
+- **Duplicate Prevention** – Validation to prevent duplicate trigger inputs from being added
 
 ### 🚀 **Performance & Reliability**
 - **Multi-threaded Processing** – Worker pool with load balancing for efficient key handling
@@ -236,12 +237,22 @@ target_key = "2"             # Key that gets repeatedly sent
 [[mappings]]
 trigger_key = "LSHIFT"       # Physical key you press
 target_key = "3"             # Key that gets repeatedly sent
+
+# Mouse button examples
+[[mappings]]
+trigger_key = "LBUTTON"      # Left mouse button trigger
+target_key = "LBUTTON"       # Auto-click left button
+
+[[mappings]]
+trigger_key = "XBUTTON1"     # Side button 1 trigger
+target_key = "SPACE"         # Press space when side button is held
 ```
 
-### 🔑 Supported Key Names
+### 🔑 Supported Input Names
 
-Key names must match Windows virtual key codes. Common examples:
+Input names support both keyboard keys and mouse buttons:
 
+**Keyboard Keys:**
 - **Letters**: `A`, `B`, `C`, ..., `Z`
 - **Numbers**: `0`, `1`, `2`, ..., `9`
 - **Function Keys**: `F1`, `F2`, ..., `F12`
@@ -250,7 +261,14 @@ Key names must match Windows virtual key codes. Common examples:
 - **Navigation**: `UP`, `DOWN`, `LEFT`, `RIGHT`, `HOME`, `END`, `PAGEUP`, `PAGEDOWN`
 - **System**: `LWIN`, `RWIN`, `APPS`, `PAUSE`, `PRINT`
 
-Full support for standard Windows virtual key codes is included.
+**Mouse Buttons:**
+- **Left Button**: `LBUTTON`, `LMOUSE`, `LMB`
+- **Right Button**: `RBUTTON`, `RMOUSE`, `RMB`
+- **Middle Button**: `MBUTTON`, `MMOUSE`, `MMB`
+- **Side Button 1**: `XBUTTON1`, `X1`, `MB4`
+- **Side Button 2**: `XBUTTON2`, `X2`, `MB5`
+
+Full support for standard Windows virtual key codes and mouse buttons is included.
 
 ---
 
@@ -314,7 +332,9 @@ run_tests.bat
 
 - **Configuration Management**: Loading, saving, and validation
 - **Key Mapping**: Virtual key code conversion and scancode mapping
+- **Mouse Support**: Button name parsing and event handling
 - **Internationalization**: Multi-language support and translations
+- **Worker Pool**: Event distribution and multi-threading
 - **Integration**: Cross-module interactions and data persistence
 
 For additional testing documentation, see [TESTING.md](TESTING.md).

@@ -12,57 +12,74 @@ impl SorahkGui {
         let mut should_save = false;
         let mut should_cancel = false;
 
-        // Use cached translations if temp config language matches current, otherwise create new one
-        let temp_lang = self
-            .temp_config
-            .as_ref()
-            .map(|c| c.language)
-            .unwrap_or(self.config.language);
-        let t = if temp_lang == self.config.language {
-            &self.translations
-        } else {
-            // Language is being previewed in settings but not saved yet, use current cached translations
-            &self.translations
-        };
+        let t = &self.translations;
 
-        // Handle key capture if in capture mode
+        // Clear the just_captured_input flag at the start of each frame
+        if self.just_captured_input {
+            self.just_captured_input = false;
+        }
+
+        // Handle key and mouse capture if in capture mode
         if self.key_capture_mode != KeyCaptureMode::None {
+            let mut captured_input: Option<String> = None;
+
             ctx.input(|i| {
+                // Check for keyboard input
                 for key in i.keys_down.iter() {
                     if let Some(key_name) = key_to_string(*key) {
-                        // Capture the key and update the appropriate field
-                        if let Some(temp_config) = &mut self.temp_config {
-                            match self.key_capture_mode {
-                                KeyCaptureMode::ToggleKey => {
-                                    temp_config.switch_key = key_name.clone();
-                                }
-                                KeyCaptureMode::MappingTrigger(idx) => {
-                                    if let Some(mapping) = temp_config.mappings.get_mut(idx) {
-                                        mapping.trigger_key = key_name.clone();
-                                    }
-                                }
-                                KeyCaptureMode::MappingTarget(idx) => {
-                                    if let Some(mapping) = temp_config.mappings.get_mut(idx) {
-                                        mapping.target_key = key_name.clone();
-                                    }
-                                }
-                                KeyCaptureMode::NewMappingTrigger => {
-                                    self.new_mapping_trigger = key_name.clone();
-                                }
-                                KeyCaptureMode::NewMappingTarget => {
-                                    self.new_mapping_target = key_name.clone();
-                                }
-                                KeyCaptureMode::None => {
-                                    //
-                                }
-                            }
-                        }
-                        // Exit capture mode
-                        self.key_capture_mode = KeyCaptureMode::None;
+                        captured_input = Some(key_name);
                         break;
                     }
                 }
+
+                // Check for mouse button input if no key was pressed
+                if captured_input.is_none() {
+                    if i.pointer.button_clicked(egui::PointerButton::Primary) {
+                        captured_input = Some("LBUTTON".to_string());
+                    } else if i.pointer.button_clicked(egui::PointerButton::Secondary) {
+                        captured_input = Some("RBUTTON".to_string());
+                    } else if i.pointer.button_clicked(egui::PointerButton::Middle) {
+                        captured_input = Some("MBUTTON".to_string());
+                    } else if i.pointer.button_clicked(egui::PointerButton::Extra1) {
+                        captured_input = Some("XBUTTON1".to_string());
+                    } else if i.pointer.button_clicked(egui::PointerButton::Extra2) {
+                        captured_input = Some("XBUTTON2".to_string());
+                    }
+                }
             });
+
+            if let Some(input_name) = captured_input {
+                // Update the appropriate field
+                if let Some(temp_config) = &mut self.temp_config {
+                    match self.key_capture_mode {
+                        KeyCaptureMode::ToggleKey => {
+                            temp_config.switch_key = input_name.clone();
+                        }
+                        KeyCaptureMode::MappingTrigger(idx) => {
+                            if let Some(mapping) = temp_config.mappings.get_mut(idx) {
+                                mapping.trigger_key = input_name.clone();
+                            }
+                        }
+                        KeyCaptureMode::MappingTarget(idx) => {
+                            if let Some(mapping) = temp_config.mappings.get_mut(idx) {
+                                mapping.target_key = input_name.clone();
+                            }
+                        }
+                        KeyCaptureMode::NewMappingTrigger => {
+                            self.new_mapping_trigger = input_name.clone();
+                        }
+                        KeyCaptureMode::NewMappingTarget => {
+                            self.new_mapping_target = input_name.clone();
+                        }
+                        KeyCaptureMode::None => {
+                            //
+                        }
+                    }
+                }
+                // Exit capture mode and set flag to prevent immediate re-entry
+                self.key_capture_mode = KeyCaptureMode::None;
+                self.just_captured_input = true;
+            }
         }
 
         let dialog_bg = if self.dark_mode {
@@ -200,7 +217,9 @@ impl SorahkGui {
                                                 })
                                                 .corner_radius(10.0); // Increased rounding to match buttons
 
-                                                if ui.add_sized([180.0, 28.0], button).clicked() {
+                                                if ui.add_sized([180.0, 28.0], button).clicked()
+                                                    && !self.just_captured_input
+                                                {
                                                     self.key_capture_mode =
                                                         KeyCaptureMode::ToggleKey;
                                                 }
@@ -444,6 +463,7 @@ impl SorahkGui {
                                                     if ui
                                                         .add_sized([80.0, 24.0], trigger_btn)
                                                         .clicked()
+                                                        && !self.just_captured_input
                                                     {
                                                         self.key_capture_mode =
                                                             KeyCaptureMode::MappingTrigger(idx);
@@ -479,6 +499,7 @@ impl SorahkGui {
                                                     if ui
                                                         .add_sized([80.0, 24.0], target_btn)
                                                         .clicked()
+                                                        && !self.just_captured_input
                                                     {
                                                         self.key_capture_mode =
                                                             KeyCaptureMode::MappingTarget(idx);
@@ -601,6 +622,7 @@ impl SorahkGui {
                                                 if ui
                                                     .add_sized([80.0, 24.0], new_trigger_btn)
                                                     .clicked()
+                                                    && !self.just_captured_input
                                                 {
                                                     self.key_capture_mode =
                                                         KeyCaptureMode::NewMappingTrigger;
@@ -640,6 +662,7 @@ impl SorahkGui {
                                                 if ui
                                                     .add_sized([80.0, 24.0], new_target_btn)
                                                     .clicked()
+                                                    && !self.just_captured_input
                                                 {
                                                     self.key_capture_mode =
                                                         KeyCaptureMode::NewMappingTarget;

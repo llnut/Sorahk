@@ -4,9 +4,10 @@
 //! including configuration, keyboard event handling, and process filtering.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, LazyLock, OnceLock, RwLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock, RwLock};
+use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::MAX_PATH;
 use windows::Win32::System::Threading::{
@@ -18,9 +19,9 @@ use windows::core::PWSTR;
 
 use crate::config::AppConfig;
 
-/// Trait for dispatching keyboard events to worker threads.
+/// Trait for dispatching input events to worker threads.
 pub trait EventDispatcher: Send + Sync {
-    fn dispatch(&self, event: KeyEvent);
+    fn dispatch(&self, event: InputEvent);
 }
 
 /// Marker value to identify simulated keyboard events.
@@ -37,23 +38,54 @@ pub enum NotificationEvent {
     Error(String),
 }
 
-/// Keyboard event type with associated virtual key code.
-#[derive(Debug, Clone, Copy)]
-pub enum KeyEvent {
-    Pressed(u32),
-    Released(u32),
+/// Input device type for unified input handling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InputDevice {
+    /// Keyboard input with virtual key code
+    Keyboard(u32),
+    /// Mouse button input
+    Mouse(MouseButton),
 }
 
-/// Configuration for a single key mapping.
+/// Mouse button types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MouseButton {
+    Left,
+    Right,
+    Middle,
+    X1,
+    X2,
+}
+
+/// Unified input event type for keyboard and mouse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputEvent {
+    Pressed(InputDevice),
+    Released(InputDevice),
+}
+
+/// Output action type for input mapping.
 #[derive(Debug, Clone, Copy)]
-pub struct KeyMappingInfo {
-    /// Target key scancode
-    pub target_scancode: u16,
+pub enum OutputAction {
+    /// Keyboard key output with scancode
+    KeyboardKey(u16),
+    /// Mouse button output
+    MouseButton(MouseButton),
+}
+
+/// Configuration for a single input mapping.
+#[derive(Debug, Clone, Copy)]
+pub struct InputMappingInfo {
+    /// Target output action
+    pub target_action: OutputAction,
     /// Repeat interval in milliseconds
     pub interval: u64,
-    /// Key press duration in milliseconds
+    /// Event duration in milliseconds
     pub event_duration: u64,
 }
+
+/// Legacy type alias for backward compatibility.
+pub type KeyMappingInfo = InputMappingInfo;
 
 /// Central application state manager.
 ///
@@ -64,8 +96,8 @@ pub struct AppState {
     show_tray_icon: AtomicBool,
     /// Notification display flag
     show_notifications: AtomicBool,
-    /// Toggle hotkey virtual key code
-    switch_key: RwLock<u32>,
+    /// Toggle hotkey virtual key code (atomic for lock-free access in hot path)
+    switch_key: AtomicU32,
     /// Application exit flag
     pub should_exit: Arc<AtomicBool>,
     /// Key repeat pause state
@@ -80,9 +112,13 @@ pub struct AppState {
     worker_count: AtomicU64,
     /// Configured worker count for display
     configured_worker_count: usize,
-    /// Key mapping configuration
+    /// Input mapping configuration (keyboard + mouse)
+    input_mappings: RwLock<HashMap<InputDevice, InputMappingInfo>>,
+    /// Legacy key mappings for backward compatibility
     key_mappings: RwLock<HashMap<u32, KeyMappingInfo>>,
-    /// Pre-computed VK to worker index mapping for fast dispatch
+    /// Pre-computed input device to worker index mapping for fast dispatch
+    device_to_worker: RwLock<HashMap<InputDevice, u8>>,
+    /// Legacy VK to worker index mapping for backward compatibility
     vk_to_worker: [u8; 256],
     /// Worker pool for event processing
     worker_pool: OnceLock<Arc<dyn EventDispatcher>>,
@@ -90,6 +126,8 @@ pub struct AppState {
     notification_sender: OnceLock<Sender<NotificationEvent>>,
     /// Process whitelist (empty means all processes enabled)
     process_whitelist: RwLock<Vec<String>>,
+    /// Cached foreground process name with timestamp (for performance optimization)
+    cached_process_info: Mutex<(Option<String>, Instant)>,
 }
 
 impl AppState {
@@ -102,25 +140,29 @@ impl AppState {
         let switch_key = Self::key_name_to_vk(&config.switch_key)
             .ok_or_else(|| anyhow::anyhow!("Invalid switch key: {}", config.switch_key))?;
 
-        let key_mappings = Self::create_key_mappings(&config)?;
+        let (input_mappings, key_mappings) = Self::create_input_mappings(&config)?;
 
-        // Pre-compute vk_to_worker mapping array for fast dispatch
-        // Use mapping index for balanced distribution
+        // Pre-compute device_to_worker mapping for fast dispatch
+        let mut device_to_worker = HashMap::new();
         let mut vk_to_worker = [0u8; 256];
+
         for (idx, mapping) in config.mappings.iter().enumerate() {
-            if let Some(trigger_vk) = Self::key_name_to_vk(&mapping.trigger_key)
-                && trigger_vk < 256
-            {
-                // Store mapping index directly (will be modulo'd with worker_count in dispatch)
-                // Using u8 to save memory and improve cache efficiency
-                vk_to_worker[trigger_vk as usize] = idx as u8;
+            if let Some(device) = Self::input_name_to_device(&mapping.trigger_key) {
+                device_to_worker.insert(device, idx as u8);
+
+                // Also populate legacy vk_to_worker for keyboard keys
+                if let InputDevice::Keyboard(vk) = device
+                    && vk < 256
+                {
+                    vk_to_worker[vk as usize] = idx as u8;
+                }
             }
         }
 
         Ok(Self {
             show_tray_icon: AtomicBool::new(config.show_tray_icon),
             show_notifications: AtomicBool::new(config.show_notifications),
-            switch_key: RwLock::new(switch_key),
+            switch_key: AtomicU32::new(switch_key),
             should_exit: Arc::new(AtomicBool::new(false)),
             is_paused: AtomicBool::new(false),
             show_window_requested: AtomicBool::new(false),
@@ -129,10 +171,13 @@ impl AppState {
             worker_count: AtomicU64::new(0), // Will be set later
             process_whitelist: RwLock::new(config.process_whitelist.clone()),
             configured_worker_count: config.worker_count,
+            input_mappings: RwLock::new(input_mappings),
             key_mappings: RwLock::new(key_mappings),
+            device_to_worker: RwLock::new(device_to_worker),
             vk_to_worker,
             worker_pool: OnceLock::new(),
             notification_sender: OnceLock::new(),
+            cached_process_info: Mutex::new((None, Instant::now())),
         })
     }
 
@@ -146,9 +191,7 @@ impl AppState {
         let new_switch_key = Self::key_name_to_vk(&config.switch_key)
             .ok_or_else(|| anyhow::anyhow!("Invalid switch key: {}", config.switch_key))?;
 
-        if let Ok(mut switch_key) = self.switch_key.write() {
-            *switch_key = new_switch_key;
-        }
+        self.switch_key.store(new_switch_key, Ordering::Relaxed);
 
         // Update show_tray_icon and show_notifications
         self.show_tray_icon
@@ -160,15 +203,33 @@ impl AppState {
         self.input_timeout
             .store(config.input_timeout, Ordering::Relaxed);
 
-        // Update key mappings
-        let new_mappings = Self::create_key_mappings(&config)?;
+        // Update mappings
+        let (new_input_mappings, new_key_mappings) = Self::create_input_mappings(&config)?;
+        if let Ok(mut mappings) = self.input_mappings.write() {
+            *mappings = new_input_mappings;
+        }
         if let Ok(mut mappings) = self.key_mappings.write() {
-            *mappings = new_mappings;
+            *mappings = new_key_mappings;
+        }
+
+        // Update device_to_worker mapping
+        if let Ok(mut device_map) = self.device_to_worker.write() {
+            device_map.clear();
+            for (idx, mapping) in config.mappings.iter().enumerate() {
+                if let Some(device) = Self::input_name_to_device(&mapping.trigger_key) {
+                    device_map.insert(device, idx as u8);
+                }
+            }
         }
 
         // Update process whitelist
         if let Ok(mut whitelist) = self.process_whitelist.write() {
             *whitelist = config.process_whitelist.clone();
+        }
+
+        // Clear process name cache to immediately apply new whitelist
+        if let Ok(mut cache) = self.cached_process_info.lock() {
+            *cache = (None, Instant::now());
         }
 
         Ok(())
@@ -263,8 +324,8 @@ impl AppState {
         self.worker_count.store(count as u64, Ordering::Relaxed);
     }
 
-    pub fn get_key_mapping(&self, trigger_key: &u32) -> Option<KeyMappingInfo> {
-        self.key_mappings.read().ok()?.get(trigger_key).cloned()
+    pub fn get_input_mapping(&self, device: &InputDevice) -> Option<InputMappingInfo> {
+        self.input_mappings.read().ok()?.get(device).cloned()
     }
 
     #[inline(always)]
@@ -277,32 +338,76 @@ impl AppState {
         }
     }
 
+    #[inline(always)]
     pub fn get_switch_key(&self) -> u32 {
-        *self.switch_key.read().unwrap_or_else(|e| e.into_inner())
+        self.switch_key.load(Ordering::Relaxed)
     }
 
-    pub fn simulate_key_press(&self, scancode: u16, duration: u64) {
+    pub fn simulate_action(&self, action: OutputAction, duration: u64) {
         unsafe {
-            // press the key
-            let mut input = INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 {
-                    ki: KEYBDINPUT {
-                        wVk: VIRTUAL_KEY(0),
-                        wScan: scancode,
-                        dwFlags: KEYEVENTF_SCANCODE,
-                        time: 0,
-                        dwExtraInfo: SIMULATED_EVENT_MARKER,
-                    },
-                },
-            };
+            match action {
+                OutputAction::KeyboardKey(scancode) => {
+                    // Press the key
+                    let mut input = INPUT {
+                        r#type: INPUT_KEYBOARD,
+                        Anonymous: INPUT_0 {
+                            ki: KEYBDINPUT {
+                                wVk: VIRTUAL_KEY(0),
+                                wScan: scancode,
+                                dwFlags: KEYEVENTF_SCANCODE,
+                                time: 0,
+                                dwExtraInfo: SIMULATED_EVENT_MARKER,
+                            },
+                        },
+                    };
 
-            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
-            std::thread::sleep(std::time::Duration::from_millis(duration));
+                    SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                    std::thread::sleep(std::time::Duration::from_millis(duration));
 
-            // release the key
-            input.Anonymous.ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
-            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                    // Release the key
+                    input.Anonymous.ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+                    SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                }
+                OutputAction::MouseButton(button) => {
+                    use windows::Win32::UI::Input::KeyboardAndMouse::*;
+
+                    let (down_flag, up_flag) = match button {
+                        MouseButton::Left => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
+                        MouseButton::Right => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+                        MouseButton::Middle => (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
+                        MouseButton::X1 => (MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP),
+                        MouseButton::X2 => (MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP),
+                    };
+
+                    let mouse_data = match button {
+                        MouseButton::X1 => 1,
+                        MouseButton::X2 => 2,
+                        _ => 0,
+                    };
+
+                    // Press the button
+                    let mut input = INPUT {
+                        r#type: INPUT_MOUSE,
+                        Anonymous: INPUT_0 {
+                            mi: MOUSEINPUT {
+                                dx: 0,
+                                dy: 0,
+                                mouseData: mouse_data,
+                                dwFlags: down_flag,
+                                time: 0,
+                                dwExtraInfo: SIMULATED_EVENT_MARKER,
+                            },
+                        },
+                    };
+
+                    SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                    std::thread::sleep(std::time::Duration::from_millis(duration));
+
+                    // Release the button
+                    input.Anonymous.mi.dwFlags = up_flag;
+                    SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                }
+            }
         }
     }
 
@@ -346,18 +451,49 @@ impl AppState {
     }
 
     /// Check if current foreground process is in whitelist (empty whitelist = all allowed)
+    ///
+    /// Performance optimization: caches process name for 50ms to avoid expensive Windows API calls
+    /// - Cache hit: ~50ns (just check timestamp and clone Arc)
+    /// - Cache miss: ~5µs (Windows API call)
+    #[inline]
     fn is_process_whitelisted(&self) -> bool {
+        // Fast path: check if whitelist is empty first (no lock needed for most users)
         let whitelist = self.process_whitelist.read().unwrap();
-
-        // Empty whitelist means all processes are enabled
         if whitelist.is_empty() {
             return true;
         }
 
-        // Get current foreground process name
-        if let Some(process_name) = Self::get_foreground_process_name() {
-            // Check if process is in whitelist (case-insensitive)
-            whitelist.iter().any(|p| p.to_lowercase() == process_name)
+        // Cache duration: 50ms is a good balance between responsiveness and performance
+        // Window switches are rare (1-2 times per second at most), so we can safely cache
+        const CACHE_DURATION_MS: u64 = 50;
+        let now = Instant::now();
+
+        // Try to get cached process name
+        let process_name = {
+            let cache = self.cached_process_info.lock().unwrap();
+            let (cached_name, cached_time) = &*cache;
+
+            if now.duration_since(*cached_time) < Duration::from_millis(CACHE_DURATION_MS) {
+                // Cache hit: use cached name (fast path)
+                cached_name.clone()
+            } else {
+                // Cache miss: need to refresh
+                drop(cache); // Release read lock before expensive API call
+
+                // Query Windows API (slow operation)
+                let new_name = Self::get_foreground_process_name();
+
+                // Update cache
+                let mut cache = self.cached_process_info.lock().unwrap();
+                *cache = (new_name.clone(), now);
+
+                new_name
+            }
+        };
+
+        // Check if process is in whitelist (case-insensitive comparison)
+        if let Some(name) = process_name {
+            whitelist.iter().any(|p| p.to_lowercase() == name)
         } else {
             // If we can't get process name, allow by default
             true
@@ -368,19 +504,20 @@ impl AppState {
     pub fn handle_key_event(&self, message: u32, vk_code: u32) -> bool {
         let mut should_block = false;
         let switch_key = self.get_switch_key();
+        let device = InputDevice::Keyboard(vk_code);
 
         if !self.is_paused()
-            && self.get_key_mapping(&vk_code).is_some()
+            && self.get_input_mapping(&device).is_some()
             && self.is_process_whitelisted()
             && let Some(pool) = self.worker_pool.get()
         {
             match message {
                 WM_KEYDOWN | WM_SYSKEYDOWN => {
-                    pool.dispatch(KeyEvent::Pressed(vk_code));
+                    pool.dispatch(InputEvent::Pressed(device));
                     should_block = true;
                 }
                 WM_KEYUP | WM_SYSKEYUP => {
-                    pool.dispatch(KeyEvent::Released(vk_code));
+                    pool.dispatch(InputEvent::Released(device));
                     should_block = true;
                 }
                 _ => {}
@@ -407,20 +544,71 @@ impl AppState {
         should_block
     }
 
-    fn create_key_mappings(config: &AppConfig) -> anyhow::Result<HashMap<u32, KeyMappingInfo>> {
-        let mut mappings = HashMap::new();
+    #[allow(non_snake_case)]
+    pub fn handle_mouse_event(&self, message: u32, mouse_data: u32) -> bool {
+        let mut should_block = false;
+
+        // Parse mouse button from message
+        let button_opt = match message {
+            WM_LBUTTONDOWN | WM_LBUTTONUP => Some(MouseButton::Left),
+            WM_RBUTTONDOWN | WM_RBUTTONUP => Some(MouseButton::Right),
+            WM_MBUTTONDOWN | WM_MBUTTONUP => Some(MouseButton::Middle),
+            WM_XBUTTONDOWN | WM_XBUTTONUP => {
+                // Extract X button identifier from high word of mouseData
+                // XBUTTON1 = 1, XBUTTON2 = 2
+                let x_button = (mouse_data >> 16) & 0xFFFF;
+                match x_button {
+                    1 => Some(MouseButton::X1),
+                    2 => Some(MouseButton::X2),
+                    _ => None, // Unknown X button
+                }
+            }
+            _ => None,
+        };
+
+        if let Some(button) = button_opt {
+            let device = InputDevice::Mouse(button);
+
+            if !self.is_paused()
+                && self.get_input_mapping(&device).is_some()
+                && self.is_process_whitelisted()
+                && let Some(pool) = self.worker_pool.get()
+            {
+                match message {
+                    WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN => {
+                        pool.dispatch(InputEvent::Pressed(device));
+                        // Block the original down event since we'll simulate it
+                        should_block = true;
+                    }
+                    WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP | WM_XBUTTONUP => {
+                        pool.dispatch(InputEvent::Released(device));
+                        // Don't block the release event - let it pass through to the system
+                        // so that context menus and other UI elements can respond properly
+                        should_block = false;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        should_block
+    }
+
+    fn create_input_mappings(
+        config: &AppConfig,
+    ) -> anyhow::Result<(
+        HashMap<InputDevice, InputMappingInfo>,
+        HashMap<u32, KeyMappingInfo>,
+    )> {
+        let mut input_mappings = HashMap::new();
+        let mut key_mappings = HashMap::new();
 
         for mapping in &config.mappings {
-            let trigger_vk = Self::key_name_to_vk(&mapping.trigger_key)
-                .ok_or_else(|| anyhow::anyhow!("Invalid trigger key: {}", mapping.trigger_key))?;
+            let trigger_device = Self::input_name_to_device(&mapping.trigger_key)
+                .ok_or_else(|| anyhow::anyhow!("Invalid trigger input: {}", mapping.trigger_key))?;
 
-            let target_vk = Self::key_name_to_vk(&mapping.target_key)
-                .ok_or_else(|| anyhow::anyhow!("Invalid target key: {}", mapping.target_key))?;
-
-            let target_scancode = Self::vk_to_scancode(target_vk);
-            if target_scancode == 0 {
-                anyhow::bail!("Failed to get key {}'s scancode", mapping.target_key);
-            }
+            let target_action = Self::input_name_to_output(&mapping.target_key)
+                .ok_or_else(|| anyhow::anyhow!("Invalid target input: {}", mapping.target_key))?;
 
             let interval = mapping.interval.unwrap_or(config.interval).max(5);
             let event_duration = mapping
@@ -428,17 +616,32 @@ impl AppState {
                 .unwrap_or(config.event_duration)
                 .max(5);
 
-            mappings.insert(
-                trigger_vk,
-                KeyMappingInfo {
-                    target_scancode,
+            // Create input mapping
+            input_mappings.insert(
+                trigger_device,
+                InputMappingInfo {
+                    target_action,
                     interval,
                     event_duration,
                 },
             );
+
+            // Create legacy key mapping for backward compatibility (keyboard only)
+            if let InputDevice::Keyboard(vk) = trigger_device
+                && let OutputAction::KeyboardKey(scancode) = target_action
+            {
+                key_mappings.insert(
+                    vk,
+                    KeyMappingInfo {
+                        target_action: OutputAction::KeyboardKey(scancode),
+                        interval,
+                        event_duration,
+                    },
+                );
+            }
         }
 
-        Ok(mappings)
+        Ok((input_mappings, key_mappings))
     }
 
     fn key_name_to_vk(key_name: &str) -> Option<u32> {
@@ -506,6 +709,57 @@ impl AppState {
 
     fn vk_to_scancode(vk_code: u32) -> u16 {
         SCANCODE_MAP.get(&vk_code).copied().unwrap_or(0)
+    }
+
+    /// Parse input name to InputDevice (supports both keyboard and mouse)
+    fn input_name_to_device(name: &str) -> Option<InputDevice> {
+        let name_upper = name.to_uppercase();
+
+        // Try mouse button first
+        if let Some(button) = Self::mouse_button_name_to_type(&name_upper) {
+            return Some(InputDevice::Mouse(button));
+        }
+
+        // Try keyboard key
+        if let Some(vk) = Self::key_name_to_vk(name) {
+            return Some(InputDevice::Keyboard(vk));
+        }
+
+        None
+    }
+
+    /// Parse input name to OutputAction
+    fn input_name_to_output(name: &str) -> Option<OutputAction> {
+        let name_upper = name.to_uppercase();
+
+        // Try mouse button first
+        if let Some(button) = Self::mouse_button_name_to_type(&name_upper) {
+            return Some(OutputAction::MouseButton(button));
+        }
+
+        // Try keyboard key
+        if let Some(vk) = Self::key_name_to_vk(name) {
+            let scancode = Self::vk_to_scancode(vk);
+            if scancode != 0 {
+                return Some(OutputAction::KeyboardKey(scancode));
+            }
+        }
+
+        None
+    }
+
+    /// Parse mouse button name to MouseButton type
+    fn mouse_button_name_to_type(name: &str) -> Option<MouseButton> {
+        match name {
+            "LBUTTON" | "LMOUSE" | "LEFTMOUSE" | "LEFTBUTTON" | "LMB" => Some(MouseButton::Left),
+            "RBUTTON" | "RMOUSE" | "RIGHTMOUSE" | "RIGHTBUTTON" | "RMB" => Some(MouseButton::Right),
+            "MBUTTON" | "MMOUSE" | "MIDDLEMOUSE" | "MIDDLEBUTTON" | "MMB" => {
+                Some(MouseButton::Middle)
+            }
+            "XBUTTON1" | "X1BUTTON" | "X1" | "MB4" => Some(MouseButton::X1),
+            "XBUTTON2" | "X2BUTTON" | "X2" | "MB5" => Some(MouseButton::X2),
+            _ => None,
+        }
     }
 }
 
@@ -717,7 +971,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_key_mappings_valid() {
+    fn test_create_input_mappings_valid() {
         let mut config = AppConfig::default();
         config.mappings = vec![
             KeyMapping {
@@ -734,23 +988,25 @@ mod tests {
             },
         ];
 
-        let result = AppState::create_key_mappings(&config);
+        let result = AppState::create_input_mappings(&config);
         assert!(result.is_ok());
 
-        let mappings = result.unwrap();
-        assert_eq!(mappings.len(), 2);
+        let (input_mappings, _key_mappings) = result.unwrap();
+        assert_eq!(input_mappings.len(), 2);
 
-        let a_mapping = mappings.get(&0x41).unwrap();
+        let device_a = InputDevice::Keyboard(0x41); // 'A' key
+        let a_mapping = input_mappings.get(&device_a).unwrap();
         assert_eq!(a_mapping.interval, 10);
         assert_eq!(a_mapping.event_duration, 5);
 
-        let f1_mapping = mappings.get(&0x70).unwrap();
+        let device_f1 = InputDevice::Keyboard(0x70); // F1 key
+        let f1_mapping = input_mappings.get(&device_f1).unwrap();
         assert_eq!(f1_mapping.interval, 5); // Default interval
         assert_eq!(f1_mapping.event_duration, 5); // Default duration
     }
 
     #[test]
-    fn test_create_key_mappings_invalid_trigger() {
+    fn test_create_input_mappings_invalid_trigger() {
         let mut config = AppConfig::default();
         config.mappings = vec![KeyMapping {
             trigger_key: "INVALID_KEY".to_string(),
@@ -759,12 +1015,12 @@ mod tests {
             event_duration: None,
         }];
 
-        let result = AppState::create_key_mappings(&config);
+        let result = AppState::create_input_mappings(&config);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_create_key_mappings_invalid_target() {
+    fn test_create_input_mappings_invalid_target() {
         let mut config = AppConfig::default();
         config.mappings = vec![KeyMapping {
             trigger_key: "A".to_string(),
@@ -773,12 +1029,12 @@ mod tests {
             event_duration: None,
         }];
 
-        let result = AppState::create_key_mappings(&config);
+        let result = AppState::create_input_mappings(&config);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_create_key_mappings_interval_validation() {
+    fn test_create_input_mappings_interval_validation() {
         let mut config = AppConfig::default();
         config.interval = 3; // Below minimum
         config.mappings = vec![KeyMapping {
@@ -788,11 +1044,12 @@ mod tests {
             event_duration: None,
         }];
 
-        let result = AppState::create_key_mappings(&config);
+        let result = AppState::create_input_mappings(&config);
         assert!(result.is_ok());
 
-        let mappings = result.unwrap();
-        let a_mapping = mappings.get(&0x41).unwrap();
+        let (input_mappings, _) = result.unwrap();
+        let device = InputDevice::Keyboard(0x41); // 'A' key
+        let a_mapping = input_mappings.get(&device).unwrap();
         assert!(
             a_mapping.interval >= 5,
             "Interval should be clamped to minimum 5"
@@ -800,7 +1057,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_key_mappings_duration_validation() {
+    fn test_create_input_mappings_duration_validation() {
         let mut config = AppConfig::default();
         config.event_duration = 2; // Below minimum
         config.mappings = vec![KeyMapping {
@@ -810,11 +1067,12 @@ mod tests {
             event_duration: Some(3), // Below minimum
         }];
 
-        let result = AppState::create_key_mappings(&config);
+        let result = AppState::create_input_mappings(&config);
         assert!(result.is_ok());
 
-        let mappings = result.unwrap();
-        let a_mapping = mappings.get(&0x41).unwrap();
+        let (input_mappings, _) = result.unwrap();
+        let device = InputDevice::Keyboard(0x41); // 'A' key
+        let a_mapping = input_mappings.get(&device).unwrap();
         assert!(
             a_mapping.event_duration >= 5,
             "Duration should be clamped to minimum 5"
@@ -822,30 +1080,34 @@ mod tests {
     }
 
     #[test]
-    fn test_key_event_variants() {
-        let pressed = KeyEvent::Pressed(0x41);
-        let released = KeyEvent::Released(0x41);
+    fn test_input_event_variants() {
+        let device = InputDevice::Keyboard(0x41);
+        let pressed = InputEvent::Pressed(device);
+        let released = InputEvent::Released(device);
 
         match pressed {
-            KeyEvent::Pressed(key) => assert_eq!(key, 0x41),
+            InputEvent::Pressed(InputDevice::Keyboard(key)) => assert_eq!(key, 0x41),
             _ => panic!("Expected Pressed variant"),
         }
 
         match released {
-            KeyEvent::Released(key) => assert_eq!(key, 0x41),
+            InputEvent::Released(InputDevice::Keyboard(key)) => assert_eq!(key, 0x41),
             _ => panic!("Expected Released variant"),
         }
     }
 
     #[test]
-    fn test_key_mapping_info_structure() {
-        let mapping = KeyMappingInfo {
-            target_scancode: 0x1E,
+    fn test_input_mapping_info_structure() {
+        let mapping = InputMappingInfo {
+            target_action: OutputAction::KeyboardKey(0x1E),
             interval: 10,
             event_duration: 5,
         };
 
-        assert_eq!(mapping.target_scancode, 0x1E);
+        match mapping.target_action {
+            OutputAction::KeyboardKey(scancode) => assert_eq!(scancode, 0x1E),
+            _ => panic!("Expected KeyboardKey action"),
+        }
         assert_eq!(mapping.interval, 10);
         assert_eq!(mapping.event_duration, 5);
     }
@@ -909,7 +1171,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_key_mappings() {
+    fn test_multiple_input_mappings() {
         let mut config = AppConfig::default();
         config.mappings = vec![
             KeyMapping {
@@ -932,12 +1194,16 @@ mod tests {
             },
         ];
 
-        let mappings = AppState::create_key_mappings(&config).unwrap();
-        assert_eq!(mappings.len(), 3);
+        let (input_mappings, _) = AppState::create_input_mappings(&config).unwrap();
+        assert_eq!(input_mappings.len(), 3);
 
-        assert_eq!(mappings.get(&0x41).unwrap().interval, 10);
-        assert_eq!(mappings.get(&0x42).unwrap().interval, 15);
-        assert_eq!(mappings.get(&0x43).unwrap().interval, 20);
+        let device_a = InputDevice::Keyboard(0x41);
+        let device_b = InputDevice::Keyboard(0x42);
+        let device_c = InputDevice::Keyboard(0x43);
+
+        assert_eq!(input_mappings.get(&device_a).unwrap().interval, 10);
+        assert_eq!(input_mappings.get(&device_b).unwrap().interval, 15);
+        assert_eq!(input_mappings.get(&device_c).unwrap().interval, 20);
     }
 
     #[test]
@@ -1228,6 +1494,89 @@ mod tests {
 
         // With empty whitelist, all processes should be whitelisted
         assert!(state.is_process_whitelisted());
+    }
+
+    #[test]
+    fn test_process_whitelist_cache() {
+        use std::thread;
+        use std::time::Duration;
+
+        let mut config = AppConfig::default();
+        config.process_whitelist = vec!["explorer.exe".to_string()];
+
+        let state = AppState::new(config).unwrap();
+
+        // First call - cache miss (will query Windows API)
+        let _ = state.is_process_whitelisted();
+
+        // Verify cache was populated
+        let cache = state.cached_process_info.lock().unwrap();
+        let (cached_name, _) = &*cache;
+        let initial_name = cached_name.clone();
+        drop(cache);
+
+        // Second call immediately - cache hit (should use cached value)
+        let _ = state.is_process_whitelisted();
+
+        // Verify cache still has same value
+        let cache = state.cached_process_info.lock().unwrap();
+        let (cached_name, _) = &*cache;
+        assert_eq!(*cached_name, initial_name);
+        drop(cache);
+
+        // Wait for cache to expire (>50ms)
+        thread::sleep(Duration::from_millis(60));
+
+        // Third call after expiration - cache miss (will refresh)
+        let _ = state.is_process_whitelisted();
+
+        // Cache should be refreshed with new timestamp
+        let cache = state.cached_process_info.lock().unwrap();
+        let (_, timestamp) = &*cache;
+        assert!(timestamp.elapsed() < Duration::from_millis(10)); // Should be very recent
+    }
+
+    #[test]
+    fn test_x_button_parsing() {
+        use windows::Win32::UI::WindowsAndMessaging::*;
+
+        let config = AppConfig::default();
+        let state = AppState::new(config).unwrap();
+
+        // Simulate XBUTTON1 down (mouse_data high word = 1)
+        let mouse_data_x1: u32 = 1 << 16; // XBUTTON1
+        let _result = state.handle_mouse_event(WM_XBUTTONDOWN, mouse_data_x1);
+        // Should parse as X1 button
+
+        // Simulate XBUTTON2 up (mouse_data high word = 2)
+        let mouse_data_x2: u32 = 2 << 16; // XBUTTON2
+        let _result = state.handle_mouse_event(WM_XBUTTONUP, mouse_data_x2);
+        // Should parse as X2 button
+    }
+
+    #[test]
+    fn test_mouse_button_name_parsing() {
+        // Test X button name parsing
+        assert_eq!(
+            AppState::mouse_button_name_to_type("XBUTTON1"),
+            Some(MouseButton::X1)
+        );
+        assert_eq!(
+            AppState::mouse_button_name_to_type("XBUTTON2"),
+            Some(MouseButton::X2)
+        );
+        assert_eq!(
+            AppState::mouse_button_name_to_type("X1"),
+            Some(MouseButton::X1)
+        );
+        assert_eq!(
+            AppState::mouse_button_name_to_type("MB4"),
+            Some(MouseButton::X1)
+        );
+        assert_eq!(
+            AppState::mouse_button_name_to_type("MB5"),
+            Some(MouseButton::X2)
+        );
     }
 
     #[test]

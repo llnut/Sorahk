@@ -23,8 +23,9 @@ switch_key = "DELETE"        # Reserved key to toggle SoraHK behavior
 # Only processes in this list will have turbo-fire enabled
 process_whitelist = []       # Example: ["notepad.exe", "game.exe"]
 
-# ─── Key Mappings ───
-# Key mapping definitions
+# ─── Input Mappings ───
+# Input mapping definitions (supports both keyboard and mouse)
+# Supported mouse buttons: LBUTTON, RBUTTON, MBUTTON, XBUTTON1, XBUTTON2
 [[mappings]]
 trigger_key = "A"            # Physical key you press
 target_key = "A"             # Key that gets repeatedly sent
@@ -46,3 +47,18 @@ target_key = "2"             # Key that gets repeatedly sent
 [[mappings]]
 trigger_key = "LSHIFT"       # Physical key you press
 target_key = "3"             # Key that gets repeatedly sent
+
+# ─── Mouse Button Examples ───
+# Uncomment to enable mouse button mappings:
+
+# [[mappings]]
+# trigger_key = "LBUTTON"    # Left mouse button trigger
+# target_key = "LBUTTON"     # Auto-click left button
+
+# [[mappings]]
+# trigger_key = "RBUTTON"    # Right mouse button trigger
+# target_key = "SPACE"       # Press space when right-clicking
+
+# [[mappings]]
+# trigger_key = "XBUTTON1"   # Side button 1 trigger
+# target_key = "F"           # Auto-press F key

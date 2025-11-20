@@ -54,6 +54,8 @@ pub struct SorahkGui {
     pub(super) new_process_name: String,
     /// Current key capture state
     pub(super) key_capture_mode: KeyCaptureMode,
+    /// Flag to prevent re-entering capture mode immediately after capturing
+    pub(super) just_captured_input: bool,
     /// Close dialog highlight expiration time
     pub(super) dialog_highlight_until: Option<std::time::Instant>,
     /// Pause state before entering settings
@@ -87,6 +89,7 @@ impl SorahkGui {
             new_mapping_duration: String::new(),
             new_process_name: String::new(),
             key_capture_mode: KeyCaptureMode::None,
+            just_captured_input: false,
             was_paused_before_settings: None,
             duplicate_mapping_error: None,
             duplicate_process_error: None,

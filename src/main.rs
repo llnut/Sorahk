@@ -6,6 +6,7 @@ mod config;
 mod gui;
 mod i18n;
 mod keyboard;
+mod mouse;
 mod signal;
 mod state;
 mod tray;
@@ -17,6 +18,7 @@ use anyhow::Result;
 use config::AppConfig;
 use gui::{SorahkGui, show_error};
 use keyboard::KeyboardHook;
+use mouse::MouseHook;
 use state::AppState;
 use tray::TrayIcon;
 
@@ -48,7 +50,14 @@ fn main() -> Result<()> {
         Err(e) => Err(e),
     });
 
-    // Give keyboard hook time to initialize
+    // Start mouse hook in a separate thread
+    let mouse_state = app_state.clone();
+    thread::spawn(move || match MouseHook::new(mouse_state) {
+        Ok(hook) => hook.run_message_loop(),
+        Err(e) => Err(e),
+    });
+
+    // Give hooks time to initialize
     thread::sleep(std::time::Duration::from_millis(200));
 
     // Start tray icon if enabled

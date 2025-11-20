@@ -2,12 +2,30 @@
 =====
 Feature enhancements:
 
-* Add i18n module with cached translation system
-* Add support for 4 languages: English, 简体中文, 繁體中文, 日本語
-* Add Windows system font loader with CJK optimization
-* Add language selection in settings dialog with real-time preview
-* Add language field to Config.toml for persistent language preferences
-* Add duplicate trigger key validation in settings dialog to prevent conflicts
+* Mouse button auto-fire support (Left, Right, Middle, X1, X2)
+* Multi-language support (English, 简体中文, 繁體中文, 日本語)
+* Language selector in settings dialog with real-time preview
+* Duplicate trigger key validation to prevent conflicts
+* Duplicate process validation in whitelist
+
+Performance optimizations:
+- Convert switch_key from RwLock to AtomicU32 for lock-free access
+- Add process whitelist cache (50ms expiration) to reduce Windows API calls
+- Add mapping info cache in worker threads to avoid repeated lock reads
+
+UI Improvements:
+- Add mouse button capture in settings dialog
+- Update UI translations for better clarity
+
+Testing:
+- Add comprehensive test suite covering unit and integration tests
+- Add unit tests for config, state, i18n, keyboard, mouse, tray, and signal modules
+- Add TESTING.md with testing guide and example patterns
+- Add lib target to Cargo.toml to enable module testing
+
+Documentation:
+- Update README.md with mouse support and testing sections
+- Update Config.toml with mouse button mapping examples
 
 0.2.0
 =====

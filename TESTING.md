@@ -33,9 +33,10 @@ Located within each module using `#[cfg(test)]`:
 ```
 src/
 ├── config.rs      # Configuration management
-├── state.rs       # State and key mapping logic
+├── state.rs       # State and input mapping logic
 ├── i18n.rs        # Internationalization
 ├── keyboard.rs    # Worker pool and event handling
+├── mouse.rs       # Mouse input handling
 ├── tray.rs        # System tray utilities
 └── signal.rs      # Signal handling
 ```
@@ -55,9 +56,10 @@ tests/
 | Module | Primary Focus |
 |--------|---------------|
 | **config.rs** | Configuration loading, saving, validation, error handling, TOML serialization |
-| **state.rs** | Key conversion (VK/scancode), mappings validation, thread safety, atomic operations |
+| **state.rs** | Key conversion (VK/scancode), input device mappings, thread safety, atomic operations |
 | **i18n.rs** | Multi-language translations, formatting functions, translation completeness |
 | **keyboard.rs** | Worker pool creation, event distribution, multi-threading, channel communication |
+| **mouse.rs** | Mouse button handling, message parsing, event processing |
 | **tray.rs** | XML escaping for notifications, utility functions, constants |
 | **signal.rs** | Console control event constants, type wrappers |
 | **Integration** | Cross-module interactions, configuration persistence, concurrent operations |
@@ -69,6 +71,7 @@ Run `cargo test -- --list` to see all available test functions.
 - Configuration management and validation
 - Key name to VK code conversion
 - VK code to scancode mapping
+- Mouse button name parsing and event handling
 - Multi-language translation system
 - Worker pool and event distribution
 - Thread safety and atomic operations
@@ -79,12 +82,12 @@ Run `cargo test -- --list` to see all available test functions.
 Due to Windows API requirements, the following are not covered by automated tests:
 
 - Windows API calls (SetWindowsHookExA, Shell_NotifyIconW, SendInput, etc.)
-- Actual keyboard hook installation
+- Actual keyboard and mouse hook installation
 - System tray icon display
 - Toast notification display
-- Physical key press simulation
+- Physical key press and mouse click simulation
 
-**Note:** Internal logic of these modules is tested without requiring Windows API interaction.
+**Note:** Internal logic of these modules is tested without requiring Windows API interaction. Tests avoid triggering actual input to prevent system interference.
 
 ## Writing New Tests
 

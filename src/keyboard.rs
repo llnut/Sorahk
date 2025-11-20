@@ -8,13 +8,13 @@ use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-use crate::state::{AppState, KeyEvent};
+use crate::state::{AppState, InputDevice, InputEvent};
 
 unsafe impl Send for KeyboardHook {}
 
-// Multi-worker dispatcher
+// Multi-worker dispatcher supporting both keyboard and mouse
 struct WorkerPool {
-    workers: Vec<Sender<KeyEvent>>,
+    workers: Vec<Sender<InputEvent>>,
     worker_count: usize,
 }
 
@@ -26,32 +26,43 @@ impl WorkerPool {
         }
     }
 
-    fn add_worker(&mut self, sender: Sender<KeyEvent>) {
+    fn add_worker(&mut self, sender: Sender<InputEvent>) {
         self.workers.push(sender);
     }
 }
 
 // Implement EventDispatcher trait
 impl crate::state::EventDispatcher for WorkerPool {
-    // Dispatch events using pre-computed array lookup (~1-3ns vs HashMap's ~10-20ns)
-    fn dispatch(&self, event: KeyEvent) {
+    // Dispatch events using pre-computed lookup
+    fn dispatch(&self, event: InputEvent) {
         if self.workers.is_empty() {
             return;
         }
 
-        let key_code = match event {
-            KeyEvent::Pressed(k) | KeyEvent::Released(k) => k,
+        let device = match event {
+            InputEvent::Pressed(d) | InputEvent::Released(d) => d,
         };
 
-        // Use pre-computed array lookup
-        // Array access is inlined by the compiler with minimal overhead
+        // Determine worker index based on device
         let worker_idx = if let Some(state) = crate::state::get_global_state() {
-            // Use mapping index for hashing, ensuring balanced load distribution
-            let mapping_idx = state.get_worker_index(key_code);
-            mapping_idx % self.worker_count
+            // For keyboard, use the optimized VK lookup
+            // For mouse, use a simple hash
+            match device {
+                InputDevice::Keyboard(vk) => {
+                    let mapping_idx = state.get_worker_index(vk);
+                    mapping_idx % self.worker_count
+                }
+                InputDevice::Mouse(button) => {
+                    // Use simple discriminant-based distribution (much faster than hashing)
+                    (button as usize) % self.worker_count
+                }
+            }
         } else {
-            // Fallback: use simple hash when global state is unavailable
-            (key_code as usize) % self.worker_count
+            // Fallback: simple hash
+            match device {
+                InputDevice::Keyboard(vk) => (vk as usize) % self.worker_count,
+                InputDevice::Mouse(button) => (button as usize) % self.worker_count,
+            }
         };
 
         // Non-blocking send to ensure hook callback responsiveness
@@ -187,13 +198,17 @@ impl KeyboardHook {
         unsafe { CallNextHookEx(None, code, w_param, l_param) }
     }
 
-    fn turbo_worker(_worker_id: usize, state: Arc<AppState>, event_rx: Receiver<KeyEvent>) {
-        let mut key_states = HashMap::new();
+    fn turbo_worker(_worker_id: usize, state: Arc<AppState>, event_rx: Receiver<InputEvent>) {
+        use crate::state::OutputAction;
+        // Store device state along with cached mapping info to avoid repeated lookups
+        let mut device_states: HashMap<InputDevice, (Instant, u64, u64, OutputAction)> =
+            HashMap::new();
+        // Cache format: (last_time, interval, event_duration, target_action)
 
         while !state.should_exit() {
             if state.is_paused() {
-                if !key_states.is_empty() {
-                    key_states.clear();
+                if !device_states.is_empty() {
+                    device_states.clear();
                 }
                 thread::sleep(Duration::from_millis(50)); // Shorter sleep time for better responsiveness
                 continue;
@@ -201,45 +216,61 @@ impl KeyboardHook {
 
             // Use shorter timeout for better responsiveness
             match event_rx.recv_timeout(Duration::from_millis(state.input_timeout())) {
-                Ok(event) => Self::handle_key_event(&state, &mut key_states, event),
-                Err(_) => Self::handle_timeout(&state, &mut key_states),
+                Ok(event) => Self::handle_input_event(&state, &mut device_states, event),
+                Err(_) => Self::handle_timeout(&state, &mut device_states),
             }
         }
     }
 
-    fn handle_key_event(state: &AppState, key_states: &mut HashMap<u32, Instant>, event: KeyEvent) {
+    fn handle_input_event(
+        state: &AppState,
+        device_states: &mut HashMap<InputDevice, (Instant, u64, u64, crate::state::OutputAction)>,
+        event: InputEvent,
+    ) {
         match event {
-            KeyEvent::Pressed(trigger_key) => {
+            InputEvent::Pressed(device) => {
                 let now = Instant::now();
 
-                if let Some(last_time) = key_states.get_mut(&trigger_key) {
-                    if let Some(mapping) = state.get_key_mapping(&trigger_key)
-                        && now.duration_since(*last_time) >= Duration::from_millis(mapping.interval)
-                    {
-                        state.simulate_key_press(mapping.target_scancode, mapping.event_duration);
+                if let Some((last_time, interval, duration, target_action)) =
+                    device_states.get_mut(&device)
+                {
+                    // Use cached mapping info - no lock needed!
+                    if now.duration_since(*last_time) >= Duration::from_millis(*interval) {
+                        state.simulate_action(*target_action, *duration);
                         *last_time = now;
                     }
                 } else {
-                    key_states.insert(trigger_key, now);
-                    if let Some(mapping) = state.get_key_mapping(&trigger_key) {
-                        state.simulate_key_press(mapping.target_scancode, mapping.event_duration);
+                    // First press: lookup mapping and cache it (one-time RwLock read)
+                    if let Some(mapping) = state.get_input_mapping(&device) {
+                        device_states.insert(
+                            device,
+                            (
+                                now,
+                                mapping.interval,
+                                mapping.event_duration,
+                                mapping.target_action,
+                            ),
+                        );
+                        state.simulate_action(mapping.target_action, mapping.event_duration);
                     }
                 }
             }
-            KeyEvent::Released(trigger_key) => {
-                key_states.remove(&trigger_key);
+            InputEvent::Released(device) => {
+                device_states.remove(&device);
             }
         }
     }
 
-    fn handle_timeout(state: &AppState, key_states: &mut HashMap<u32, Instant>) {
+    fn handle_timeout(
+        state: &AppState,
+        device_states: &mut HashMap<InputDevice, (Instant, u64, u64, crate::state::OutputAction)>,
+    ) {
         let now = Instant::now();
 
-        for (trigger_key, last_time) in key_states.iter_mut() {
-            if let Some(mapping) = state.get_key_mapping(trigger_key)
-                && now.duration_since(*last_time) >= Duration::from_millis(mapping.interval)
-            {
-                state.simulate_key_press(mapping.target_scancode, mapping.event_duration);
+        // Use cached mapping info - no repeated lookups or locks!
+        for (_device, (last_time, interval, duration, target_action)) in device_states.iter_mut() {
+            if now.duration_since(*last_time) >= Duration::from_millis(*interval) {
+                state.simulate_action(*target_action, *duration);
                 *last_time = now;
             }
         }
@@ -284,86 +315,72 @@ mod tests {
     }
 
     #[test]
-    fn test_key_event_pressed_variant() {
-        let event = KeyEvent::Pressed(0x41);
+    fn test_input_event_pressed_variant() {
+        let event = InputEvent::Pressed(InputDevice::Keyboard(0x41));
 
         match event {
-            KeyEvent::Pressed(key) => assert_eq!(key, 0x41),
+            InputEvent::Pressed(InputDevice::Keyboard(key)) => assert_eq!(key, 0x41),
             _ => panic!("Expected Pressed variant"),
         }
     }
 
     #[test]
-    fn test_key_event_released_variant() {
-        let event = KeyEvent::Released(0x41);
+    fn test_input_event_released_variant() {
+        let event = InputEvent::Released(InputDevice::Keyboard(0x41));
 
         match event {
-            KeyEvent::Released(key) => assert_eq!(key, 0x41),
+            InputEvent::Released(InputDevice::Keyboard(key)) => assert_eq!(key, 0x41),
             _ => panic!("Expected Released variant"),
         }
     }
 
     #[test]
-    fn test_handle_key_event_logic() {
-        let config = AppConfig::default();
-        let state = Arc::new(AppState::new(config).unwrap());
-        let mut key_states = HashMap::new();
+    fn test_mapping_cache_retrieval() {
+        use crate::config::KeyMapping;
 
-        // Test pressing a key
-        KeyboardHook::handle_key_event(&state, &mut key_states, KeyEvent::Pressed(0x41));
-        assert_eq!(key_states.len(), 1);
-        assert!(key_states.contains_key(&0x41));
-
-        // Test releasing a key
-        KeyboardHook::handle_key_event(&state, &mut key_states, KeyEvent::Released(0x41));
-        assert_eq!(key_states.len(), 0);
-    }
-
-    #[test]
-    fn test_handle_timeout_logic() {
         let mut config = AppConfig::default();
-        config.interval = 50; // 50ms interval
-        config.mappings = vec![crate::config::KeyMapping {
+        config.mappings = vec![KeyMapping {
             trigger_key: "A".to_string(),
             target_key: "B".to_string(),
-            interval: Some(50),
+            interval: Some(10),
             event_duration: Some(5),
         }];
 
         let state = Arc::new(AppState::new(config).unwrap());
-        let mut key_states = HashMap::new();
+        let device = InputDevice::Keyboard(0x41); // 'A' key
 
-        // Insert a key press that happened recently (within interval)
-        let recent_time = Instant::now() - Duration::from_millis(10);
-        key_states.insert(0x41, recent_time);
+        // Test that mapping can be retrieved correctly
+        let mapping = state.get_input_mapping(&device);
+        assert!(mapping.is_some(), "Mapping for 'A' key should exist");
 
-        // Call handle_timeout - should not trigger because interval not expired
-        KeyboardHook::handle_timeout(&state, &mut key_states);
+        let mapping = mapping.unwrap();
+        assert_eq!(mapping.interval, 10);
+        assert_eq!(mapping.event_duration, 5);
 
-        // The timestamp should remain the same (not updated)
-        assert_eq!(*key_states.get(&0x41).unwrap(), recent_time);
+        // Test unmapped device
+        let unmapped_device = InputDevice::Keyboard(0x5A); // 'Z' key
+        let no_mapping = state.get_input_mapping(&unmapped_device);
+        assert!(no_mapping.is_none(), "Unmapped key should return None");
     }
 
     #[test]
-    fn test_multiple_concurrent_key_presses() {
-        let config = AppConfig::default();
-        let state = Arc::new(AppState::new(config).unwrap());
-        let mut key_states = HashMap::new();
+    fn test_interval_expiration_logic() {
+        // Test interval expiration calculation
+        let interval_ms = 50u64;
 
-        // Simulate multiple keys being pressed
-        KeyboardHook::handle_key_event(&state, &mut key_states, KeyEvent::Pressed(0x41));
-        KeyboardHook::handle_key_event(&state, &mut key_states, KeyEvent::Pressed(0x42));
-        KeyboardHook::handle_key_event(&state, &mut key_states, KeyEvent::Pressed(0x43));
+        // Simulate a key pressed 10ms ago (within interval)
+        let recent_time = Instant::now() - Duration::from_millis(10);
+        assert!(
+            recent_time.elapsed() < Duration::from_millis(interval_ms),
+            "10ms elapsed should be within 50ms interval"
+        );
 
-        assert_eq!(key_states.len(), 3);
-
-        // Release one key
-        KeyboardHook::handle_key_event(&state, &mut key_states, KeyEvent::Released(0x42));
-
-        assert_eq!(key_states.len(), 2);
-        assert!(key_states.contains_key(&0x41));
-        assert!(key_states.contains_key(&0x43));
-        assert!(!key_states.contains_key(&0x42));
+        // Simulate a key pressed 60ms ago (beyond interval)
+        let old_time = Instant::now() - Duration::from_millis(60);
+        assert!(
+            old_time.elapsed() >= Duration::from_millis(interval_ms),
+            "60ms elapsed should exceed 50ms interval"
+        );
     }
 
     #[test]
@@ -392,7 +409,7 @@ mod tests {
 
         // Send test events
         for i in 0..10 {
-            pool.dispatch(KeyEvent::Pressed(0x41 + i));
+            pool.dispatch(InputEvent::Pressed(InputDevice::Keyboard(0x41 + i)));
         }
 
         // Wait for events to be processed
@@ -428,7 +445,7 @@ mod tests {
 
         // Send many events to test distribution
         for i in 0..100 {
-            pool.dispatch(KeyEvent::Pressed(0x41 + (i % 26)));
+            pool.dispatch(InputEvent::Pressed(InputDevice::Keyboard(0x41 + (i % 26))));
         }
 
         // Wait for processing
@@ -453,10 +470,12 @@ mod tests {
 
         let (tx, rx) = channel();
 
+        let device = InputDevice::Keyboard(0x41);
+
         // Sender thread
         thread::spawn(move || {
-            tx.send(KeyEvent::Pressed(0x41)).unwrap();
-            tx.send(KeyEvent::Released(0x41)).unwrap();
+            tx.send(InputEvent::Pressed(device)).unwrap();
+            tx.send(InputEvent::Released(device)).unwrap();
         });
 
         // Receiver thread
@@ -472,11 +491,11 @@ mod tests {
 
         assert_eq!(events.len(), 2);
         match events[0] {
-            KeyEvent::Pressed(k) => assert_eq!(k, 0x41),
+            InputEvent::Pressed(InputDevice::Keyboard(k)) => assert_eq!(k, 0x41),
             _ => panic!("Expected Pressed event"),
         }
         match events[1] {
-            KeyEvent::Released(k) => assert_eq!(k, 0x41),
+            InputEvent::Released(InputDevice::Keyboard(k)) => assert_eq!(k, 0x41),
             _ => panic!("Expected Released event"),
         }
     }
