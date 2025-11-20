@@ -36,12 +36,7 @@ impl eframe::App for SorahkGui {
         };
         ctx.set_visuals(visuals.clone());
 
-        // Only request repaint when needed (e.g., for animations)
-        if let Some(until) = self.dialog_highlight_until
-            && std::time::Instant::now() < until
-        {
-            ctx.request_repaint();
-        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
 
         // Handle window visibility requests
         if self.app_state.check_and_clear_show_window_request() {
