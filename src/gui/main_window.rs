@@ -6,67 +6,42 @@ use crate::gui::utils::string_to_key;
 use crate::state::NotificationEvent;
 use eframe::egui;
 
+/// Cached frame state to avoid repeated atomic operations.
+struct FrameState {
+    is_paused: bool,
+    worker_count: usize,
+    should_exit: bool,
+}
+
 impl eframe::App for SorahkGui {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Cache frame state at the beginning to avoid repeated atomic operations
+        let frame_state = FrameState {
+            is_paused: self.app_state.is_paused(),
+            worker_count: self.app_state.get_actual_worker_count(),
+            should_exit: self.app_state.should_exit(),
+        };
+
         // Check if exit was requested at the very beginning
-        if self.app_state.should_exit() {
+        if frame_state.should_exit {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
 
-        // Apply anime theme
-        let mut visuals = if self.dark_mode {
-            egui::Visuals::dark()
+        // Apply cached visuals based on theme
+        let visuals = if self.dark_mode {
+            &self.cached_dark_visuals
         } else {
-            egui::Visuals::light()
+            &self.cached_light_visuals
         };
+        ctx.set_visuals(visuals.clone());
 
-        // Apply rounded corners for anime-style appearance
-        visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(18);
-        visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(18);
-        visuals.widgets.active.corner_radius = egui::CornerRadius::same(18);
-        visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(12);
-        visuals.widgets.open.corner_radius = egui::CornerRadius::same(18);
-
-        // Remove all borders for clean flat design
-        visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
-        visuals.selection.stroke.width = 0.0;
-
-        // Configure background colors with gradient effect
-        if !self.dark_mode {
-            // Light mode: soft lavender gradient with enhanced contrast
-            visuals.window_fill = egui::Color32::from_rgb(240, 235, 245);
-            visuals.panel_fill = egui::Color32::from_rgb(238, 233, 243);
-            visuals.faint_bg_color = egui::Color32::from_rgb(245, 240, 250);
-            visuals.widgets.noninteractive.weak_bg_fill = egui::Color32::from_rgb(250, 245, 255);
-            visuals.extreme_bg_color = egui::Color32::from_rgb(235, 230, 245);
-        } else {
-            // Dark mode: deep purple-blue gradient
-            visuals.window_fill = egui::Color32::from_rgb(25, 27, 35);
-            visuals.panel_fill = egui::Color32::from_rgb(30, 32, 40);
-            visuals.faint_bg_color = egui::Color32::from_rgb(35, 37, 45);
-            visuals.widgets.noninteractive.weak_bg_fill = egui::Color32::from_rgb(38, 40, 50);
-            visuals.extreme_bg_color = egui::Color32::from_rgb(42, 44, 55);
+        // Only request repaint when needed (e.g., for animations)
+        if let Some(until) = self.dialog_highlight_until
+            && std::time::Instant::now() < until
+        {
+            ctx.request_repaint();
         }
-
-        visuals.window_shadow = egui::epaint::Shadow {
-            offset: [0, 4],
-            blur: 18,
-            spread: 0,
-            color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 25),
-        };
-        visuals.popup_shadow = egui::epaint::Shadow {
-            offset: [0, 3],
-            blur: 12,
-            spread: 0,
-            color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 20),
-        };
-
-        ctx.set_visuals(visuals);
-        ctx.request_repaint_after(std::time::Duration::from_millis(100));
 
         // Handle window visibility requests
         if self.app_state.check_and_clear_show_window_request() {
@@ -80,7 +55,7 @@ impl eframe::App for SorahkGui {
         }
 
         // Handle close dialog
-        self.handle_close_dialog(ctx);
+        self.handle_close_dialog(ctx, &frame_state);
 
         // Show dialogs
         if self.show_settings_dialog {
@@ -100,10 +75,10 @@ impl eframe::App for SorahkGui {
         self.handle_keyboard_input(ctx);
 
         // Render main content
-        self.render_main_content(ctx);
+        self.render_main_content(ctx, &frame_state);
 
         // Check exit
-        if self.app_state.should_exit() {
+        if frame_state.should_exit {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
@@ -115,9 +90,9 @@ impl eframe::App for SorahkGui {
 
 impl SorahkGui {
     /// Handles close dialog display and interaction logic.
-    fn handle_close_dialog(&mut self, ctx: &egui::Context) {
+    fn handle_close_dialog(&mut self, ctx: &egui::Context, frame_state: &FrameState) {
         if ctx.input(|i| i.viewport().close_requested()) {
-            if self.app_state.should_exit() {
+            if frame_state.should_exit {
                 // Allow close
             } else if self.minimize_on_close {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -300,7 +275,7 @@ impl SorahkGui {
     }
 
     /// Renders the main content panel with all UI components.
-    fn render_main_content(&mut self, ctx: &egui::Context) {
+    fn render_main_content(&mut self, ctx: &egui::Context, frame_state: &FrameState) {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.render_title_bar(ui);
 
@@ -311,7 +286,7 @@ impl SorahkGui {
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
                     ui.add_space(10.0);
-                    self.render_status_card(ui);
+                    self.render_status_card(ui, frame_state);
                     ui.add_space(10.0);
                     self.render_hotkey_card(ui);
                     ui.add_space(10.0);
@@ -414,7 +389,7 @@ impl SorahkGui {
     }
 
     /// Renders the status card with pause/resume and exit controls.
-    fn render_status_card(&mut self, ui: &mut egui::Ui) {
+    fn render_status_card(&mut self, ui: &mut egui::Ui, frame_state: &FrameState) {
         let t = &self.translations;
         let card_bg = if self.dark_mode {
             egui::Color32::from_rgb(42, 38, 48)
@@ -443,8 +418,7 @@ impl SorahkGui {
 
                     ui.add_space(10.0);
 
-                    let is_paused = self.app_state.is_paused();
-                    let (icon, text, color) = if is_paused {
+                    let (icon, text, color) = if frame_state.is_paused {
                         ("⏸", t.paused_status(), egui::Color32::from_rgb(255, 140, 0))
                     } else {
                         (
@@ -458,16 +432,17 @@ impl SorahkGui {
                     ui.label(egui::RichText::new(text).size(15.0).color(color).strong());
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let worker_count = self.app_state.get_actual_worker_count();
-                        if worker_count > 0 {
+                        if frame_state.worker_count > 0 {
                             ui.label(
-                                egui::RichText::new(t.format_worker_count(worker_count as usize))
-                                    .size(13.0)
-                                    .color(if self.dark_mode {
-                                        egui::Color32::from_rgb(135, 206, 235)
-                                    } else {
-                                        egui::Color32::from_rgb(70, 130, 180)
-                                    }),
+                                egui::RichText::new(
+                                    t.format_worker_count(frame_state.worker_count),
+                                )
+                                .size(13.0)
+                                .color(if self.dark_mode {
+                                    egui::Color32::from_rgb(135, 206, 235)
+                                } else {
+                                    egui::Color32::from_rgb(70, 130, 180)
+                                }),
                             );
                         }
                     });
@@ -479,8 +454,7 @@ impl SorahkGui {
                     let width = 140.0;
                     let height = 32.0;
 
-                    let is_paused = self.app_state.is_paused();
-                    let (text, color) = if is_paused {
+                    let (text, color) = if frame_state.is_paused {
                         (t.start_button(), egui::Color32::from_rgb(144, 238, 144))
                     } else {
                         (t.pause_button(), egui::Color32::from_rgb(255, 218, 185))

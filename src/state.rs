@@ -316,8 +316,8 @@ impl AppState {
     }
 
     /// Returns the actual number of active worker threads.
-    pub fn get_actual_worker_count(&self) -> u64 {
-        self.worker_count.load(Ordering::Relaxed)
+    pub fn get_actual_worker_count(&self) -> usize {
+        self.worker_count.load(Ordering::Relaxed) as usize
     }
 
     pub fn set_actual_worker_count(&self, count: usize) {

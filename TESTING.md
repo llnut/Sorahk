@@ -38,7 +38,10 @@ src/
 ├── keyboard.rs    # Worker pool and event handling
 ├── mouse.rs       # Mouse input handling
 ├── tray.rs        # System tray utilities
-└── signal.rs      # Signal handling
+├── signal.rs      # Signal handling
+└── gui/
+    ├── utils.rs   # GUI utility functions
+    └── types.rs   # GUI type definitions
 ```
 
 ### Integration Tests
@@ -60,6 +63,8 @@ tests/
 | **i18n.rs** | Multi-language translations, formatting functions, translation completeness |
 | **keyboard.rs** | Worker pool creation, event distribution, multi-threading, channel communication |
 | **mouse.rs** | Mouse button handling, message parsing, event processing |
+| **gui/utils.rs** | Key string conversion, icon loading |
+| **gui/types.rs** | KeyCaptureMode enum |
 | **tray.rs** | XML escaping for notifications, utility functions, constants |
 | **signal.rs** | Console control event constants, type wrappers |
 | **Integration** | Cross-module interactions, configuration persistence, concurrent operations |
@@ -72,6 +77,7 @@ Run `cargo test -- --list` to see all available test functions.
 - Key name to VK code conversion
 - VK code to scancode mapping
 - Mouse button name parsing and event handling
+- GUI utility functions and type definitions
 - Multi-language translation system
 - Worker pool and event distribution
 - Thread safety and atomic operations
@@ -86,6 +92,7 @@ Due to Windows API requirements, the following are not covered by automated test
 - System tray icon display
 - Toast notification display
 - Physical key press and mouse click simulation
+- GUI rendering and user interactions
 
 **Note:** Internal logic of these modules is tested without requiring Windows API interaction. Tests avoid triggering actual input to prevent system interference.
 
