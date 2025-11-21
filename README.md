@@ -152,6 +152,11 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
 
 ### ⚙️ **Core Functionality**
 - **Flexible Input Mapping** – Map any trigger input (keyboard or mouse) to auto-repeat any target action
+- **Advanced Combo Key Support** – Full combo key triggers and outputs with:
+  - Single or multiple modifier keys (e.g., `ALT+A`, `CTRL+SHIFT+F`)
+  - Left/right modifier distinction (e.g., `LSHIFT` vs `RSHIFT`)
+  - Single modifier keys as triggers (e.g., `LSHIFT` alone)
+  - Multiple simultaneous combos with shared modifiers (e.g., `ALT+1`, `ALT+2`)
 - **Mouse Button Support** – Full support for left, right, middle, and side mouse buttons (X1/X2)
 - **Adjustable Timing** – Configure repeat interval and press duration per mapping
 - **Global Toggle** – Quick enable/disable with a single hotkey (default: DELETE)
@@ -246,6 +251,27 @@ target_key = "LBUTTON"       # Auto-click left button
 [[mappings]]
 trigger_key = "XBUTTON1"     # Side button 1 trigger
 target_key = "SPACE"         # Press space when side button is held
+
+# Key combination examples
+# Use '+' to separate keys for combo triggers and outputs
+[[mappings]]
+trigger_key = "ALT+A"        # Press ALT and A together
+target_key = "B"             # Auto-press B key
+
+[[mappings]]
+trigger_key = "LALT+1"       # Left ALT + 1 (distinguishes left/right modifiers)
+target_key = "F1"            # Auto-press F1
+
+[[mappings]]
+trigger_key = "CTRL+SHIFT+F" # Multiple modifiers
+target_key = "ALT+F4"        # Output can also be combo (close window)
+
+[[mappings]]
+trigger_key = "LSHIFT"       # Single modifier key as trigger
+target_key = "SPACE"         # Auto-press space when holding left Shift
+
+# Note: Multiple combos with shared modifiers work simultaneously
+# Example: ALT+1 → auto-fire 1, ALT+2 → auto-fire 2 (both can work at once)
 ```
 
 ### 🔑 Supported Input Names
@@ -257,9 +283,16 @@ Input names support both keyboard keys and mouse buttons:
 - **Numbers**: `0`, `1`, `2`, ..., `9`
 - **Function Keys**: `F1`, `F2`, ..., `F12`
 - **Special Keys**: `SPACE`, `RETURN`, `TAB`, `ESCAPE`, `BACKSPACE`, `DELETE`
-- **Modifiers**: `LSHIFT`, `RSHIFT`, `LCONTROL`, `RCONTROL`, `LALT`, `RALT`
+- **Modifiers**: `LSHIFT`, `RSHIFT`, `LCTRL`, `RCTRL`, `LALT`, `RALT`, `LWIN`, `RWIN`
+  - Generic forms also supported: `SHIFT`, `CTRL`, `ALT`, `WIN` (matches left variant)
+  - Can be used alone as triggers (e.g., `LSHIFT` to auto-fire on left Shift press)
 - **Navigation**: `UP`, `DOWN`, `LEFT`, `RIGHT`, `HOME`, `END`, `PAGEUP`, `PAGEDOWN`
-- **System**: `LWIN`, `RWIN`, `APPS`, `PAUSE`, `PRINT`
+- **System**: `APPS`, `PAUSE`, `PRINT`
+
+**Key Combinations:**
+- Combine keys with `+`: `ALT+A`, `CTRL+SHIFT+F`, `LALT+RSHIFT+1`
+- Both trigger and target can be combos: `CTRL+C` → `CTRL+V`
+- Multiple combos with shared modifiers work simultaneously
 
 **Mouse Buttons:**
 - **Left Button**: `LBUTTON`, `LMOUSE`, `LMB`

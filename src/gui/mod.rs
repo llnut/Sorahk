@@ -56,6 +56,8 @@ pub struct SorahkGui {
     key_capture_mode: KeyCaptureMode,
     /// Flag to prevent re-entering capture mode immediately after capturing
     just_captured_input: bool,
+    /// Keys currently pressed during capture (VK codes)
+    capture_pressed_keys: std::collections::HashSet<u32>,
     /// Close dialog highlight expiration time
     dialog_highlight_until: Option<std::time::Instant>,
     /// Pause state before entering settings
@@ -96,6 +98,7 @@ impl SorahkGui {
             new_process_name: String::new(),
             key_capture_mode: KeyCaptureMode::None,
             just_captured_input: false,
+            capture_pressed_keys: std::collections::HashSet::new(),
             was_paused_before_settings: None,
             duplicate_mapping_error: None,
             duplicate_process_error: None,

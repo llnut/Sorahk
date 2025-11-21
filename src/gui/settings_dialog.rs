@@ -3,8 +3,8 @@
 use crate::config::KeyMapping;
 use crate::gui::SorahkGui;
 use crate::gui::types::KeyCaptureMode;
-use crate::gui::utils::key_to_string;
 use eframe::egui;
+use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
 impl SorahkGui {
     /// Renders the settings dialog for configuration management.
@@ -23,17 +23,28 @@ impl SorahkGui {
         if self.key_capture_mode != KeyCaptureMode::None {
             let mut captured_input: Option<String> = None;
 
-            ctx.input(|i| {
-                // Check for keyboard input
-                for key in i.keys_down.iter() {
-                    if let Some(key_name) = key_to_string(*key) {
-                        captured_input = Some(key_name);
-                        break;
-                    }
-                }
+            // Poll Windows API to get current keyboard state
+            let current_pressed = Self::poll_all_pressed_keys();
 
-                // Check for mouse button input if no key was pressed
-                if captured_input.is_none() {
+            // Update tracking set with currently pressed keys
+            for vk in &current_pressed {
+                self.capture_pressed_keys.insert(*vk);
+            }
+
+            // Check if any tracked key has been released
+            let any_released = self
+                .capture_pressed_keys
+                .iter()
+                .any(|vk| !current_pressed.contains(vk));
+
+            if any_released && !self.capture_pressed_keys.is_empty() {
+                // Capture complete: format the result
+                captured_input = Self::format_captured_keys(&self.capture_pressed_keys);
+            }
+
+            // Check for mouse button input if no key was captured
+            if captured_input.is_none() {
+                ctx.input(|i| {
                     if i.pointer.button_clicked(egui::PointerButton::Primary) {
                         captured_input = Some("LBUTTON".to_string());
                     } else if i.pointer.button_clicked(egui::PointerButton::Secondary) {
@@ -45,8 +56,8 @@ impl SorahkGui {
                     } else if i.pointer.button_clicked(egui::PointerButton::Extra2) {
                         captured_input = Some("XBUTTON2".to_string());
                     }
-                }
-            });
+                });
+            }
 
             if let Some(input_name) = captured_input {
                 // Update the appropriate field
@@ -71,15 +82,17 @@ impl SorahkGui {
                         KeyCaptureMode::NewMappingTarget => {
                             self.new_mapping_target = input_name.clone();
                         }
-                        KeyCaptureMode::None => {
-                            //
-                        }
+                        KeyCaptureMode::None => {}
                     }
                 }
-                // Exit capture mode and set flag to prevent immediate re-entry
+                // Exit capture mode and clear capture state
                 self.key_capture_mode = KeyCaptureMode::None;
                 self.just_captured_input = true;
+                self.capture_pressed_keys.clear();
             }
+        } else {
+            // Not in capture mode: ensure state is clean
+            self.capture_pressed_keys.clear();
         }
 
         let dialog_bg = if self.dark_mode {
@@ -1024,7 +1037,7 @@ impl SorahkGui {
                 }); // End of ui.push_id
             }); // End of egui::Window
 
-        // Handle save/cancel outside the window closure to avoid borrow conflicts
+        // Handle save/cancel outside the window closure
         if should_save {
             if let Some(temp_config) = &self.temp_config {
                 // Check if always_on_top changed
@@ -1101,6 +1114,156 @@ impl SorahkGui {
                 // Resume key repeat without notification (silent resume)
                 self.app_state.set_paused(false);
             }
+        }
+    }
+
+    /// Polls all currently pressed keys using Windows API
+    /// Returns a set of VK codes
+    #[inline]
+    fn poll_all_pressed_keys() -> std::collections::HashSet<u32> {
+        let mut pressed_keys = std::collections::HashSet::new();
+
+        unsafe {
+            // Check all possible keys
+            // Modifiers
+            let modifiers = [
+                0xA0, 0xA1, // LSHIFT, RSHIFT
+                0xA2, 0xA3, // LCTRL, RCTRL
+                0xA4, 0xA5, // LALT, RALT
+                0x5B, 0x5C, // LWIN, RWIN
+            ];
+            for &vk in &modifiers {
+                if GetAsyncKeyState(vk as i32) < 0 {
+                    pressed_keys.insert(vk);
+                }
+            }
+
+            // A-Z (0x41-0x5A)
+            for vk in 0x41..=0x5A {
+                if GetAsyncKeyState(vk) < 0 {
+                    pressed_keys.insert(vk as u32);
+                }
+            }
+
+            // 0-9 (0x30-0x39)
+            for vk in 0x30..=0x39 {
+                if GetAsyncKeyState(vk) < 0 {
+                    pressed_keys.insert(vk as u32);
+                }
+            }
+
+            // F1-F12 (0x70-0x7B)
+            for vk in 0x70..=0x7B {
+                if GetAsyncKeyState(vk) < 0 {
+                    pressed_keys.insert(vk as u32);
+                }
+            }
+
+            // Special keys
+            let special = [
+                0x20, 0x0D, 0x09, 0x1B, 0x08, 0x2E, 0x2D, 0x24, 0x23, 0x21, 0x22, 0x26, 0x28, 0x25,
+                0x27,
+            ];
+            for &vk in &special {
+                if GetAsyncKeyState(vk as i32) < 0 {
+                    pressed_keys.insert(vk);
+                }
+            }
+        }
+
+        pressed_keys
+    }
+
+    /// Formats a set of VK codes into a key combination string
+    #[inline]
+    fn format_captured_keys(vk_codes: &std::collections::HashSet<u32>) -> Option<String> {
+        if vk_codes.is_empty() {
+            return None;
+        }
+
+        // Separate modifiers and main keys
+        let mut modifiers: Vec<u32> = Vec::new();
+        let mut main_keys: Vec<u32> = Vec::new();
+
+        for &vk in vk_codes {
+            match vk {
+                0xA0 | 0xA1 | 0xA2 | 0xA3 | 0xA4 | 0xA5 | 0x5B | 0x5C => {
+                    modifiers.push(vk);
+                }
+                _ => {
+                    main_keys.push(vk);
+                }
+            }
+        }
+
+        // Build the key combination string
+        let mut parts: Vec<String> = Vec::new();
+
+        // Add modifiers in consistent order
+        for &vk in &modifiers {
+            let name = match vk {
+                0xA2 => "LCTRL",
+                0xA3 => "RCTRL",
+                0xA4 => "LALT",
+                0xA5 => "RALT",
+                0xA0 => "LSHIFT",
+                0xA1 => "RSHIFT",
+                0x5B => "LWIN",
+                0x5C => "RWIN",
+                _ => continue,
+            };
+            parts.push(name.to_string());
+        }
+
+        // Add main key (only use the first one if multiple)
+        if let Some(&vk) = main_keys.first() {
+            let name = Self::vk_to_string(vk)?;
+            parts.push(name);
+        }
+
+        if !parts.is_empty() {
+            Some(parts.join("+"))
+        } else {
+            None
+        }
+    }
+
+    /// Converts VK code to key name string
+    #[inline]
+    fn vk_to_string(vk: u32) -> Option<String> {
+        match vk {
+            // A-Z
+            0x41..=0x5A => Some(char::from_u32(vk).unwrap().to_string()),
+            // 0-9
+            0x30..=0x39 => Some(char::from_u32(vk).unwrap().to_string()),
+            // F1-F12
+            0x70..=0x7B => Some(format!("F{}", vk - 0x70 + 1)),
+            // Special keys
+            0x20 => Some("SPACE".to_string()),
+            0x0D => Some("RETURN".to_string()),
+            0x09 => Some("TAB".to_string()),
+            0x1B => Some("ESCAPE".to_string()),
+            0x08 => Some("BACK".to_string()),
+            0x2E => Some("DELETE".to_string()),
+            0x2D => Some("INSERT".to_string()),
+            0x24 => Some("HOME".to_string()),
+            0x23 => Some("END".to_string()),
+            0x21 => Some("PAGEUP".to_string()),
+            0x22 => Some("PAGEDOWN".to_string()),
+            0x26 => Some("UP".to_string()),
+            0x28 => Some("DOWN".to_string()),
+            0x25 => Some("LEFT".to_string()),
+            0x27 => Some("RIGHT".to_string()),
+            // Modifiers
+            0xA2 => Some("LCTRL".to_string()),
+            0xA3 => Some("RCTRL".to_string()),
+            0xA4 => Some("LALT".to_string()),
+            0xA5 => Some("RALT".to_string()),
+            0xA0 => Some("LSHIFT".to_string()),
+            0xA1 => Some("RSHIFT".to_string()),
+            0x5B => Some("LWIN".to_string()),
+            0x5C => Some("RWIN".to_string()),
+            _ => None,
         }
     }
 }

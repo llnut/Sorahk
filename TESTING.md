@@ -12,6 +12,9 @@ cargo test
 cargo test config::tests
 cargo test state::tests
 
+# Run combo key related tests
+cargo test combo
+
 # Run with output
 cargo test -- --nocapture
 
@@ -59,7 +62,7 @@ tests/
 | Module | Primary Focus |
 |--------|---------------|
 | **config.rs** | Configuration loading, saving, validation, error handling, TOML serialization |
-| **state.rs** | Key conversion (VK/scancode), input device mappings, thread safety, atomic operations |
+| **state.rs** | Key conversion (VK/scancode), input device mappings, combo key parsing, state management, thread safety, atomic operations, lock-free concurrent data structures |
 | **i18n.rs** | Multi-language translations, formatting functions, translation completeness |
 | **keyboard.rs** | Worker pool creation, event distribution, multi-threading, channel communication |
 | **mouse.rs** | Mouse button handling, message parsing, event processing |
@@ -76,6 +79,7 @@ Run `cargo test -- --list` to see all available test functions.
 - Configuration management and validation
 - Key name to VK code conversion
 - VK code to scancode mapping
+- Combo key parsing and validation
 - Mouse button name parsing and event handling
 - GUI utility functions and type definitions
 - Multi-language translation system
@@ -93,8 +97,9 @@ Due to Windows API requirements, the following are not covered by automated test
 - Toast notification display
 - Physical key press and mouse click simulation
 - GUI rendering and user interactions
+- Combo key event handling with real keyboard input
 
-**Note:** Internal logic of these modules is tested without requiring Windows API interaction. Tests avoid triggering actual input to prevent system interference.
+**Note:** Internal logic is tested without requiring Windows API interaction. Tests verify key conversion, combo parsing, and data structure operations, but avoid triggering actual input to prevent system interference.
 
 ## Writing New Tests
 

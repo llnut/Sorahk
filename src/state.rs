@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, LazyLock, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::MAX_PATH;
@@ -39,12 +39,16 @@ pub enum NotificationEvent {
 }
 
 /// Input device type for unified input handling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InputDevice {
     /// Keyboard input with virtual key code
     Keyboard(u32),
     /// Mouse button input
     Mouse(MouseButton),
+    /// Key combination input (modifier keys + main key)
+    /// Format: [modifier1, modifier2, ..., main_key]
+    /// The last element is always the main key, others are modifiers
+    KeyCombo(Vec<u32>),
 }
 
 /// Mouse button types.
@@ -58,23 +62,27 @@ pub enum MouseButton {
 }
 
 /// Unified input event type for keyboard and mouse.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputEvent {
     Pressed(InputDevice),
     Released(InputDevice),
 }
 
 /// Output action type for input mapping.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum OutputAction {
     /// Keyboard key output with scancode
     KeyboardKey(u16),
     /// Mouse button output
     MouseButton(MouseButton),
+    /// Key combination output (modifier scancodes + main key scancode)
+    /// Format: [modifier1_scancode, modifier2_scancode, ..., main_key_scancode]
+    /// Using Arc to avoid cloning on every key repeat
+    KeyCombo(Arc<[u16]>),
 }
 
 /// Configuration for a single input mapping.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct InputMappingInfo {
     /// Target output action
     pub target_action: OutputAction,
@@ -112,22 +120,27 @@ pub struct AppState {
     worker_count: AtomicU64,
     /// Configured worker count for display
     configured_worker_count: usize,
-    /// Input mapping configuration (keyboard + mouse)
-    input_mappings: RwLock<HashMap<InputDevice, InputMappingInfo>>,
-    /// Legacy key mappings for backward compatibility
-    key_mappings: RwLock<HashMap<u32, KeyMappingInfo>>,
-    /// Pre-computed input device to worker index mapping for fast dispatch
-    device_to_worker: RwLock<HashMap<InputDevice, u8>>,
+    /// Input mapping configuration (keyboard + mouse) - lock-free concurrent HashMap
+    input_mappings: scc::HashMap<InputDevice, InputMappingInfo>,
+    /// Legacy key mappings for backward compatibility - lock-free concurrent HashMap
+    key_mappings: scc::HashMap<u32, KeyMappingInfo>,
+    /// Pre-computed input device to worker index mapping for fast dispatch - lock-free concurrent HashMap
+    device_to_worker: scc::HashMap<InputDevice, u8>,
     /// Legacy VK to worker index mapping for backward compatibility
     vk_to_worker: [u8; 256],
     /// Worker pool for event processing
     worker_pool: OnceLock<Arc<dyn EventDispatcher>>,
     /// Notification event sender
     notification_sender: OnceLock<Sender<NotificationEvent>>,
-    /// Process whitelist (empty means all processes enabled)
-    process_whitelist: RwLock<Vec<String>>,
-    /// Cached foreground process name with timestamp (for performance optimization)
+    /// Process whitelist (empty means all processes enabled) - keep Mutex for Vec
+    process_whitelist: Mutex<Vec<String>>,
+    /// Cached foreground process name with timestamp
     cached_process_info: Mutex<(Option<String>, Instant)>,
+    /// Currently pressed keys for combo detection - lock-free concurrent HashSet
+    pressed_keys: scc::HashSet<u32>,
+    /// Active combo triggers (multiple combos can be active simultaneously) - lock-free concurrent HashMap
+    /// Maps combo device to the set of modifier keys that were suppressed
+    active_combo_triggers: scc::HashMap<InputDevice, std::collections::HashSet<u32>>,
 }
 
 impl AppState {
@@ -140,21 +153,41 @@ impl AppState {
         let switch_key = Self::key_name_to_vk(&config.switch_key)
             .ok_or_else(|| anyhow::anyhow!("Invalid switch key: {}", config.switch_key))?;
 
-        let (input_mappings, key_mappings) = Self::create_input_mappings(&config)?;
+        let (input_mappings_map, key_mappings_map) = Self::create_input_mappings(&config)?;
+
+        // Create lock-free concurrent HashMaps
+        let input_mappings = scc::HashMap::new();
+        let key_mappings = scc::HashMap::new();
+        let device_to_worker = scc::HashMap::new();
+
+        // Populate input_mappings and key_mappings
+        for (k, v) in input_mappings_map {
+            let _ = input_mappings.insert_sync(k, v);
+        }
+        for (k, v) in key_mappings_map {
+            let _ = key_mappings.insert_sync(k, v);
+        }
 
         // Pre-compute device_to_worker mapping for fast dispatch
-        let mut device_to_worker = HashMap::new();
         let mut vk_to_worker = [0u8; 256];
 
         for (idx, mapping) in config.mappings.iter().enumerate() {
             if let Some(device) = Self::input_name_to_device(&mapping.trigger_key) {
-                device_to_worker.insert(device, idx as u8);
+                let _ = device_to_worker.insert_sync(device.clone(), idx as u8);
 
                 // Also populate legacy vk_to_worker for keyboard keys
-                if let InputDevice::Keyboard(vk) = device
-                    && vk < 256
-                {
-                    vk_to_worker[vk as usize] = idx as u8;
+                match &device {
+                    InputDevice::Keyboard(vk) if *vk < 256 => {
+                        vk_to_worker[*vk as usize] = idx as u8;
+                    }
+                    InputDevice::KeyCombo(keys) => {
+                        if let Some(&last_key) = keys.last()
+                            && last_key < 256
+                        {
+                            vk_to_worker[last_key as usize] = idx as u8;
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -168,16 +201,18 @@ impl AppState {
             show_window_requested: AtomicBool::new(false),
             show_about_requested: AtomicBool::new(false),
             input_timeout: AtomicU64::new(config.input_timeout),
-            worker_count: AtomicU64::new(0), // Will be set later
-            process_whitelist: RwLock::new(config.process_whitelist.clone()),
+            worker_count: AtomicU64::new(0),
+            process_whitelist: Mutex::new(config.process_whitelist.clone()),
             configured_worker_count: config.worker_count,
-            input_mappings: RwLock::new(input_mappings),
-            key_mappings: RwLock::new(key_mappings),
-            device_to_worker: RwLock::new(device_to_worker),
+            input_mappings,
+            key_mappings,
+            device_to_worker,
             vk_to_worker,
             worker_pool: OnceLock::new(),
             notification_sender: OnceLock::new(),
             cached_process_info: Mutex::new((None, Instant::now())),
+            pressed_keys: scc::HashSet::new(),
+            active_combo_triggers: scc::HashMap::new(),
         })
     }
 
@@ -203,34 +238,38 @@ impl AppState {
         self.input_timeout
             .store(config.input_timeout, Ordering::Relaxed);
 
-        // Update mappings
+        // Update mappings (lock-free concurrent HashMap)
         let (new_input_mappings, new_key_mappings) = Self::create_input_mappings(&config)?;
-        if let Ok(mut mappings) = self.input_mappings.write() {
-            *mappings = new_input_mappings;
+        self.input_mappings.clear_sync();
+        for (k, v) in new_input_mappings {
+            let _ = self.input_mappings.insert_sync(k, v);
         }
-        if let Ok(mut mappings) = self.key_mappings.write() {
-            *mappings = new_key_mappings;
+        self.key_mappings.clear_sync();
+        for (k, v) in new_key_mappings {
+            let _ = self.key_mappings.insert_sync(k, v);
         }
 
-        // Update device_to_worker mapping
-        if let Ok(mut device_map) = self.device_to_worker.write() {
-            device_map.clear();
-            for (idx, mapping) in config.mappings.iter().enumerate() {
-                if let Some(device) = Self::input_name_to_device(&mapping.trigger_key) {
-                    device_map.insert(device, idx as u8);
-                }
+        // Update device_to_worker mapping (lock-free concurrent HashMap)
+        self.device_to_worker.clear_sync();
+        for (idx, mapping) in config.mappings.iter().enumerate() {
+            if let Some(device) = Self::input_name_to_device(&mapping.trigger_key) {
+                let _ = self.device_to_worker.insert_sync(device, idx as u8);
             }
         }
 
         // Update process whitelist
-        if let Ok(mut whitelist) = self.process_whitelist.write() {
+        if let Ok(mut whitelist) = self.process_whitelist.lock() {
             *whitelist = config.process_whitelist.clone();
         }
 
-        // Clear process name cache to immediately apply new whitelist
+        // Clear process name cache
         if let Ok(mut cache) = self.cached_process_info.lock() {
             *cache = (None, Instant::now());
         }
+
+        // Clear pressed keys and active combos (lock-free concurrent structures)
+        self.pressed_keys.clear_sync();
+        self.active_combo_triggers.clear_sync();
 
         Ok(())
     }
@@ -325,7 +364,7 @@ impl AppState {
     }
 
     pub fn get_input_mapping(&self, device: &InputDevice) -> Option<InputMappingInfo> {
-        self.input_mappings.read().ok()?.get(device).cloned()
+        self.input_mappings.read_sync(device, |_, v| v.clone())
     }
 
     #[inline(always)]
@@ -341,6 +380,169 @@ impl AppState {
     #[inline(always)]
     pub fn get_switch_key(&self) -> u32 {
         self.switch_key.load(Ordering::Relaxed)
+    }
+
+    /// Check if a key is a modifier key
+    #[inline]
+    fn is_modifier_key(&self, vk: u32) -> bool {
+        matches!(
+            vk,
+            0x10 | 0xA0 | 0xA1 |  // SHIFT, LSHIFT, RSHIFT
+            0x11 | 0xA2 | 0xA3 |  // CTRL, LCTRL, RCTRL
+            0x12 | 0xA4 | 0xA5 |  // ALT, LALT, RALT
+            0x5B | 0x5C // LWIN, RWIN
+        )
+    }
+
+    /// Check if a key is part of any active combo (should be blocked)
+    /// Returns true if the key should be intercepted
+    #[inline]
+    fn is_in_active_combo(&self, vk_code: u32) -> bool {
+        let mut found = false;
+        self.active_combo_triggers.iter_sync(|combo_device, _| {
+            if found {
+                return false;
+            }
+            if let InputDevice::KeyCombo(keys) = combo_device
+                && keys.contains(&vk_code)
+            {
+                found = true;
+            }
+            true
+        });
+        found
+    }
+
+    /// Add a combo to active triggers
+    fn add_active_combo(&self, combo: InputDevice, modifiers: std::collections::HashSet<u32>) {
+        let _ = self.active_combo_triggers.insert_sync(combo, modifiers);
+    }
+
+    /// Check if a specific combo is active
+    fn is_combo_active(&self, combo: &InputDevice) -> bool {
+        self.active_combo_triggers.contains_sync(combo)
+    }
+
+    /// Release modifiers once (send KEYUP events using scancodes)
+    /// Skips modifiers already suppressed by other active combos
+    fn release_modifiers_once(&self, modifiers: &std::collections::HashSet<u32>) {
+        if modifiers.is_empty() {
+            return;
+        }
+
+        // Check which modifiers are already suppressed by active combos
+        let mut already_suppressed: std::collections::HashSet<u32> =
+            std::collections::HashSet::new();
+        self.active_combo_triggers.iter_sync(|_, modifiers| {
+            already_suppressed.extend(modifiers.iter().copied());
+            true
+        });
+
+        unsafe {
+            for &vk in modifiers {
+                // Skip if this modifier is already suppressed by another active combo
+                if already_suppressed.contains(&vk) {
+                    continue;
+                }
+
+                let (scancode, is_extended) = match vk {
+                    0x10 | 0xA0 => (0x2A, false), // SHIFT, LSHIFT
+                    0xA1 => (0x36, false),        // RSHIFT
+                    0x11 | 0xA2 => (0x1D, false), // CTRL, LCTRL
+                    0xA3 => (0x1D, true),         // RCTRL (extended)
+                    0x12 | 0xA4 => (0x38, false), // ALT, LALT
+                    0xA5 => (0x38, true),         // RALT (extended)
+                    0x5B => (0x5B, true),         // LWIN (extended)
+                    0x5C => (0x5C, true),         // RWIN (extended)
+                    _ => continue,
+                };
+
+                let mut flags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+                if is_extended {
+                    flags |= KEYEVENTF_EXTENDEDKEY;
+                }
+
+                let input = INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VIRTUAL_KEY(0),
+                            wScan: scancode,
+                            dwFlags: flags,
+                            time: 0,
+                            dwExtraInfo: SIMULATED_EVENT_MARKER,
+                        },
+                    },
+                };
+                SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+            }
+
+            // Small delay to ensure modifier release is processed
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    /// Remove combos that no longer have all their keys pressed
+    /// Returns vec of combos that were removed
+    fn cleanup_released_combos(&self) -> Vec<InputDevice> {
+        // Create snapshot of currently pressed keys
+        let mut pressed_snapshot: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        self.pressed_keys.iter_sync(|key| {
+            pressed_snapshot.insert(*key);
+            true
+        });
+
+        let mut removed = Vec::new();
+
+        // Collect combos to remove
+        let mut to_remove = Vec::new();
+        self.active_combo_triggers
+            .iter_sync(|combo_device, _modifiers| {
+                if let InputDevice::KeyCombo(keys) = combo_device {
+                    let all_pressed = keys.iter().all(|&k| pressed_snapshot.contains(&k));
+                    if !all_pressed {
+                        to_remove.push(combo_device.clone());
+                    }
+                }
+                true
+            });
+
+        // Remove them and collect to return
+        for combo in to_remove {
+            if self.active_combo_triggers.remove_sync(&combo).is_some() {
+                removed.push(combo);
+            }
+        }
+
+        removed
+    }
+
+    /// Find device for release event (single key or combo from active triggers)
+    fn find_device_for_release(&self, vk_code: u32) -> Option<InputDevice> {
+        // Check if it's part of any active combo
+        let mut result = None;
+        self.active_combo_triggers.iter_sync(|combo_device, _| {
+            if result.is_some() {
+                return false;
+            }
+            if let InputDevice::KeyCombo(keys) = combo_device
+                && keys.contains(&vk_code)
+            {
+                result = Some(combo_device.clone());
+            }
+            true
+        });
+        if result.is_some() {
+            return result;
+        }
+
+        // Otherwise, check for single key mapping
+        let device = InputDevice::Keyboard(vk_code);
+        if self.get_input_mapping(&device).is_some() {
+            Some(device)
+        } else {
+            None
+        }
     }
 
     pub fn simulate_action(&self, action: OutputAction, duration: u64) {
@@ -407,6 +609,47 @@ impl AppState {
                     input.Anonymous.mi.dwFlags = up_flag;
                     SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
                 }
+                OutputAction::KeyCombo(scancodes) => {
+                    // Press all keys in sequence (modifiers first, then main key)
+                    for &scancode in scancodes.iter() {
+                        let input = INPUT {
+                            r#type: INPUT_KEYBOARD,
+                            Anonymous: INPUT_0 {
+                                ki: KEYBDINPUT {
+                                    wVk: VIRTUAL_KEY(0),
+                                    wScan: scancode,
+                                    dwFlags: KEYEVENTF_SCANCODE,
+                                    time: 0,
+                                    dwExtraInfo: SIMULATED_EVENT_MARKER,
+                                },
+                            },
+                        };
+                        SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                        // Short delay between keys for better compatibility
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+
+                    // Hold duration
+                    std::thread::sleep(std::time::Duration::from_millis(duration));
+
+                    // Release all keys in reverse order (main key first, then modifiers)
+                    for &scancode in scancodes.iter().rev() {
+                        let input = INPUT {
+                            r#type: INPUT_KEYBOARD,
+                            Anonymous: INPUT_0 {
+                                ki: KEYBDINPUT {
+                                    wVk: VIRTUAL_KEY(0),
+                                    wScan: scancode,
+                                    dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                                    time: 0,
+                                    dwExtraInfo: SIMULATED_EVENT_MARKER,
+                                },
+                            },
+                        };
+                        SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                }
             }
         }
     }
@@ -457,8 +700,7 @@ impl AppState {
     /// - Cache miss: ~5µs (Windows API call)
     #[inline]
     fn is_process_whitelisted(&self) -> bool {
-        // Fast path: check if whitelist is empty first (no lock needed for most users)
-        let whitelist = self.process_whitelist.read().unwrap();
+        let whitelist = self.process_whitelist.lock().unwrap();
         if whitelist.is_empty() {
             return true;
         }
@@ -504,46 +746,148 @@ impl AppState {
     pub fn handle_key_event(&self, message: u32, vk_code: u32) -> bool {
         let mut should_block = false;
         let switch_key = self.get_switch_key();
-        let device = InputDevice::Keyboard(vk_code);
 
-        if !self.is_paused()
-            && self.get_input_mapping(&device).is_some()
-            && self.is_process_whitelisted()
-            && let Some(pool) = self.worker_pool.get()
-        {
-            match message {
-                WM_KEYDOWN | WM_SYSKEYDOWN => {
-                    pool.dispatch(InputEvent::Pressed(device));
-                    should_block = true;
+        // Handle switch key first (always works even when paused)
+        if vk_code == switch_key && matches!(message, WM_KEYUP | WM_SYSKEYUP) {
+            let was_paused = self.toggle_paused();
+            // Clear all state when toggling
+            self.pressed_keys.clear_sync();
+            self.active_combo_triggers.clear_sync();
+            if was_paused {
+                if let Some(sender) = self.notification_sender.get() {
+                    let _ = sender.send(NotificationEvent::Info("Sorahk activiting".to_string()));
                 }
-                WM_KEYUP | WM_SYSKEYUP => {
-                    pool.dispatch(InputEvent::Released(device));
-                    should_block = true;
-                }
-                _ => {}
+            } else if let Some(sender) = self.notification_sender.get() {
+                let _ = sender.send(NotificationEvent::Info("Sorahk paused".to_string()));
             }
+            return true;
         }
 
-        if vk_code == switch_key {
-            match message {
-                WM_KEYUP | WM_SYSKEYUP => {
-                    let was_paused = self.toggle_paused();
-                    if was_paused {
-                        if let Some(sender) = self.notification_sender.get() {
-                            let _ = sender
-                                .send(NotificationEvent::Info("Sorahk activiting".to_string()));
+        // Only process if not paused and in whitelisted process
+        if self.is_paused() || !self.is_process_whitelisted() {
+            return should_block;
+        }
+
+        match message {
+            WM_KEYDOWN | WM_SYSKEYDOWN => {
+                // Block keyboard repeat events for active combos
+                if self.is_in_active_combo(vk_code) {
+                    return true;
+                }
+
+                // First-time key press: add to pressed_keys
+                let _ = self.pressed_keys.insert_sync(vk_code);
+
+                // Try to match combo key first, then single key
+                // Create snapshot for combo matching
+                let mut pressed_snapshot: std::collections::HashSet<u32> =
+                    std::collections::HashSet::new();
+                self.pressed_keys.iter_sync(|key| {
+                    pressed_snapshot.insert(*key);
+                    true
+                });
+                let matched_device = self
+                    .find_matching_combo(&pressed_snapshot, vk_code)
+                    .or_else(|| {
+                        let device = InputDevice::Keyboard(vk_code);
+                        if self.get_input_mapping(&device).is_some() {
+                            Some(device)
+                        } else {
+                            None
                         }
-                    } else if let Some(sender) = self.notification_sender.get() {
-                        let _ = sender.send(NotificationEvent::Info("Sorahk paused".to_string()));
+                    });
+
+                if let Some(device) = matched_device {
+                    // Skip if already active
+                    if self.is_combo_active(&device) {
+                        return true;
                     }
+
+                    // Handle combo key: always suppress physical modifiers to avoid interference
+                    if let InputDevice::KeyCombo(_) = &device {
+                        let mut modifiers: std::collections::HashSet<u32> =
+                            std::collections::HashSet::new();
+                        self.pressed_keys.iter_sync(|key| {
+                            if *key != vk_code && self.is_modifier_key(*key) {
+                                modifiers.insert(*key);
+                            }
+                            true
+                        });
+
+                        // Always release physical modifiers and track combo
+                        // This prevents physical modifiers from interfering with simulated output
+                        self.release_modifiers_once(&modifiers);
+                        self.add_active_combo(device.clone(), modifiers.clone());
+                    }
+
+                    // Dispatch event to worker
+                    if let Some(pool) = self.worker_pool.get() {
+                        pool.dispatch(InputEvent::Pressed(device));
+                        should_block = true;
+                    }
+                }
+            }
+
+            WM_KEYUP | WM_SYSKEYUP => {
+                // Remove from pressed_keys
+                let _ = self.pressed_keys.remove_sync(&vk_code);
+
+                // Check which combos are no longer valid (keys released)
+                let removed_combos = self.cleanup_released_combos();
+
+                // Stop all removed combos
+                if !removed_combos.is_empty()
+                    && let Some(pool) = self.worker_pool.get() {
+                        for combo in removed_combos {
+                            pool.dispatch(InputEvent::Released(combo));
+                        }
+                        should_block = true;
+                    }
+
+                // Also check for single key release (may coexist with combo)
+                let device = self.find_device_for_release(vk_code);
+                if let Some(dev) = device
+                    && let Some(pool) = self.worker_pool.get()
+                {
+                    pool.dispatch(InputEvent::Released(dev));
                     should_block = true;
                 }
-                _ => {}
             }
+
+            _ => {}
         }
+
         should_block
     }
 
+    /// Find a matching key combo from currently pressed keys
+    /// Supports multiple combos simultaneously (e.g., ALT+1, ALT+2, ALT+3 all active)
+    fn find_matching_combo(
+        &self,
+        pressed_keys: &std::collections::HashSet<u32>,
+        main_key: u32,
+    ) -> Option<InputDevice> {
+        let mut result = None;
+        self.input_mappings.iter_sync(|device, _| {
+            if result.is_some() {
+                return false;
+            }
+            if let InputDevice::KeyCombo(combo_keys) = device
+                && let Some(&last_key) = combo_keys.last()
+                && last_key == main_key
+            {
+                let all_pressed = combo_keys.iter().all(|&k| pressed_keys.contains(&k));
+                if all_pressed {
+                    result = Some(device.clone());
+                }
+            }
+            true
+        });
+        result
+    }
+
+    /// Find a combo key that contains the released key
+    /// This is called when a key is released to check if it was part of an active combo
     #[allow(non_snake_case)]
     pub fn handle_mouse_event(&self, message: u32, mouse_data: u32) -> bool {
         let mut should_block = false;
@@ -618,22 +962,22 @@ impl AppState {
 
             // Create input mapping
             input_mappings.insert(
-                trigger_device,
+                trigger_device.clone(),
                 InputMappingInfo {
-                    target_action,
+                    target_action: target_action.clone(),
                     interval,
                     event_duration,
                 },
             );
 
             // Create legacy key mapping for backward compatibility (keyboard only)
-            if let InputDevice::Keyboard(vk) = trigger_device
-                && let OutputAction::KeyboardKey(scancode) = target_action
+            if let InputDevice::Keyboard(vk) = &trigger_device
+                && let OutputAction::KeyboardKey(scancode) = &target_action
             {
                 key_mappings.insert(
-                    vk,
+                    *vk,
                     KeyMappingInfo {
-                        target_action: OutputAction::KeyboardKey(scancode),
+                        target_action: OutputAction::KeyboardKey(*scancode),
                         interval,
                         event_duration,
                     },
@@ -720,7 +1064,30 @@ impl AppState {
             return Some(InputDevice::Mouse(button));
         }
 
-        // Try keyboard key
+        // Check if it's a key combination (contains '+')
+        if name.contains('+') {
+            let parts: Vec<&str> = name.split('+').map(|s| s.trim()).collect();
+            if parts.len() < 2 {
+                return None;
+            }
+
+            let mut vk_codes = Vec::new();
+            for part in parts {
+                if let Some(vk) = Self::key_name_to_vk(part) {
+                    vk_codes.push(vk);
+                } else {
+                    // Invalid key name in combination
+                    return None;
+                }
+            }
+
+            // Ensure the combination is valid (has at least 2 keys)
+            if vk_codes.len() >= 2 {
+                return Some(InputDevice::KeyCombo(vk_codes));
+            }
+        }
+
+        // Try single keyboard key
         if let Some(vk) = Self::key_name_to_vk(name) {
             return Some(InputDevice::Keyboard(vk));
         }
@@ -737,7 +1104,38 @@ impl AppState {
             return Some(OutputAction::MouseButton(button));
         }
 
-        // Try keyboard key
+        // Check if it's a key combination (contains '+')
+        if name.contains('+') {
+            let parts: Vec<&str> = name.split('+').map(|s| s.trim()).collect();
+            if parts.len() < 2 {
+                return None;
+            }
+
+            let mut scancodes = Vec::new();
+            for part in parts {
+                if let Some(vk) = Self::key_name_to_vk(part) {
+                    let scancode = Self::vk_to_scancode(vk);
+                    if scancode == 0 {
+                        // Invalid scancode
+                        return None;
+                    }
+                    scancodes.push(scancode);
+                } else {
+                    // Invalid key name
+                    return None;
+                }
+            }
+
+            // Ensure the combination is valid
+            if scancodes.len() >= 2 {
+                // Use Arc to avoid cloning on every repeat
+                return Some(OutputAction::KeyCombo(Arc::from(
+                    scancodes.into_boxed_slice(),
+                )));
+            }
+        }
+
+        // Try single keyboard key
         if let Some(vk) = Self::key_name_to_vk(name) {
             let scancode = Self::vk_to_scancode(vk);
             if scancode != 0 {
@@ -857,6 +1255,19 @@ static SCANCODE_MAP: LazyLock<HashMap<u32, u16>> = LazyLock::new(|| {
         (0x6D, 0x4A),
         (0x6E, 0x52),
         (0x6F, 0x53),
+        // modifier keys
+        (0xA0, 0x2A), // LSHIFT
+        (0xA1, 0x36), // RSHIFT
+        (0xA2, 0x1D), // LCTRL
+        (0xA3, 0x1D), // RCTRL (same scancode, use extended flag)
+        (0xA4, 0x38), // LALT
+        (0xA5, 0x38), // RALT (same scancode, use extended flag)
+        (0x5B, 0x5B), // LWIN
+        (0x5C, 0x5C), // RWIN
+        // generic modifier keys
+        (0x10, 0x2A), // SHIFT (generic)
+        (0x11, 0x1D), // CTRL (generic)
+        (0x12, 0x38), // ALT (generic)
     ]
     .iter()
     .cloned()
@@ -1082,7 +1493,7 @@ mod tests {
     #[test]
     fn test_input_event_variants() {
         let device = InputDevice::Keyboard(0x41);
-        let pressed = InputEvent::Pressed(device);
+        let pressed = InputEvent::Pressed(device.clone());
         let released = InputEvent::Released(device);
 
         match pressed {
@@ -1456,7 +1867,7 @@ mod tests {
 
         // Values should be adjusted to minimum of 5
         // This test verifies auto-adjustment behavior
-        assert!(state.key_mappings.read().unwrap().len() > 0);
+        assert!(state.key_mappings.len() > 0);
     }
 
     #[test]
@@ -1483,6 +1894,153 @@ mod tests {
         // Keys not implemented return None
         assert_eq!(AppState::key_name_to_vk("NUMPAD0"), None);
         assert_eq!(AppState::key_name_to_vk("MULTIPLY"), None);
+    }
+
+    #[test]
+    fn test_parse_key_combo_trigger() {
+        // Test parsing key combinations
+        let device = AppState::input_name_to_device("ALT+A");
+        assert!(device.is_some());
+
+        if let Some(InputDevice::KeyCombo(keys)) = device {
+            assert_eq!(keys.len(), 2);
+            assert_eq!(keys[0], 0x12); // ALT
+            assert_eq!(keys[1], 0x41); // A
+        } else {
+            panic!("Expected KeyCombo device");
+        }
+    }
+
+    #[test]
+    fn test_parse_complex_key_combo() {
+        // Test parsing complex key combinations
+        let device = AppState::input_name_to_device("CTRL+SHIFT+S");
+        assert!(device.is_some());
+
+        if let Some(InputDevice::KeyCombo(keys)) = device {
+            assert_eq!(keys.len(), 3);
+            assert_eq!(keys[0], 0x11); // CTRL
+            assert_eq!(keys[1], 0x10); // SHIFT
+            assert_eq!(keys[2], 0x53); // S
+        } else {
+            panic!("Expected KeyCombo device");
+        }
+    }
+
+    #[test]
+    fn test_parse_key_combo_output() {
+        // Test parsing key combination output
+        let action = AppState::input_name_to_output("ALT+F4");
+        assert!(action.is_some());
+
+        if let Some(OutputAction::KeyCombo(scancodes)) = action {
+            assert_eq!(scancodes.len(), 2);
+            assert_eq!(scancodes[0], 0x38); // ALT scancode
+            assert_eq!(scancodes[1], 0x3E); // F4 scancode
+            // Verify Arc reference counting works
+            let clone = scancodes.clone();
+            assert_eq!(Arc::strong_count(&scancodes), Arc::strong_count(&clone));
+        } else {
+            panic!("Expected KeyCombo output");
+        }
+    }
+
+    #[test]
+    fn test_parse_invalid_key_combo() {
+        // Test parsing invalid key combinations
+        let device = AppState::input_name_to_device("INVALID+KEY");
+        assert!(device.is_none());
+
+        let device = AppState::input_name_to_device("A+");
+        assert!(device.is_none());
+
+        let device = AppState::input_name_to_device("+B");
+        assert!(device.is_none());
+    }
+
+    #[test]
+    fn test_modifier_key_scancodes() {
+        // Test that modifier keys have proper scancodes
+        assert_eq!(AppState::vk_to_scancode(0xA0), 0x2A); // LSHIFT
+        assert_eq!(AppState::vk_to_scancode(0xA1), 0x36); // RSHIFT
+        assert_eq!(AppState::vk_to_scancode(0xA2), 0x1D); // LCTRL
+        assert_eq!(AppState::vk_to_scancode(0xA4), 0x38); // LALT
+        assert_eq!(AppState::vk_to_scancode(0x10), 0x2A); // SHIFT (generic)
+        assert_eq!(AppState::vk_to_scancode(0x11), 0x1D); // CTRL (generic)
+        assert_eq!(AppState::vk_to_scancode(0x12), 0x38); // ALT (generic)
+    }
+
+    #[test]
+    fn test_key_combo_mapping_creation() {
+        let mut config = AppConfig::default();
+        config.mappings = vec![
+            KeyMapping {
+                trigger_key: "ALT+A".to_string(),
+                target_key: "B".to_string(),
+                interval: Some(10),
+                event_duration: Some(5),
+            },
+            KeyMapping {
+                trigger_key: "CTRL+SHIFT+F".to_string(),
+                target_key: "ALT+F4".to_string(),
+                interval: None,
+                event_duration: None,
+            },
+        ];
+
+        let (input_mappings, _) = AppState::create_input_mappings(&config).unwrap();
+        assert_eq!(input_mappings.len(), 2);
+
+        // Check first mapping
+        let alt_a = InputDevice::KeyCombo(vec![0x12, 0x41]); // ALT+A
+        let mapping1 = input_mappings.get(&alt_a);
+        assert!(mapping1.is_some());
+
+        if let Some(m) = mapping1 {
+            assert_eq!(m.interval, 10);
+            assert_eq!(m.event_duration, 5);
+            if let OutputAction::KeyboardKey(scancode) = m.target_action {
+                assert_eq!(scancode, 0x30); // B scancode
+            } else {
+                panic!("Expected single key output");
+            }
+        }
+
+        // Check second mapping
+        let ctrl_shift_f = InputDevice::KeyCombo(vec![0x11, 0x10, 0x46]); // CTRL+SHIFT+F
+        let mapping2 = input_mappings.get(&ctrl_shift_f);
+        assert!(mapping2.is_some());
+
+        if let Some(m) = mapping2 {
+            if let OutputAction::KeyCombo(scancodes) = &m.target_action {
+                assert_eq!(scancodes.len(), 2); // ALT+F4
+            } else {
+                panic!("Expected combo key output");
+            }
+        }
+    }
+
+    #[test]
+    fn test_pressed_keys_tracking() {
+        let config = AppConfig::default();
+        let state = AppState::new(config).unwrap();
+
+        // Initially, no keys pressed
+        assert_eq!(state.pressed_keys.len(), 0);
+
+        // Simulate key press tracking (would be done by handle_key_event)
+        let _ = state.pressed_keys.insert_sync(0x11); // CTRL
+        let _ = state.pressed_keys.insert_sync(0x41); // A
+
+        assert_eq!(state.pressed_keys.len(), 2);
+        assert!(state.pressed_keys.contains_sync(&0x11));
+        assert!(state.pressed_keys.contains_sync(&0x41));
+
+        // Release keys
+        let _ = state.pressed_keys.remove_sync(&0x41);
+
+        assert_eq!(state.pressed_keys.len(), 1);
+        assert!(state.pressed_keys.contains_sync(&0x11));
     }
 
     #[test]

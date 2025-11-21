@@ -39,7 +39,7 @@ impl crate::state::EventDispatcher for WorkerPool {
             return;
         }
 
-        let device = match event {
+        let device = match &event {
             InputEvent::Pressed(d) | InputEvent::Released(d) => d,
         };
 
@@ -47,25 +47,41 @@ impl crate::state::EventDispatcher for WorkerPool {
         let worker_idx = if let Some(state) = crate::state::get_global_state() {
             // For keyboard, use the optimized VK lookup
             // For mouse, use a simple hash
+            // For key combo, use hash of last key
             match device {
                 InputDevice::Keyboard(vk) => {
-                    let mapping_idx = state.get_worker_index(vk);
+                    let mapping_idx = state.get_worker_index(*vk);
                     mapping_idx % self.worker_count
                 }
                 InputDevice::Mouse(button) => {
                     // Use simple discriminant-based distribution (much faster than hashing)
-                    (button as usize) % self.worker_count
+                    (*button as usize) % self.worker_count
+                }
+                InputDevice::KeyCombo(keys) => {
+                    // Use the last key (main key) for worker distribution
+                    if let Some(&last_key) = keys.last() {
+                        let mapping_idx = state.get_worker_index(last_key);
+                        mapping_idx % self.worker_count
+                    } else {
+                        0
+                    }
                 }
             }
         } else {
             // Fallback: simple hash
             match device {
-                InputDevice::Keyboard(vk) => (vk as usize) % self.worker_count,
-                InputDevice::Mouse(button) => (button as usize) % self.worker_count,
+                InputDevice::Keyboard(vk) => (*vk as usize) % self.worker_count,
+                InputDevice::Mouse(button) => (*button as usize) % self.worker_count,
+                InputDevice::KeyCombo(keys) => {
+                    if let Some(&last_key) = keys.last() {
+                        (last_key as usize) % self.worker_count
+                    } else {
+                        0
+                    }
+                }
             }
         };
 
-        // Non-blocking send to ensure hook callback responsiveness
         let _ = self.workers[worker_idx].send(event);
     }
 }
@@ -234,14 +250,14 @@ impl KeyboardHook {
                 if let Some((last_time, interval, duration, target_action)) =
                     device_states.get_mut(&device)
                 {
-                    // Use cached mapping info - no lock needed!
                     if now.duration_since(*last_time) >= Duration::from_millis(*interval) {
-                        state.simulate_action(*target_action, *duration);
+                        state.simulate_action(target_action.clone(), *duration);
                         *last_time = now;
                     }
                 } else {
-                    // First press: lookup mapping and cache it (one-time RwLock read)
+                    // First press: lookup mapping and cache it
                     if let Some(mapping) = state.get_input_mapping(&device) {
+                        let target_action_clone = mapping.target_action.clone();
                         device_states.insert(
                             device,
                             (
@@ -251,7 +267,10 @@ impl KeyboardHook {
                                 mapping.target_action,
                             ),
                         );
-                        state.simulate_action(mapping.target_action, mapping.event_duration);
+
+                        // Modifiers are already handled in handle_key_event
+                        // No need to do anything special here
+                        state.simulate_action(target_action_clone, mapping.event_duration);
                     }
                 }
             }
@@ -267,10 +286,10 @@ impl KeyboardHook {
     ) {
         let now = Instant::now();
 
-        // Use cached mapping info - no repeated lookups or locks!
+        // Use cached mapping info
         for (_device, (last_time, interval, duration, target_action)) in device_states.iter_mut() {
             if now.duration_since(*last_time) >= Duration::from_millis(*interval) {
-                state.simulate_action(*target_action, *duration);
+                state.simulate_action(target_action.clone(), *duration);
                 *last_time = now;
             }
         }
@@ -474,7 +493,7 @@ mod tests {
 
         // Sender thread
         thread::spawn(move || {
-            tx.send(InputEvent::Pressed(device)).unwrap();
+            tx.send(InputEvent::Pressed(device.clone())).unwrap();
             tx.send(InputEvent::Released(device)).unwrap();
         });
 

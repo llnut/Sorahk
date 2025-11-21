@@ -2,77 +2,6 @@
 
 use eframe::egui;
 
-/// Converts egui::Key to virtual key code string.
-pub fn key_to_string(key: egui::Key) -> Option<String> {
-    let key_name = match key {
-        egui::Key::A => "A",
-        egui::Key::B => "B",
-        egui::Key::C => "C",
-        egui::Key::D => "D",
-        egui::Key::E => "E",
-        egui::Key::F => "F",
-        egui::Key::G => "G",
-        egui::Key::H => "H",
-        egui::Key::I => "I",
-        egui::Key::J => "J",
-        egui::Key::K => "K",
-        egui::Key::L => "L",
-        egui::Key::M => "M",
-        egui::Key::N => "N",
-        egui::Key::O => "O",
-        egui::Key::P => "P",
-        egui::Key::Q => "Q",
-        egui::Key::R => "R",
-        egui::Key::S => "S",
-        egui::Key::T => "T",
-        egui::Key::U => "U",
-        egui::Key::V => "V",
-        egui::Key::W => "W",
-        egui::Key::X => "X",
-        egui::Key::Y => "Y",
-        egui::Key::Z => "Z",
-        egui::Key::Num0 => "0",
-        egui::Key::Num1 => "1",
-        egui::Key::Num2 => "2",
-        egui::Key::Num3 => "3",
-        egui::Key::Num4 => "4",
-        egui::Key::Num5 => "5",
-        egui::Key::Num6 => "6",
-        egui::Key::Num7 => "7",
-        egui::Key::Num8 => "8",
-        egui::Key::Num9 => "9",
-        egui::Key::F1 => "F1",
-        egui::Key::F2 => "F2",
-        egui::Key::F3 => "F3",
-        egui::Key::F4 => "F4",
-        egui::Key::F5 => "F5",
-        egui::Key::F6 => "F6",
-        egui::Key::F7 => "F7",
-        egui::Key::F8 => "F8",
-        egui::Key::F9 => "F9",
-        egui::Key::F10 => "F10",
-        egui::Key::F11 => "F11",
-        egui::Key::F12 => "F12",
-        egui::Key::Delete => "DELETE",
-        egui::Key::Insert => "INSERT",
-        egui::Key::Home => "HOME",
-        egui::Key::End => "END",
-        egui::Key::PageUp => "PAGEUP",
-        egui::Key::PageDown => "PAGEDOWN",
-        egui::Key::Space => "SPACE",
-        egui::Key::Tab => "TAB",
-        egui::Key::Escape => "ESCAPE",
-        egui::Key::Enter => "RETURN",
-        egui::Key::Backspace => "BACK",
-        egui::Key::ArrowLeft => "LEFT",
-        egui::Key::ArrowRight => "RIGHT",
-        egui::Key::ArrowUp => "UP",
-        egui::Key::ArrowDown => "DOWN",
-        _ => return None,
-    };
-    Some(key_name.to_string())
-}
-
 /// Converts virtual key code string to egui::Key.
 pub fn string_to_key(key_name: &str) -> Option<egui::Key> {
     let key_upper = key_name.to_uppercase();
@@ -174,69 +103,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_key_to_string_letters() {
-        assert_eq!(key_to_string(egui::Key::A), Some("A".to_string()));
-        assert_eq!(key_to_string(egui::Key::M), Some("M".to_string()));
-        assert_eq!(key_to_string(egui::Key::Z), Some("Z".to_string()));
-    }
-
-    #[test]
-    fn test_key_to_string_numbers() {
-        assert_eq!(key_to_string(egui::Key::Num0), Some("0".to_string()));
-        assert_eq!(key_to_string(egui::Key::Num5), Some("5".to_string()));
-        assert_eq!(key_to_string(egui::Key::Num9), Some("9".to_string()));
-    }
-
-    #[test]
-    fn test_key_to_string_function_keys() {
-        assert_eq!(key_to_string(egui::Key::F1), Some("F1".to_string()));
-        assert_eq!(key_to_string(egui::Key::F6), Some("F6".to_string()));
-        assert_eq!(key_to_string(egui::Key::F12), Some("F12".to_string()));
-    }
-
-    #[test]
-    fn test_key_to_string_special_keys() {
-        assert_eq!(key_to_string(egui::Key::Space), Some("SPACE".to_string()));
-        assert_eq!(key_to_string(egui::Key::Enter), Some("RETURN".to_string()));
-        assert_eq!(key_to_string(egui::Key::Escape), Some("ESCAPE".to_string()));
-        assert_eq!(key_to_string(egui::Key::Tab), Some("TAB".to_string()));
-        assert_eq!(
-            key_to_string(egui::Key::Backspace),
-            Some("BACK".to_string())
-        );
-    }
-
-    #[test]
-    fn test_key_to_string_navigation_keys() {
-        assert_eq!(key_to_string(egui::Key::ArrowUp), Some("UP".to_string()));
-        assert_eq!(
-            key_to_string(egui::Key::ArrowDown),
-            Some("DOWN".to_string())
-        );
-        assert_eq!(
-            key_to_string(egui::Key::ArrowLeft),
-            Some("LEFT".to_string())
-        );
-        assert_eq!(
-            key_to_string(egui::Key::ArrowRight),
-            Some("RIGHT".to_string())
-        );
-        assert_eq!(key_to_string(egui::Key::Home), Some("HOME".to_string()));
-        assert_eq!(key_to_string(egui::Key::End), Some("END".to_string()));
-        assert_eq!(key_to_string(egui::Key::PageUp), Some("PAGEUP".to_string()));
-        assert_eq!(
-            key_to_string(egui::Key::PageDown),
-            Some("PAGEDOWN".to_string())
-        );
-    }
-
-    #[test]
-    fn test_key_to_string_edit_keys() {
-        assert_eq!(key_to_string(egui::Key::Delete), Some("DELETE".to_string()));
-        assert_eq!(key_to_string(egui::Key::Insert), Some("INSERT".to_string()));
-    }
-
-    #[test]
     fn test_string_to_key_letters() {
         assert_eq!(string_to_key("A"), Some(egui::Key::A));
         assert_eq!(string_to_key("a"), Some(egui::Key::A)); // Case insensitive
@@ -297,54 +163,6 @@ mod tests {
         assert_eq!(string_to_key(""), None);
         assert_eq!(string_to_key("F13"), None); // Not supported
         assert_eq!(string_to_key("ABC"), None);
-    }
-
-    #[test]
-    fn test_roundtrip_conversion_letters() {
-        // Test that converting back and forth preserves the value
-        for key in [egui::Key::A, egui::Key::M, egui::Key::Z] {
-            let string = key_to_string(key).unwrap();
-            let converted_back = string_to_key(&string).unwrap();
-            assert_eq!(key, converted_back);
-        }
-    }
-
-    #[test]
-    fn test_roundtrip_conversion_numbers() {
-        for key in [egui::Key::Num0, egui::Key::Num5, egui::Key::Num9] {
-            let string = key_to_string(key).unwrap();
-            let converted_back = string_to_key(&string).unwrap();
-            assert_eq!(key, converted_back);
-        }
-    }
-
-    #[test]
-    fn test_roundtrip_conversion_function_keys() {
-        for key in [egui::Key::F1, egui::Key::F6, egui::Key::F12] {
-            let string = key_to_string(key).unwrap();
-            let converted_back = string_to_key(&string).unwrap();
-            assert_eq!(key, converted_back);
-        }
-    }
-
-    #[test]
-    fn test_roundtrip_conversion_special_keys() {
-        let keys = [
-            egui::Key::Space,
-            egui::Key::Tab,
-            egui::Key::Enter,
-            egui::Key::Backspace,
-            egui::Key::Delete,
-            egui::Key::Insert,
-            egui::Key::Home,
-            egui::Key::End,
-        ];
-
-        for key in keys {
-            let string = key_to_string(key).unwrap();
-            let converted_back = string_to_key(&string).unwrap();
-            assert_eq!(key, converted_back);
-        }
     }
 
     #[test]

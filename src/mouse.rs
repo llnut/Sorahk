@@ -228,9 +228,9 @@ mod tests {
 
         // Sender thread
         thread::spawn(move || {
-            tx.send(InputEvent::Pressed(left_btn)).unwrap();
+            tx.send(InputEvent::Pressed(left_btn.clone())).unwrap();
             tx.send(InputEvent::Released(left_btn)).unwrap();
-            tx.send(InputEvent::Pressed(right_btn)).unwrap();
+            tx.send(InputEvent::Pressed(right_btn.clone())).unwrap();
             tx.send(InputEvent::Released(right_btn)).unwrap();
         });
 
@@ -274,8 +274,8 @@ mod tests {
         let left_device = InputDevice::Mouse(MouseButton::Left);
         let right_device = InputDevice::Mouse(MouseButton::Right);
 
-        map.insert(left_device, "Left click");
-        map.insert(right_device, "Right click");
+        map.insert(left_device.clone(), "Left click");
+        map.insert(right_device.clone(), "Right click");
 
         assert_eq!(map.get(&left_device), Some(&"Left click"));
         assert_eq!(map.get(&right_device), Some(&"Right click"));

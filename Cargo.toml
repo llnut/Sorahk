@@ -35,6 +35,7 @@ anyhow = "1.0.100"
 eframe = { version = "0.33.2", default-features = false, features = ["default_fonts", "glow"] }
 ico = "0.4"
 rfd = { version = "0.15.4", default-features = false }
+scc = "3.4.2"
 
 [profile.release]
 opt-level = 3

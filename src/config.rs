@@ -170,7 +170,21 @@ impl AppConfig {
              process_whitelist = {:?}      # Example: [\"notepad.exe\", \"game.exe\"]\n\n\
              # ─── Key Mappings ───\n\
              # Input mapping definitions (supports both keyboard and mouse)\n\
-             # Supported mouse buttons: LBUTTON, RBUTTON, MBUTTON, XBUTTON1, XBUTTON2\n\n\
+             # Supported mouse buttons: LBUTTON, RBUTTON, MBUTTON, XBUTTON1, XBUTTON2\n\
+             # Key combinations: Use '+' to separate keys (e.g., \"ALT+A\", \"CTRL+SHIFT+S\")\n\n\
+             # ─── Key Combo Examples ───\n\
+             # Combo key mappings: Use '+' to separate keys\n\
+             # - Supports modifier keys: LSHIFT/RSHIFT, LCTRL/RCTRL, LALT/RALT, LWIN/RWIN\n\
+             # - Supports single modifier keys as triggers (e.g., \"LSHIFT\")\n\
+             # - Multiple combos with shared modifiers work simultaneously (e.g., ALT+1, ALT+2)\n\
+             # - Distinguishes left/right modifiers (e.g., \"LSHIFT+1\" only triggers with left Shift)\n\
+             # Uncomment to enable combo key mappings:\n\
+             # [[mappings]]\n\
+             # trigger_key = \"LALT+1\"      # Left ALT + 1 (won't trigger with right ALT)\n\
+             # target_key = \"F1\"           # Auto-press F1\n\n\
+             # [[mappings]]\n\
+             # trigger_key = \"CTRL+SHIFT+F\"  # Multiple modifiers\n\
+             # target_key = \"ALT+F4\"         # Output can also be combo\n\n\
              # ─── Mouse Button Examples ───\n\
              # Uncomment to enable mouse button mappings:\n\
              # [[mappings]]\n\
