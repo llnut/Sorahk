@@ -1124,7 +1124,6 @@ impl SorahkGui {
         let mut pressed_keys = std::collections::HashSet::new();
 
         unsafe {
-            // Check all possible keys
             // Modifiers
             let modifiers = [
                 0xA0, 0xA1, // LSHIFT, RSHIFT
@@ -1152,19 +1151,104 @@ impl SorahkGui {
                 }
             }
 
-            // F1-F12 (0x70-0x7B)
-            for vk in 0x70..=0x7B {
+            // Numpad 0-9 (0x60-0x69)
+            for vk in 0x60..=0x69 {
                 if GetAsyncKeyState(vk) < 0 {
                     pressed_keys.insert(vk as u32);
                 }
             }
 
-            // Special keys
-            let special = [
-                0x20, 0x0D, 0x09, 0x1B, 0x08, 0x2E, 0x2D, 0x24, 0x23, 0x21, 0x22, 0x26, 0x28, 0x25,
-                0x27,
+            // F1-F24 (0x70-0x87)
+            for vk in 0x70..=0x87 {
+                if GetAsyncKeyState(vk) < 0 {
+                    pressed_keys.insert(vk as u32);
+                }
+            }
+
+            // Navigation and editing keys
+            let navigation = [
+                0x20, // SPACE
+                0x0D, // ENTER
+                0x09, // TAB
+                0x1B, // ESC
+                0x08, // BACKSPACE
+                0x2E, // DELETE
+                0x2D, // INSERT
+                0x24, // HOME
+                0x23, // END
+                0x21, // PAGEUP
+                0x22, // PAGEDOWN
+                0x26, // UP
+                0x28, // DOWN
+                0x25, // LEFT
+                0x27, // RIGHT
             ];
-            for &vk in &special {
+            for &vk in &navigation {
+                if GetAsyncKeyState(vk as i32) < 0 {
+                    pressed_keys.insert(vk);
+                }
+            }
+
+            // Lock and special keys
+            let lock_keys = [
+                0x14, // CAPSLOCK
+                0x90, // NUMLOCK
+                0x91, // SCROLL LOCK
+                0x13, // PAUSE
+                0x2C, // PRINT SCREEN
+            ];
+            for &vk in &lock_keys {
+                if GetAsyncKeyState(vk as i32) < 0 {
+                    pressed_keys.insert(vk);
+                }
+            }
+
+            // Numpad operators
+            let numpad_ops = [
+                0x6A, // MULTIPLY
+                0x6B, // ADD
+                0x6C, // SEPARATOR
+                0x6D, // SUBTRACT
+                0x6E, // DECIMAL
+                0x6F, // DIVIDE
+            ];
+            for &vk in &numpad_ops {
+                if GetAsyncKeyState(vk as i32) < 0 {
+                    pressed_keys.insert(vk);
+                }
+            }
+
+            // OEM keys (punctuation and symbols)
+            let oem_keys = [
+                0xBA, // OEM_1 (;:)
+                0xBB, // OEM_PLUS (=+)
+                0xBC, // OEM_COMMA (,<)
+                0xBD, // OEM_MINUS (-_)
+                0xBE, // OEM_PERIOD (.>)
+                0xBF, // OEM_2 (/?)
+                0xC0, // OEM_3 (`~)
+                0xDB, // OEM_4 ([{)
+                0xDC, // OEM_5 (\|)
+                0xDD, // OEM_6 (]})
+                0xDE, // OEM_7 ('")
+                0xDF, // OEM_8
+                0xE2, // OEM_102 (<>)
+            ];
+            for &vk in &oem_keys {
+                if GetAsyncKeyState(vk as i32) < 0 {
+                    pressed_keys.insert(vk);
+                }
+            }
+
+            // Mouse buttons
+            let mouse_buttons = [
+                0x01, // LBUTTON
+                0x02, // RBUTTON
+                0x04, // MBUTTON
+                0x05, // XBUTTON1
+                0x06, // XBUTTON2
+            ];
+            for &vk in &mouse_buttons {
                 if GetAsyncKeyState(vk as i32) < 0 {
                     pressed_keys.insert(vk);
                 }
@@ -1236,9 +1320,11 @@ impl SorahkGui {
             0x41..=0x5A => Some(char::from_u32(vk).unwrap().to_string()),
             // 0-9
             0x30..=0x39 => Some(char::from_u32(vk).unwrap().to_string()),
-            // F1-F12
-            0x70..=0x7B => Some(format!("F{}", vk - 0x70 + 1)),
-            // Special keys
+            // Numpad 0-9
+            0x60..=0x69 => Some(format!("NUMPAD{}", vk - 0x60)),
+            // F1-F24
+            0x70..=0x87 => Some(format!("F{}", vk - 0x70 + 1)),
+            // Navigation keys
             0x20 => Some("SPACE".to_string()),
             0x0D => Some("RETURN".to_string()),
             0x09 => Some("TAB".to_string()),
@@ -1254,6 +1340,33 @@ impl SorahkGui {
             0x28 => Some("DOWN".to_string()),
             0x25 => Some("LEFT".to_string()),
             0x27 => Some("RIGHT".to_string()),
+            // Lock and special keys
+            0x14 => Some("CAPITAL".to_string()),
+            0x90 => Some("NUMLOCK".to_string()),
+            0x91 => Some("SCROLL".to_string()),
+            0x13 => Some("PAUSE".to_string()),
+            0x2C => Some("SNAPSHOT".to_string()),
+            // Numpad operators
+            0x6A => Some("MULTIPLY".to_string()),
+            0x6B => Some("ADD".to_string()),
+            0x6C => Some("SEPARATOR".to_string()),
+            0x6D => Some("SUBTRACT".to_string()),
+            0x6E => Some("DECIMAL".to_string()),
+            0x6F => Some("DIVIDE".to_string()),
+            // OEM keys
+            0xBA => Some("OEM_1".to_string()),
+            0xBB => Some("OEM_PLUS".to_string()),
+            0xBC => Some("OEM_COMMA".to_string()),
+            0xBD => Some("OEM_MINUS".to_string()),
+            0xBE => Some("OEM_PERIOD".to_string()),
+            0xBF => Some("OEM_2".to_string()),
+            0xC0 => Some("OEM_3".to_string()),
+            0xDB => Some("OEM_4".to_string()),
+            0xDC => Some("OEM_5".to_string()),
+            0xDD => Some("OEM_6".to_string()),
+            0xDE => Some("OEM_7".to_string()),
+            0xDF => Some("OEM_8".to_string()),
+            0xE2 => Some("OEM_102".to_string()),
             // Modifiers
             0xA2 => Some("LCTRL".to_string()),
             0xA3 => Some("RCTRL".to_string()),
@@ -1263,6 +1376,12 @@ impl SorahkGui {
             0xA1 => Some("RSHIFT".to_string()),
             0x5B => Some("LWIN".to_string()),
             0x5C => Some("RWIN".to_string()),
+            // Mouse buttons
+            0x01 => Some("LBUTTON".to_string()),
+            0x02 => Some("RBUTTON".to_string()),
+            0x04 => Some("MBUTTON".to_string()),
+            0x05 => Some("XBUTTON1".to_string()),
+            0x06 => Some("XBUTTON2".to_string()),
             _ => None,
         }
     }

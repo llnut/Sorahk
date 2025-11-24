@@ -837,12 +837,13 @@ impl AppState {
 
                 // Stop all removed combos
                 if !removed_combos.is_empty()
-                    && let Some(pool) = self.worker_pool.get() {
-                        for combo in removed_combos {
-                            pool.dispatch(InputEvent::Released(combo));
-                        }
-                        should_block = true;
+                    && let Some(pool) = self.worker_pool.get()
+                {
+                    for combo in removed_combos {
+                        pool.dispatch(InputEvent::Released(combo));
                     }
+                    should_block = true;
+                }
 
                 // Also check for single key release (may coexist with combo)
                 let device = self.find_device_for_release(vk_code);
@@ -1016,19 +1017,26 @@ impl AppState {
             return Some(0x70 + num - 1);
         }
 
+        // Numpad keys
+        if key.starts_with("NUMPAD") && key.len() > 6
+            && let Ok(num) = key[6..].parse::<u32>()
+                && num <= 9 {
+                    return Some(0x60 + num);
+                }
+
         // special keys
         match key.as_str() {
-            "ESC" => Some(0x1B),
-            "ENTER" => Some(0x0D),
+            "ESC" | "ESCAPE" => Some(0x1B),
+            "ENTER" | "RETURN" => Some(0x0D),
             "TAB" => Some(0x09),
             "CLEAR" => Some(0x0C),
             "SHIFT" => Some(0x10),
             "CTRL" => Some(0x11),
             "ALT" => Some(0x12),
             "PAUSE" => Some(0x13),
-            "CAPSLOCK" => Some(0x14),
+            "CAPSLOCK" | "CAPITAL" => Some(0x14),
             "SPACE" => Some(0x20),
-            "BACKSPACE" => Some(0x08),
+            "BACKSPACE" | "BACK" => Some(0x08),
             "DELETE" => Some(0x2E),
             "INSERT" => Some(0x2D),
             "HOME" => Some(0x24),
@@ -1047,6 +1055,33 @@ impl AppState {
             "RALT" => Some(0xA5),
             "LWIN" => Some(0x5B),
             "RWIN" => Some(0x5C),
+            "NUMLOCK" => Some(0x90),
+            "SCROLL" => Some(0x91),
+            "SNAPSHOT" => Some(0x2C),
+            "MULTIPLY" => Some(0x6A),
+            "ADD" => Some(0x6B),
+            "SEPARATOR" => Some(0x6C),
+            "SUBTRACT" => Some(0x6D),
+            "DECIMAL" => Some(0x6E),
+            "DIVIDE" => Some(0x6F),
+            "OEM_1" => Some(0xBA),
+            "OEM_PLUS" => Some(0xBB),
+            "OEM_COMMA" => Some(0xBC),
+            "OEM_MINUS" => Some(0xBD),
+            "OEM_PERIOD" => Some(0xBE),
+            "OEM_2" => Some(0xBF),
+            "OEM_3" => Some(0xC0),
+            "OEM_4" => Some(0xDB),
+            "OEM_5" => Some(0xDC),
+            "OEM_6" => Some(0xDD),
+            "OEM_7" => Some(0xDE),
+            "OEM_8" => Some(0xDF),
+            "OEM_102" => Some(0xE2),
+            "LBUTTON" => Some(0x01),
+            "RBUTTON" => Some(0x02),
+            "MBUTTON" => Some(0x04),
+            "XBUTTON1" => Some(0x05),
+            "XBUTTON2" => Some(0x06),
             _ => None,
         }
     }
@@ -1238,23 +1273,43 @@ static SCANCODE_MAP: LazyLock<HashMap<u32, u16>> = LazyLock::new(|| {
         (0x28, 0x50), // DOWN
         (0x25, 0x4B), // LEFT
         (0x27, 0x4D), // RIGHT
-        // keypad
-        (0x60, 0x52),
-        (0x61, 0x4F),
-        (0x62, 0x50),
-        (0x63, 0x51),
-        (0x64, 0x4B),
-        (0x65, 0x4C),
-        (0x66, 0x4D),
-        (0x67, 0x47),
-        (0x68, 0x48),
-        (0x69, 0x49),
-        (0x6A, 0x37),
-        (0x6B, 0x4E),
-        (0x6C, 0x53),
-        (0x6D, 0x4A),
-        (0x6E, 0x52),
-        (0x6F, 0x53),
+        // lock keys
+        (0x14, 0x3A), // CAPSLOCK
+        (0x90, 0x45), // NUMLOCK
+        (0x91, 0x46), // SCROLL LOCK
+        (0x13, 0x45), // PAUSE (same as NUMLOCK)
+        (0x2C, 0x37), // PRINT SCREEN (same as MULTIPLY)
+        // numpad keys
+        (0x60, 0x52), // NUMPAD0
+        (0x61, 0x4F), // NUMPAD1
+        (0x62, 0x50), // NUMPAD2
+        (0x63, 0x51), // NUMPAD3
+        (0x64, 0x4B), // NUMPAD4
+        (0x65, 0x4C), // NUMPAD5
+        (0x66, 0x4D), // NUMPAD6
+        (0x67, 0x47), // NUMPAD7
+        (0x68, 0x48), // NUMPAD8
+        (0x69, 0x49), // NUMPAD9
+        (0x6A, 0x37), // MULTIPLY
+        (0x6B, 0x4E), // ADD
+        (0x6C, 0x53), // SEPARATOR
+        (0x6D, 0x4A), // SUBTRACT
+        (0x6E, 0x53), // DECIMAL
+        (0x6F, 0x35), // DIVIDE
+        // OEM keys
+        (0xBA, 0x27), // OEM_1 (;:)
+        (0xBB, 0x0D), // OEM_PLUS (=+)
+        (0xBC, 0x33), // OEM_COMMA (,<)
+        (0xBD, 0x0C), // OEM_MINUS (-_)
+        (0xBE, 0x34), // OEM_PERIOD (.>)
+        (0xBF, 0x35), // OEM_2 (/?)
+        (0xC0, 0x29), // OEM_3 (`~)
+        (0xDB, 0x1A), // OEM_4 ([{)
+        (0xDC, 0x2B), // OEM_5 (\|)
+        (0xDD, 0x1B), // OEM_6 (]})
+        (0xDE, 0x28), // OEM_7 ('")
+        (0xDF, 0x29), // OEM_8
+        (0xE2, 0x56), // OEM_102 (<>)
         // modifier keys
         (0xA0, 0x2A), // LSHIFT
         (0xA1, 0x36), // RSHIFT

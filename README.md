@@ -153,22 +153,20 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
 ### ⚙️ **Core Functionality**
 - **Flexible Input Mapping** – Map any trigger input (keyboard or mouse) to auto-repeat any target action
 - **Advanced Combo Key Support** – Full combo key triggers and outputs with:
-  - Single or multiple modifier keys (e.g., `ALT+A`, `CTRL+SHIFT+F`)
-  - Left/right modifier distinction (e.g., `LSHIFT` vs `RSHIFT`)
+  - Single or multiple modifier keys (e.g., `LALT+A`, `LCTRL+LSHIFT+F`)
+  - Left/right modifier distinction (e.g., `LSHIFT+A` and `RSHIFT+A` are treated as different triggers)
   - Single modifier keys as triggers (e.g., `LSHIFT` alone)
-  - Multiple simultaneous combos with shared modifiers (e.g., `ALT+1`, `ALT+2`)
+  - Multiple simultaneous combos with shared modifiers (e.g., `LALT+1`, `LALT+2`)
 - **Mouse Button Support** – Full support for left, right, middle, and side mouse buttons (X1/X2)
 - **Adjustable Timing** – Configure repeat interval and press duration per mapping
 - **Global Toggle** – Quick enable/disable with a single hotkey (default: DELETE)
 - **Process Whitelist** – Optional filtering to restrict turbo-fire to specific applications
 - **Multi-input Support** – Configure multiple independent input mappings simultaneously
-- **Duplicate Prevention** – Validation to prevent duplicate trigger inputs from being added
 
 ### 🚀 **Performance & Reliability**
 - **Multi-threaded Processing** – Worker pool with load balancing for efficient key handling
 - **Native Input Injection** – Uses Windows keyboard event APIs for reliable operation
 - **Low Resource Usage** – Minimal CPU and memory footprint
-- **Auto-pause on Settings** – Automatic pause/resume behavior when adjusting configuration
 
 ### 🔔 **Additional Features**
 - **Toast Notifications** – Windows native notifications for status updates
@@ -255,23 +253,24 @@ target_key = "SPACE"         # Press space when side button is held
 # Key combination examples
 # Use '+' to separate keys for combo triggers and outputs
 [[mappings]]
-trigger_key = "ALT+A"        # Press ALT and A together
+trigger_key = "LALT+A"       # Press left ALT and A together
 target_key = "B"             # Auto-press B key
 
 [[mappings]]
-trigger_key = "LALT+1"       # Left ALT + 1 (distinguishes left/right modifiers)
+trigger_key = "LALT+1"       # Left ALT + 1
 target_key = "F1"            # Auto-press F1
 
 [[mappings]]
-trigger_key = "CTRL+SHIFT+F" # Multiple modifiers
-target_key = "ALT+F4"        # Output can also be combo (close window)
+trigger_key = "LCTRL+LSHIFT+F" # Multiple modifiers
+target_key = "LALT+F4"       # Output can also be combo (close window)
 
 [[mappings]]
 trigger_key = "LSHIFT"       # Single modifier key as trigger
 target_key = "SPACE"         # Auto-press space when holding left Shift
 
+# Note: Left and right modifiers are distinguished (LSHIFT ≠ RSHIFT)
 # Note: Multiple combos with shared modifiers work simultaneously
-# Example: ALT+1 → auto-fire 1, ALT+2 → auto-fire 2 (both can work at once)
+# Example: LALT+1 → auto-fire 1, LALT+2 → auto-fire 2 (both can work at once)
 ```
 
 ### 🔑 Supported Input Names
@@ -281,18 +280,22 @@ Input names support both keyboard keys and mouse buttons:
 **Keyboard Keys:**
 - **Letters**: `A`, `B`, `C`, ..., `Z`
 - **Numbers**: `0`, `1`, `2`, ..., `9`
-- **Function Keys**: `F1`, `F2`, ..., `F12`
-- **Special Keys**: `SPACE`, `RETURN`, `TAB`, `ESCAPE`, `BACKSPACE`, `DELETE`
-- **Modifiers**: `LSHIFT`, `RSHIFT`, `LCTRL`, `RCTRL`, `LALT`, `RALT`, `LWIN`, `RWIN`
-  - Generic forms also supported: `SHIFT`, `CTRL`, `ALT`, `WIN` (matches left variant)
-  - Can be used alone as triggers (e.g., `LSHIFT` to auto-fire on left Shift press)
+- **Numpad**: `NUMPAD0`, `NUMPAD1`, ..., `NUMPAD9`, `MULTIPLY`, `ADD`, `SUBTRACT`, `DECIMAL`, `DIVIDE`
+- **Function Keys**: `F1`, `F2`, ..., `F24`
 - **Navigation**: `UP`, `DOWN`, `LEFT`, `RIGHT`, `HOME`, `END`, `PAGEUP`, `PAGEDOWN`
-- **System**: `APPS`, `PAUSE`, `PRINT`
+- **Editing**: `SPACE`, `RETURN`, `TAB`, `ESCAPE`, `BACKSPACE`, `DELETE`, `INSERT`
+- **System**: `SNAPSHOT` (Print Screen), `PAUSE`, `SCROLL` (Scroll Lock), `CAPITAL` (Caps Lock), `NUMLOCK`
+- **Modifiers**: `LSHIFT`, `RSHIFT`, `LCTRL`, `RCTRL`, `LALT`, `RALT`, `LWIN`, `RWIN`
+  - Generic forms: `SHIFT`, `CTRL`, `ALT`, `WIN` (mapped to left variant: LSHIFT, LCTRL, LALT, LWIN)
+  - Can be used alone as triggers (e.g., `LSHIFT` to auto-fire on left Shift press)
+  - **Important**: `LSHIFT` and `RSHIFT` are distinct keys; `LSHIFT+A` will only trigger with left Shift
+- **OEM Keys**: `OEM_1` (;:), `OEM_2` (/?), `OEM_3` (\`~), `OEM_4` ([{), `OEM_5` (\\|), `OEM_6` (]}), `OEM_7` ('"), `OEM_PLUS` (=+), `OEM_COMMA` (,<), `OEM_MINUS` (-\_), `OEM_PERIOD` (.>), `OEM_102` (<>)
 
 **Key Combinations:**
-- Combine keys with `+`: `ALT+A`, `CTRL+SHIFT+F`, `LALT+RSHIFT+1`
-- Both trigger and target can be combos: `CTRL+C` → `CTRL+V`
+- Combine keys with `+`: `LALT+A`, `LCTRL+LSHIFT+F`, `LALT+RSHIFT+1`
+- Both trigger and target can be combos: `LCTRL+C` → `LCTRL+V`
 - Multiple combos with shared modifiers work simultaneously
+- **Important**: Modifiers are matched exactly; `LSHIFT+1` requires left Shift, `RSHIFT+1` requires right Shift
 
 **Mouse Buttons:**
 - **Left Button**: `LBUTTON`, `LMOUSE`, `LMB`
@@ -300,6 +303,11 @@ Input names support both keyboard keys and mouse buttons:
 - **Middle Button**: `MBUTTON`, `MMOUSE`, `MMB`
 - **Side Button 1**: `XBUTTON1`, `X1`, `MB4`
 - **Side Button 2**: `XBUTTON2`, `X2`, `MB5`
+
+**GUI Capture Notes:**
+- **Print Screen (SNAPSHOT)**: Requires two key presses to capture reliably due to Windows API timing constraints
+- **Windows Keys (LWIN/RWIN)**: Can be captured, but will trigger the Start menu; return to the application to verify capture success
+- **Other Keys**: All other keys (including Pause, Scroll Lock) can be captured with a single press
 
 Full support for standard Windows virtual key codes and mouse buttons is included.
 
@@ -314,6 +322,19 @@ Full support for standard Windows virtual key codes and mouse buttons is include
 3. **Run** the executable – it will auto-generate `Config.toml` on first launch
 4. **Configure** settings using the GUI or by editing `Config.toml` directly
 5. **Press** the switch key (default: `DELETE`) to toggle turbo-fire on/off
+
+### 🎮 GUI Key Capture
+
+When capturing keys through the settings dialog:
+
+1. **Click the Capture button** for the trigger or target key field
+2. **Press the desired key(s)** – the capture completes when the first key is released
+3. For **combo keys**, hold all keys down, then release to capture the full combination
+4. For **single modifier keys** (e.g., `LSHIFT` alone), press and release the modifier
+
+**Special Key Behavior:**
+- **Print Screen (SNAPSHOT)**: Press the key twice to capture reliably. This is due to Windows API timing constraints and does not affect functionality once configured.
+- **Windows Keys (LWIN/RWIN)**: Capturing these keys will trigger the Start menu. Return to the application window to verify the capture was successful. Once configured, these keys will function normally for auto-fire without triggering the Start menu.
 
 ### 🔨 Building from Source
 
