@@ -327,7 +327,7 @@ impl SorahkGui {
                                                         }),
                                                     );
                                                     if let Ok(val) = interval_str.parse::<u64>() {
-                                                        temp_config.interval = val.max(5);
+                                                        temp_config.interval = val.max(2);
                                                     }
                                                     ui.end_row();
 
@@ -346,7 +346,7 @@ impl SorahkGui {
                                                         }),
                                                     );
                                                     if let Ok(val) = duration_str.parse::<u64>() {
-                                                        temp_config.event_duration = val.max(5);
+                                                        temp_config.event_duration = val.max(2);
                                                     }
                                                     ui.end_row();
 
@@ -540,7 +540,7 @@ impl SorahkGui {
                                                         .changed()
                                                         && let Ok(val) = interval_str.parse::<u64>()
                                                     {
-                                                        mapping.interval = Some(val.max(5));
+                                                        mapping.interval = Some(val.max(2));
                                                     }
 
                                                     ui.label(t.duration_short());
@@ -565,7 +565,7 @@ impl SorahkGui {
                                                         .changed()
                                                         && let Ok(val) = duration_str.parse::<u64>()
                                                     {
-                                                        mapping.event_duration = Some(val.max(5));
+                                                        mapping.event_duration = Some(val.max(2));
                                                     }
 
                                                     let delete_btn = egui::Button::new(
@@ -742,12 +742,12 @@ impl SorahkGui {
                                                             .new_mapping_interval
                                                             .parse::<u64>()
                                                             .ok()
-                                                            .map(|v| v.max(5));
+                                                            .map(|v| v.max(2));
                                                         let duration = self
                                                             .new_mapping_duration
                                                             .parse::<u64>()
                                                             .ok()
-                                                            .map(|v| v.max(5));
+                                                            .map(|v| v.max(2));
 
                                                         temp_config.mappings.push(KeyMapping {
                                                             trigger_key: trigger_upper,

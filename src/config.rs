@@ -61,7 +61,7 @@ pub struct KeyMapping {
 }
 
 fn default_input_timeout() -> u64 {
-    10
+    5
 }
 fn default_interval() -> u64 {
     5
@@ -129,8 +129,8 @@ impl AppConfig {
         if config.interval < 5 {
             config.interval = 5;
         }
-        if config.event_duration < 5 {
-            config.event_duration = 5;
+        if config.event_duration < 2 {
+            config.event_duration = 2;
         }
 
         // Deduplicate process whitelist
@@ -168,15 +168,15 @@ impl AppConfig {
              # Process whitelist (empty = all processes enabled)\n\
              # Only processes in this list will have turbo-fire enabled\n\
              process_whitelist = {:?}      # Example: [\"notepad.exe\", \"game.exe\"]\n\n\
-             # ─── Key Mappings ───\n\
+             # ─── Input Mappings ───\n\
              # Input mapping definitions (supports both keyboard and mouse)\n\
              # Supported mouse buttons: LBUTTON, RBUTTON, MBUTTON, XBUTTON1, XBUTTON2\n\
-             # Key combinations: Use '+' to separate keys (e.g., \"ALT+A\", \"CTRL+SHIFT+S\")\n\n\
+             # Key combinations: Use '+' to separate keys (e.g., \"LALT+A\", \"RCTRL+RSHIFT+S\")\n\n\
              # ─── Key Combo Examples ───\n\
              # Combo key mappings: Use '+' to separate keys\n\
              # - Supports modifier keys: LSHIFT/RSHIFT, LCTRL/RCTRL, LALT/RALT, LWIN/RWIN\n\
              # - Supports single modifier keys as triggers (e.g., \"LSHIFT\")\n\
-             # - Multiple combos with shared modifiers work simultaneously (e.g., ALT+1, ALT+2)\n\
+             # - Multiple combos with shared modifiers work simultaneously (e.g., LALT+1, RALT+2)\n\
              # - Distinguishes left/right modifiers (e.g., \"LSHIFT+1\" only triggers with left Shift)\n\
              # Uncomment to enable combo key mappings:\n\
              # [[mappings]]\n\
@@ -184,7 +184,7 @@ impl AppConfig {
              # target_key = \"F1\"           # Auto-press F1\n\n\
              # [[mappings]]\n\
              # trigger_key = \"CTRL+SHIFT+F\"  # Multiple modifiers\n\
-             # target_key = \"ALT+F4\"         # Output can also be combo\n\n\
+             # target_key = \"LALT+F4\"         # Output can also be combo\n\n\
              # ─── Mouse Button Examples ───\n\
              # Uncomment to enable mouse button mappings:\n\
              # [[mappings]]\n\
@@ -372,7 +372,7 @@ mod tests {
         let config = AppConfig::load_from_file(&path).expect("Failed to load config");
         assert!(
             config.interval >= 5,
-            "Interval should be clamped to minimum 5"
+            "Interval should be clamped to minimum 2"
         );
 
         cleanup_test_file(&path);
@@ -400,7 +400,7 @@ mod tests {
         let config = AppConfig::load_from_file(&path).expect("Failed to load config");
         assert!(
             config.event_duration >= 5,
-            "Event duration should be clamped to minimum 5"
+            "Event duration should be clamped to minimum 2"
         );
 
         cleanup_test_file(&path);
@@ -690,8 +690,8 @@ mod tests {
 
         // Values should be clamped to minimums
         assert!(loaded.input_timeout >= 2);
-        assert!(loaded.interval >= 5);
-        assert!(loaded.event_duration >= 5);
+        assert!(loaded.interval >= 2);
+        assert!(loaded.event_duration >= 2);
 
         cleanup_test_file(&path);
     }

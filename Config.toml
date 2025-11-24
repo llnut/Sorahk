@@ -26,6 +26,7 @@ process_whitelist = []       # Example: ["notepad.exe", "game.exe"]
 # ─── Input Mappings ───
 # Input mapping definitions (supports both keyboard and mouse)
 # Supported mouse buttons: LBUTTON, RBUTTON, MBUTTON, XBUTTON1, XBUTTON2
+# Key combinations: Use '+' to separate keys (e.g., "LALT+A", "RCTRL+RSHIFT+S")
 
 # ─── Single Key Examples ───
 [[mappings]]
@@ -51,10 +52,10 @@ trigger_key = "LSHIFT"       # Physical key you press
 target_key = "3"             # Key that gets repeatedly sent
 
 # ─── Key Combo Examples ───
-# Combo key mappings: Use '+' to separate keys (e.g., "ALT+A", "CTRL+SHIFT+S")
+# Combo key mappings: Use '+' to separate keys (e.g., "LALT+A", "CTRL+SHIFT+S")
 # - Supports modifier keys: LSHIFT/RSHIFT, LCTRL/RCTRL, LALT/RALT, LWIN/RWIN
 # - Supports single modifier keys as triggers (e.g., "LSHIFT")
-# - Multiple combos with shared modifiers work simultaneously (e.g., ALT+1, ALT+2)
+# - Multiple combos with shared modifiers work simultaneously (e.g., LALT+1, RALT+2)
 # - Distinguishes left/right modifiers (e.g., "LSHIFT+1" only triggers with left Shift)
 # Uncomment to enable combo key mappings:
 # [[mappings]]
