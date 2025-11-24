@@ -1018,11 +1018,13 @@ impl AppState {
         }
 
         // Numpad keys
-        if key.starts_with("NUMPAD") && key.len() > 6
+        if key.starts_with("NUMPAD")
+            && key.len() > 6
             && let Ok(num) = key[6..].parse::<u32>()
-                && num <= 9 {
-                    return Some(0x60 + num);
-                }
+            && num <= 9
+        {
+            return Some(0x60 + num);
+        }
 
         // special keys
         match key.as_str() {
@@ -1940,15 +1942,131 @@ mod tests {
 
     #[test]
     fn test_key_name_to_vk_extended_keys() {
-        // Test extended Windows keys that are implemented
         assert_eq!(AppState::key_name_to_vk("LWIN"), Some(0x5B));
         assert_eq!(AppState::key_name_to_vk("RWIN"), Some(0x5C));
         assert_eq!(AppState::key_name_to_vk("PAUSE"), Some(0x13));
         assert_eq!(AppState::key_name_to_vk("CAPSLOCK"), Some(0x14));
+        assert_eq!(AppState::key_name_to_vk("CAPITAL"), Some(0x14));
+        assert_eq!(AppState::key_name_to_vk("NUMLOCK"), Some(0x90));
+        assert_eq!(AppState::key_name_to_vk("SCROLL"), Some(0x91));
+        assert_eq!(AppState::key_name_to_vk("SNAPSHOT"), Some(0x2C));
+    }
 
-        // Keys not implemented return None
-        assert_eq!(AppState::key_name_to_vk("NUMPAD0"), None);
-        assert_eq!(AppState::key_name_to_vk("MULTIPLY"), None);
+    #[test]
+    fn test_key_name_to_vk_numpad_keys() {
+        assert_eq!(AppState::key_name_to_vk("NUMPAD0"), Some(0x60));
+        assert_eq!(AppState::key_name_to_vk("NUMPAD1"), Some(0x61));
+        assert_eq!(AppState::key_name_to_vk("NUMPAD5"), Some(0x65));
+        assert_eq!(AppState::key_name_to_vk("NUMPAD9"), Some(0x69));
+        assert_eq!(AppState::key_name_to_vk("MULTIPLY"), Some(0x6A));
+        assert_eq!(AppState::key_name_to_vk("ADD"), Some(0x6B));
+        assert_eq!(AppState::key_name_to_vk("SUBTRACT"), Some(0x6D));
+        assert_eq!(AppState::key_name_to_vk("DECIMAL"), Some(0x6E));
+        assert_eq!(AppState::key_name_to_vk("DIVIDE"), Some(0x6F));
+    }
+
+    #[test]
+    fn test_key_name_to_vk_oem_keys() {
+        assert_eq!(AppState::key_name_to_vk("OEM_1"), Some(0xBA));
+        assert_eq!(AppState::key_name_to_vk("OEM_2"), Some(0xBF));
+        assert_eq!(AppState::key_name_to_vk("OEM_3"), Some(0xC0));
+        assert_eq!(AppState::key_name_to_vk("OEM_4"), Some(0xDB));
+        assert_eq!(AppState::key_name_to_vk("OEM_5"), Some(0xDC));
+        assert_eq!(AppState::key_name_to_vk("OEM_6"), Some(0xDD));
+        assert_eq!(AppState::key_name_to_vk("OEM_7"), Some(0xDE));
+        assert_eq!(AppState::key_name_to_vk("OEM_PLUS"), Some(0xBB));
+        assert_eq!(AppState::key_name_to_vk("OEM_COMMA"), Some(0xBC));
+        assert_eq!(AppState::key_name_to_vk("OEM_MINUS"), Some(0xBD));
+        assert_eq!(AppState::key_name_to_vk("OEM_PERIOD"), Some(0xBE));
+    }
+
+    #[test]
+    fn test_key_name_to_vk_mouse_buttons() {
+        assert_eq!(AppState::key_name_to_vk("LBUTTON"), Some(0x01));
+        assert_eq!(AppState::key_name_to_vk("RBUTTON"), Some(0x02));
+        assert_eq!(AppState::key_name_to_vk("MBUTTON"), Some(0x04));
+        assert_eq!(AppState::key_name_to_vk("XBUTTON1"), Some(0x05));
+        assert_eq!(AppState::key_name_to_vk("XBUTTON2"), Some(0x06));
+    }
+
+    #[test]
+    fn test_key_name_aliases() {
+        assert_eq!(AppState::key_name_to_vk("ESC"), Some(0x1B));
+        assert_eq!(AppState::key_name_to_vk("ESCAPE"), Some(0x1B));
+        assert_eq!(AppState::key_name_to_vk("ENTER"), Some(0x0D));
+        assert_eq!(AppState::key_name_to_vk("RETURN"), Some(0x0D));
+        assert_eq!(AppState::key_name_to_vk("BACKSPACE"), Some(0x08));
+        assert_eq!(AppState::key_name_to_vk("BACK"), Some(0x08));
+    }
+
+    #[test]
+    fn test_vk_to_scancode_numpad_keys() {
+        assert_eq!(AppState::vk_to_scancode(0x60), 0x52); // NUMPAD0
+        assert_eq!(AppState::vk_to_scancode(0x61), 0x4F); // NUMPAD1
+        assert_eq!(AppState::vk_to_scancode(0x65), 0x4C); // NUMPAD5
+        assert_eq!(AppState::vk_to_scancode(0x69), 0x49); // NUMPAD9
+        assert_eq!(AppState::vk_to_scancode(0x6A), 0x37); // MULTIPLY
+        assert_eq!(AppState::vk_to_scancode(0x6B), 0x4E); // ADD
+        assert_eq!(AppState::vk_to_scancode(0x6D), 0x4A); // SUBTRACT
+        assert_eq!(AppState::vk_to_scancode(0x6F), 0x35); // DIVIDE
+    }
+
+    #[test]
+    fn test_vk_to_scancode_lock_keys() {
+        assert_eq!(AppState::vk_to_scancode(0x14), 0x3A); // CAPSLOCK
+        assert_eq!(AppState::vk_to_scancode(0x90), 0x45); // NUMLOCK
+        assert_eq!(AppState::vk_to_scancode(0x91), 0x46); // SCROLL LOCK
+    }
+
+    #[test]
+    fn test_vk_to_scancode_oem_keys() {
+        assert_eq!(AppState::vk_to_scancode(0xBA), 0x27); // OEM_1 (;:)
+        assert_eq!(AppState::vk_to_scancode(0xBB), 0x0D); // OEM_PLUS (=+)
+        assert_eq!(AppState::vk_to_scancode(0xBC), 0x33); // OEM_COMMA (,<)
+        assert_eq!(AppState::vk_to_scancode(0xBD), 0x0C); // OEM_MINUS (-_)
+        assert_eq!(AppState::vk_to_scancode(0xBE), 0x34); // OEM_PERIOD (.>)
+        assert_eq!(AppState::vk_to_scancode(0xBF), 0x35); // OEM_2 (/?)
+        assert_eq!(AppState::vk_to_scancode(0xC0), 0x29); // OEM_3 (`~)
+    }
+
+    #[test]
+    fn test_combo_key_with_numpad() {
+        let device = AppState::input_name_to_device("LCTRL+NUMPAD0");
+        assert!(device.is_some());
+
+        if let Some(InputDevice::KeyCombo(keys)) = device {
+            assert_eq!(keys.len(), 2);
+            assert_eq!(keys[0], 0xA2); // LCTRL
+            assert_eq!(keys[1], 0x60); // NUMPAD0
+        } else {
+            panic!("Expected KeyCombo device");
+        }
+    }
+
+    #[test]
+    fn test_combo_key_with_oem() {
+        let device = AppState::input_name_to_device("LALT+OEM_3");
+        assert!(device.is_some());
+
+        if let Some(InputDevice::KeyCombo(keys)) = device {
+            assert_eq!(keys.len(), 2);
+            assert_eq!(keys[0], 0xA4); // LALT
+            assert_eq!(keys[1], 0xC0); // OEM_3 (`~)
+        } else {
+            panic!("Expected KeyCombo device");
+        }
+    }
+
+    #[test]
+    fn test_output_action_with_numpad() {
+        let action = AppState::input_name_to_output("NUMPAD5");
+        assert!(action.is_some());
+
+        if let Some(OutputAction::KeyboardKey(scancode)) = action {
+            assert_eq!(scancode, 0x4C); // NUMPAD5 scancode
+        } else {
+            panic!("Expected KeyboardKey action");
+        }
     }
 
     #[test]

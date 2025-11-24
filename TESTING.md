@@ -15,6 +15,10 @@ cargo test state::tests
 # Run combo key related tests
 cargo test combo
 
+# Run key conversion tests
+cargo test key_name_to_vk
+cargo test vk_to_scancode
+
 # Run with output
 cargo test -- --nocapture
 
@@ -62,7 +66,7 @@ tests/
 | Module | Primary Focus |
 |--------|---------------|
 | **config.rs** | Configuration loading, saving, validation, error handling, TOML serialization |
-| **state.rs** | Key conversion (VK/scancode), input device mappings, combo key parsing, state management, thread safety, atomic operations, lock-free concurrent data structures |
+| **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings, combo key parsing (including numpad and OEM keys), state management, thread safety, atomic operations, lock-free concurrent data structures |
 | **i18n.rs** | Multi-language translations, formatting functions, translation completeness |
 | **keyboard.rs** | Worker pool creation, event distribution, multi-threading, channel communication |
 | **mouse.rs** | Mouse button handling, message parsing, event processing |
