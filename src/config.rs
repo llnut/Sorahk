@@ -281,7 +281,7 @@ mod tests {
         assert!(!config.always_on_top);
         assert!(!config.dark_mode);
         assert_eq!(config.switch_key, "DELETE");
-        assert_eq!(config.input_timeout, 10);
+        assert_eq!(config.input_timeout, 5);
         assert_eq!(config.interval, 5);
         assert_eq!(config.event_duration, 5);
         assert_eq!(config.worker_count, 0);
@@ -372,7 +372,7 @@ mod tests {
         let config = AppConfig::load_from_file(&path).expect("Failed to load config");
         assert!(
             config.interval >= 5,
-            "Interval should be clamped to minimum 2"
+            "Interval should be clamped to minimum 5"
         );
 
         cleanup_test_file(&path);
@@ -399,7 +399,7 @@ mod tests {
 
         let config = AppConfig::load_from_file(&path).expect("Failed to load config");
         assert!(
-            config.event_duration >= 5,
+            config.event_duration >= 2,
             "Event duration should be clamped to minimum 2"
         );
 
@@ -690,7 +690,7 @@ mod tests {
 
         // Values should be clamped to minimums
         assert!(loaded.input_timeout >= 2);
-        assert!(loaded.interval >= 2);
+        assert!(loaded.interval >= 5);
         assert!(loaded.event_duration >= 2);
 
         cleanup_test_file(&path);

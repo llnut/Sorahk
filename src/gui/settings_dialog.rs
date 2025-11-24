@@ -327,7 +327,7 @@ impl SorahkGui {
                                                         }),
                                                     );
                                                     if let Ok(val) = interval_str.parse::<u64>() {
-                                                        temp_config.interval = val.max(2);
+                                                        temp_config.interval = val.max(5);
                                                     }
                                                     ui.end_row();
 
@@ -540,7 +540,7 @@ impl SorahkGui {
                                                         .changed()
                                                         && let Ok(val) = interval_str.parse::<u64>()
                                                     {
-                                                        mapping.interval = Some(val.max(2));
+                                                        mapping.interval = Some(val.max(5));
                                                     }
 
                                                     ui.label(t.duration_short());
@@ -742,7 +742,7 @@ impl SorahkGui {
                                                             .new_mapping_interval
                                                             .parse::<u64>()
                                                             .ok()
-                                                            .map(|v| v.max(2));
+                                                            .map(|v| v.max(5));
                                                         let duration = self
                                                             .new_mapping_duration
                                                             .parse::<u64>()

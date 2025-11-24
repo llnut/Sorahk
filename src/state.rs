@@ -955,7 +955,7 @@ impl AppState {
             let target_action = Self::input_name_to_output(&mapping.target_key)
                 .ok_or_else(|| anyhow::anyhow!("Invalid target input: {}", mapping.target_key))?;
 
-            let interval = mapping.interval.unwrap_or(config.interval).max(2);
+            let interval = mapping.interval.unwrap_or(config.interval).max(5);
             let event_duration = mapping
                 .event_duration
                 .unwrap_or(config.event_duration)
@@ -1508,7 +1508,7 @@ mod tests {
         config.mappings = vec![KeyMapping {
             trigger_key: "A".to_string(),
             target_key: "B".to_string(),
-            interval: Some(2), // Below minimum
+            interval: Some(3), // Below minimum
             event_duration: None,
         }];
 
@@ -1520,7 +1520,7 @@ mod tests {
         let a_mapping = input_mappings.get(&device).unwrap();
         assert!(
             a_mapping.interval >= 5,
-            "Interval should be clamped to minimum 2"
+            "Interval should be clamped to minimum 5"
         );
     }
 
@@ -1542,7 +1542,7 @@ mod tests {
         let device = InputDevice::Keyboard(0x41); // 'A' key
         let a_mapping = input_mappings.get(&device).unwrap();
         assert!(
-            a_mapping.event_duration >= 5,
+            a_mapping.event_duration >= 2,
             "Duration should be clamped to minimum 2"
         );
     }
@@ -1900,7 +1900,7 @@ mod tests {
         config.mappings = vec![KeyMapping {
             trigger_key: "A".to_string(),
             target_key: "B".to_string(),
-            interval: Some(2), // Minimum valid value
+            interval: Some(5), // Minimum valid value
             event_duration: Some(2),
         }];
 

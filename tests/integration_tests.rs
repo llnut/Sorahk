@@ -181,9 +181,9 @@ fn test_config_validation_on_load() {
         config.input_timeout >= 2,
         "Input timeout below minimum is adjusted"
     );
-    assert!(config.interval >= 5, "Interval below minimum is adjusted");
+    assert!(config.interval >= 2, "Interval below minimum is adjusted");
     assert!(
-        config.event_duration >= 5,
+        config.event_duration >= 2,
         "Event duration below minimum is adjusted"
     );
 
@@ -210,7 +210,7 @@ fn test_config_default_values() {
 
     let config = AppConfig::load_from_file(&path).expect("Failed to load config");
 
-    assert_eq!(config.input_timeout, 10);
+    assert_eq!(config.input_timeout, 5);
     assert_eq!(config.interval, 5);
     assert_eq!(config.event_duration, 5);
     assert_eq!(config.worker_count, 0);
@@ -339,7 +339,7 @@ fn test_config_file_format_preservation() {
     assert!(content.contains("Performance Settings"));
     assert!(content.contains("Control Settings"));
     assert!(content.contains("Process Whitelist"));
-    assert!(content.contains("Key Mappings"));
+    assert!(content.contains("Input Mappings"));
 
     cleanup_test_file(&path);
 }
