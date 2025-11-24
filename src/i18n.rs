@@ -124,6 +124,8 @@ struct TranslationCache {
     about_mit_license: String,
     about_rust_egui: String,
     about_inspired: String,
+    turbo_on_hover: String,
+    turbo_off_hover: String,
 }
 
 impl CachedTranslations {
@@ -293,6 +295,14 @@ impl CachedTranslations {
     }
     pub fn about_inspired(&self) -> &str {
         &self.inner.about_inspired
+    }
+
+    // Turbo toggle tooltips
+    pub fn turbo_on_hover(&self) -> &str {
+        &self.inner.turbo_on_hover
+    }
+    pub fn turbo_off_hover(&self) -> &str {
+        &self.inner.turbo_off_hover
     }
 
     // Additional main window status card
@@ -521,6 +531,10 @@ impl TranslationCache {
             about_mit_license: "MIT License".to_string(),
             about_rust_egui: "Rust + egui".to_string(),
             about_inspired: get_raw_translation(lang, RawKey::AboutInspired).to_string(),
+
+            // Turbo toggle tooltips
+            turbo_on_hover: get_raw_translation(lang, RawKey::TurboOnHover).to_string(),
+            turbo_off_hover: get_raw_translation(lang, RawKey::TurboOffHover).to_string(),
         }
     }
 }
@@ -600,6 +614,8 @@ enum RawKey {
     DuplicateTriggerError,
     DuplicateProcessError,
     AboutInspired,
+    TurboOnHover,
+    TurboOffHover,
 }
 
 /// Gets raw translation string without formatting.
@@ -922,6 +938,17 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::SimplifiedChinese, RawKey::AboutInspired) => "🌸 灵感来源: 春日野穹",
         (Language::TraditionalChinese, RawKey::AboutInspired) => "🌸 靈感來源: 春日野穹",
         (Language::Japanese, RawKey::AboutInspired) => "🌸 インスパイア: かすがのそら",
+
+        // Turbo toggle tooltips
+        (Language::English, RawKey::TurboOnHover) => "Turbo ON - Auto-repeat enabled",
+        (Language::SimplifiedChinese, RawKey::TurboOnHover) => "连发开启 - 自动重复输入",
+        (Language::TraditionalChinese, RawKey::TurboOnHover) => "連發開啟 - 自動重複輸入",
+        (Language::Japanese, RawKey::TurboOnHover) => "連打オン - 自動連打",
+
+        (Language::English, RawKey::TurboOffHover) => "Turbo OFF - Single press only",
+        (Language::SimplifiedChinese, RawKey::TurboOffHover) => "连发关闭 - 仅单次输入",
+        (Language::TraditionalChinese, RawKey::TurboOffHover) => "連發關閉 - 僅單次輸入",
+        (Language::Japanese, RawKey::TurboOffHover) => "連打オフ - 単発入力",
 
         (Language::English, RawKey::HotkeySettingsTitle) => "⌨ Hotkey Settings",
         (Language::SimplifiedChinese, RawKey::HotkeySettingsTitle) => "⌨ 快捷键设置",

@@ -90,6 +90,8 @@ pub struct InputMappingInfo {
     pub interval: u64,
     /// Event duration in milliseconds
     pub event_duration: u64,
+    /// Enable turbo mode (auto-repeat)
+    pub turbo_enabled: bool,
 }
 
 /// Legacy type alias for backward compatibility.
@@ -120,11 +122,11 @@ pub struct AppState {
     worker_count: AtomicU64,
     /// Configured worker count for display
     configured_worker_count: usize,
-    /// Input mapping configuration (keyboard + mouse) - lock-free concurrent HashMap
+    /// Input mapping configuration (keyboard + mouse)
     input_mappings: scc::HashMap<InputDevice, InputMappingInfo>,
-    /// Legacy key mappings for backward compatibility - lock-free concurrent HashMap
+    /// Legacy key mappings for backward compatibility
     key_mappings: scc::HashMap<u32, KeyMappingInfo>,
-    /// Pre-computed input device to worker index mapping for fast dispatch - lock-free concurrent HashMap
+    /// Pre-computed input device to worker index mapping for fast dispatch
     device_to_worker: scc::HashMap<InputDevice, u8>,
     /// Legacy VK to worker index mapping for backward compatibility
     vk_to_worker: [u8; 256],
@@ -132,15 +134,22 @@ pub struct AppState {
     worker_pool: OnceLock<Arc<dyn EventDispatcher>>,
     /// Notification event sender
     notification_sender: OnceLock<Sender<NotificationEvent>>,
-    /// Process whitelist (empty means all processes enabled) - keep Mutex for Vec
+    /// Process whitelist (empty means all processes enabled)
     process_whitelist: Mutex<Vec<String>>,
     /// Cached foreground process name with timestamp
     cached_process_info: Mutex<(Option<String>, Instant)>,
-    /// Currently pressed keys for combo detection - lock-free concurrent HashSet
+    /// Currently pressed keys for combo detection
     pressed_keys: scc::HashSet<u32>,
-    /// Active combo triggers (multiple combos can be active simultaneously) - lock-free concurrent HashMap
+    /// Active combo triggers (multiple combos can be active simultaneously)
     /// Maps combo device to the set of modifier keys that were suppressed
     active_combo_triggers: scc::HashMap<InputDevice, std::collections::HashSet<u32>>,
+    /// Cached turbo state for keyboard keys (VK 0-255) for fast access
+    cached_turbo_keyboard: [AtomicBool; 256],
+    /// Cached turbo state for mouse buttons and key combos
+    cached_turbo_other: scc::HashMap<InputDevice, bool>,
+    /// Cached combo key index for efficient combo matching
+    /// Maps main key to all combos that end with that key
+    cached_combo_index: scc::HashMap<u32, Vec<InputDevice>>,
 }
 
 impl AppState {
@@ -171,23 +180,43 @@ impl AppState {
         // Pre-compute device_to_worker mapping for fast dispatch
         let mut vk_to_worker = [0u8; 256];
 
+        // Initialize cached data structures for performance optimization
+        let cached_turbo_keyboard: [AtomicBool; 256] =
+            std::array::from_fn(|_| AtomicBool::new(true));
+        let cached_turbo_other = scc::HashMap::new();
+        let cached_combo_index: scc::HashMap<u32, Vec<InputDevice>> = scc::HashMap::new();
+
         for (idx, mapping) in config.mappings.iter().enumerate() {
             if let Some(device) = Self::input_name_to_device(&mapping.trigger_key) {
                 let _ = device_to_worker.insert_sync(device.clone(), idx as u8);
 
-                // Also populate legacy vk_to_worker for keyboard keys
+                // Populate turbo cache and combo index
                 match &device {
                     InputDevice::Keyboard(vk) if *vk < 256 => {
                         vk_to_worker[*vk as usize] = idx as u8;
+                        cached_turbo_keyboard[*vk as usize]
+                            .store(mapping.turbo_enabled, Ordering::Relaxed);
                     }
                     InputDevice::KeyCombo(keys) => {
-                        if let Some(&last_key) = keys.last()
-                            && last_key < 256
-                        {
-                            vk_to_worker[last_key as usize] = idx as u8;
+                        if let Some(&last_key) = keys.last() {
+                            if last_key < 256 {
+                                vk_to_worker[last_key as usize] = idx as u8;
+                            }
+
+                            let mut combos = cached_combo_index
+                                .get_sync(&last_key)
+                                .map(|v| v.get().clone())
+                                .unwrap_or_default();
+                            combos.push(device.clone());
+                            let _ = cached_combo_index.upsert_sync(last_key, combos);
                         }
+                        let _ =
+                            cached_turbo_other.insert_sync(device.clone(), mapping.turbo_enabled);
                     }
-                    _ => {}
+                    _ => {
+                        let _ =
+                            cached_turbo_other.insert_sync(device.clone(), mapping.turbo_enabled);
+                    }
                 }
             }
         }
@@ -213,6 +242,9 @@ impl AppState {
             cached_process_info: Mutex::new((None, Instant::now())),
             pressed_keys: scc::HashSet::new(),
             active_combo_triggers: scc::HashMap::new(),
+            cached_turbo_keyboard,
+            cached_turbo_other,
+            cached_combo_index,
         })
     }
 
@@ -249,11 +281,47 @@ impl AppState {
             let _ = self.key_mappings.insert_sync(k, v);
         }
 
-        // Update device_to_worker mapping (lock-free concurrent HashMap)
+        // Update cached data structures
         self.device_to_worker.clear_sync();
+        self.cached_turbo_other.clear_sync();
+        self.cached_combo_index.clear_sync();
+
+        // Reset keyboard turbo cache to default
+        for i in 0..256 {
+            self.cached_turbo_keyboard[i].store(true, Ordering::Relaxed);
+        }
+
         for (idx, mapping) in config.mappings.iter().enumerate() {
             if let Some(device) = Self::input_name_to_device(&mapping.trigger_key) {
-                let _ = self.device_to_worker.insert_sync(device, idx as u8);
+                let _ = self.device_to_worker.insert_sync(device.clone(), idx as u8);
+
+                // Update turbo cache and combo index
+                match &device {
+                    InputDevice::Keyboard(vk) if *vk < 256 => {
+                        self.cached_turbo_keyboard[*vk as usize]
+                            .store(mapping.turbo_enabled, Ordering::Relaxed);
+                    }
+                    InputDevice::KeyCombo(keys) => {
+                        if let Some(&last_key) = keys.last() {
+                            let mut combos = self
+                                .cached_combo_index
+                                .get_sync(&last_key)
+                                .map(|v| v.clone())
+                                .unwrap_or_default();
+                            combos.push(device.clone());
+
+                            let _ = self.cached_combo_index.upsert_sync(last_key, combos);
+                        }
+                        let _ = self
+                            .cached_turbo_other
+                            .insert_sync(device, mapping.turbo_enabled);
+                    }
+                    _ => {
+                        let _ = self
+                            .cached_turbo_other
+                            .insert_sync(device, mapping.turbo_enabled);
+                    }
+                }
             }
         }
 
@@ -364,7 +432,24 @@ impl AppState {
     }
 
     pub fn get_input_mapping(&self, device: &InputDevice) -> Option<InputMappingInfo> {
-        self.input_mappings.read_sync(device, |_, v| v.clone())
+        self.input_mappings
+            .get_sync(device)
+            .map(|v| v.get().clone())
+    }
+
+    /// Check turbo_enabled state from cache
+    #[inline(always)]
+    fn is_turbo_enabled(&self, device: &InputDevice) -> bool {
+        match device {
+            InputDevice::Keyboard(vk) if *vk < 256 => {
+                self.cached_turbo_keyboard[*vk as usize].load(Ordering::Relaxed)
+            }
+            _ => self
+                .cached_turbo_other
+                .get_sync(device)
+                .map(|v| *v.get())
+                .unwrap_or(true),
+        }
     }
 
     #[inline(always)]
@@ -411,6 +496,29 @@ impl AppState {
             true
         });
         found
+    }
+
+    /// Check if this key is the main key (last key) of an active combo with turbo disabled
+    /// Used to allow Windows repeat behavior for turbo-disabled combos
+    #[inline]
+    fn is_main_key_in_active_combo_no_turbo(&self, vk_code: u32) -> bool {
+        let mut result = false;
+        self.active_combo_triggers.iter_sync(|combo_device, _| {
+            if result {
+                return false;
+            }
+            if let InputDevice::KeyCombo(keys) = combo_device {
+                // Check if this is the main key (last key in combo)
+                if let Some(&last_key) = keys.last()
+                    && last_key == vk_code
+                    && !self.is_turbo_enabled(combo_device)
+                {
+                    result = true;
+                }
+            }
+            true
+        });
+        result
     }
 
     /// Add a combo to active triggers
@@ -716,7 +824,7 @@ impl AppState {
             let (cached_name, cached_time) = &*cache;
 
             if now.duration_since(*cached_time) < Duration::from_millis(CACHE_DURATION_MS) {
-                // Cache hit: use cached name (fast path)
+                // Cache hit: use cached name
                 cached_name.clone()
             } else {
                 // Cache miss: need to refresh
@@ -770,9 +878,16 @@ impl AppState {
 
         match message {
             WM_KEYDOWN | WM_SYSKEYDOWN => {
-                // Block keyboard repeat events for active combos
+                // Check if this key is in an active combo
                 if self.is_in_active_combo(vk_code) {
-                    return true;
+                    // Check if this is a main key of a combo with turbo disabled
+                    let is_main_key_no_turbo = self.is_main_key_in_active_combo_no_turbo(vk_code);
+
+                    if !is_main_key_no_turbo {
+                        // Block repeat events for modifiers and turbo-enabled combo main keys
+                        return true;
+                    }
+                    // If it's a main key with turbo disabled, allow repeat (fall through)
                 }
 
                 // First-time key press: add to pressed_keys
@@ -798,9 +913,17 @@ impl AppState {
                     });
 
                 if let Some(device) = matched_device {
-                    // Skip if already active
-                    if self.is_combo_active(&device) {
-                        return true;
+                    // check if already active first (most common case on first press)
+                    let already_active = self.is_combo_active(&device);
+
+                    if already_active {
+                        // For mappings with turbo disabled, allow Windows repeat (applies to both single keys and combos)
+                        let allow_repeat = !self.is_turbo_enabled(&device);
+
+                        if !allow_repeat {
+                            return true;
+                        }
+                        // If allow_repeat=true, fall through to dispatch
                     }
 
                     // Handle combo key: always suppress physical modifiers to avoid interference
@@ -862,29 +985,27 @@ impl AppState {
     }
 
     /// Find a matching key combo from currently pressed keys
-    /// Supports multiple combos simultaneously (e.g., ALT+1, ALT+2, ALT+3 all active)
+    /// Supports multiple combos simultaneously (e.g., LALT+1, LALT+2, LALT+3 all active)
     fn find_matching_combo(
         &self,
         pressed_keys: &std::collections::HashSet<u32>,
         main_key: u32,
     ) -> Option<InputDevice> {
-        let mut result = None;
-        self.input_mappings.iter_sync(|device, _| {
-            if result.is_some() {
-                return false;
-            }
-            if let InputDevice::KeyCombo(combo_keys) = device
-                && let Some(&last_key) = combo_keys.last()
-                && last_key == main_key
-            {
-                let all_pressed = combo_keys.iter().all(|&k| pressed_keys.contains(&k));
-                if all_pressed {
-                    result = Some(device.clone());
+        // Lookup combos by main key using cached index
+        self.cached_combo_index
+            .read_sync(&main_key, |_, combos| {
+                for device in combos {
+                    if let InputDevice::KeyCombo(combo_keys) = device {
+                        // Check if all combo keys are pressed
+                        let all_pressed = combo_keys.iter().all(|&k| pressed_keys.contains(&k));
+                        if all_pressed {
+                            return Some(device.clone());
+                        }
+                    }
                 }
-            }
-            true
-        });
-        result
+                None
+            })
+            .flatten()
     }
 
     /// Find a combo key that contains the released key
@@ -968,6 +1089,7 @@ impl AppState {
                     target_action: target_action.clone(),
                     interval,
                     event_duration,
+                    turbo_enabled: mapping.turbo_enabled,
                 },
             );
 
@@ -981,6 +1103,7 @@ impl AppState {
                         target_action: OutputAction::KeyboardKey(*scancode),
                         interval,
                         event_duration,
+                        turbo_enabled: mapping.turbo_enabled,
                     },
                 );
             }
@@ -1447,12 +1570,14 @@ mod tests {
                 target_key: "B".to_string(),
                 interval: Some(10),
                 event_duration: Some(5),
+                turbo_enabled: true,
             },
             KeyMapping {
                 trigger_key: "F1".to_string(),
                 target_key: "SPACE".to_string(),
                 interval: None,
                 event_duration: None,
+                turbo_enabled: true,
             },
         ];
 
@@ -1481,6 +1606,7 @@ mod tests {
             target_key: "A".to_string(),
             interval: None,
             event_duration: None,
+            turbo_enabled: true,
         }];
 
         let result = AppState::create_input_mappings(&config);
@@ -1495,6 +1621,7 @@ mod tests {
             target_key: "INVALID_KEY".to_string(),
             interval: None,
             event_duration: None,
+            turbo_enabled: true,
         }];
 
         let result = AppState::create_input_mappings(&config);
@@ -1510,6 +1637,7 @@ mod tests {
             target_key: "B".to_string(),
             interval: Some(3), // Below minimum
             event_duration: None,
+            turbo_enabled: true,
         }];
 
         let result = AppState::create_input_mappings(&config);
@@ -1533,6 +1661,7 @@ mod tests {
             target_key: "B".to_string(),
             interval: None,
             event_duration: Some(3), // Below minimum
+            turbo_enabled: true,
         }];
 
         let result = AppState::create_input_mappings(&config);
@@ -1570,6 +1699,7 @@ mod tests {
             target_action: OutputAction::KeyboardKey(0x1E),
             interval: 10,
             event_duration: 5,
+            turbo_enabled: true,
         };
 
         match mapping.target_action {
@@ -1647,18 +1777,21 @@ mod tests {
                 target_key: "1".to_string(),
                 interval: Some(10),
                 event_duration: Some(5),
+                turbo_enabled: true,
             },
             KeyMapping {
                 trigger_key: "B".to_string(),
                 target_key: "2".to_string(),
                 interval: Some(15),
                 event_duration: Some(8),
+                turbo_enabled: true,
             },
             KeyMapping {
                 trigger_key: "C".to_string(),
                 target_key: "3".to_string(),
                 interval: Some(20),
                 event_duration: Some(10),
+                turbo_enabled: true,
             },
         ];
 
@@ -1902,6 +2035,7 @@ mod tests {
             target_key: "B".to_string(),
             interval: Some(5), // Minimum valid value
             event_duration: Some(2),
+            turbo_enabled: true,
         }];
 
         let state = AppState::new(config);
@@ -1918,6 +2052,7 @@ mod tests {
             target_key: "B".to_string(),
             interval: Some(0),
             event_duration: Some(0),
+            turbo_enabled: true,
         }];
 
         let state = AppState::new(config).unwrap();
@@ -2152,12 +2287,14 @@ mod tests {
                 target_key: "B".to_string(),
                 interval: Some(10),
                 event_duration: Some(5),
+                turbo_enabled: true,
             },
             KeyMapping {
                 trigger_key: "CTRL+SHIFT+F".to_string(),
                 target_key: "ALT+F4".to_string(),
                 interval: None,
                 event_duration: None,
+                turbo_enabled: true,
             },
         ];
 

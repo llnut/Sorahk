@@ -4,57 +4,48 @@ Feature enhancements:
 
 * **Multi-language Support** - UI available in English, 简体中文, 繁體中文, 日本語
 * **Language Selector** - Language selection in settings dialog with real-time preview
-* **Key Combination Support** - Support for combo key triggers and targets (e.g., ALT+A, CTRL+SHIFT+S)
-* **GUI Combo Key Capture** - Combo key capture in Settings dialog
-  - Left/right modifier detection using Windows API (LCTRL/RCTRL, LALT/RALT, LSHIFT/RSHIFT)
-  - Capture completes on first key release
-  - Supports standalone modifiers (e.g., LSHIFT) and complex combos (e.g., LSHIFT+1)
-  - Tracks pressed keys during capture for combo detection
-  - Supports letters, numbers, function keys, and special keys
-  - Formats combos with specific modifiers (e.g., LCTRL+RSHIFT+A)
+* **Key Combination Support** - Support for combo key triggers and targets (e.g., LALT+A, RCTRL+RSHIFT+S)
+* **Enhanced Key Capture** - Improved key capture with comprehensive keyboard support
+  - Supports all standard keys including function keys (F1-F24), numpad keys, lock keys, system keys, and OEM punctuation
+  - Left/right modifier distinction (LCTRL/RCTRL, LALT/RALT, LSHIFT/RSHIFT)
+  - Initial state filtering to prevent false positives from pre-existing key states
+  - Combo key capture with proper formatting (e.g., LCTRL+RSHIFT+A)
 * **Mouse Button Support** - Auto-fire for mouse buttons (Left, Right, Middle, X1, X2)
 * **Input Validation** - Prevents duplicate trigger keys and duplicate process names
+* **Turbo Mode Toggle** - Per-mapping control for auto-repeat behavior
+  - Toggle button in settings dialog for each mapping
+  - True: rapid-fire with configurable interval
+  - False: single press with Windows native key repeat support
 
 Implementation details:
-- **Multiple simultaneous combos** - Multiple combos with shared modifiers can operate concurrently
-  - Example: ALT+1, ALT+2, ALT+3 all active at the same time
-  - Each combo operates independently
-  - Modifier suppression: shared modifiers released once per activation
-- **Modifier key handling** - Proper modifier state management for combo keys
-  - Modifiers suppressed when outputting single keys from combo triggers
-  - Keyboard repeat events blocked for active combos
-  - Example: Alt+1 outputs "1" without Alt modifier
-- **Raw VK code matching** - Direct VK code comparison without normalization
-  - Example: LSHIFT+1 responds only to left Shift
-  - Supports both specific (LSHIFT) and generic (SHIFT) modifier names
-- **State management** - Proper state cleanup on pause/resume and config reload
+- **Combo key handling** - Multiple combos can operate concurrently with independent state management
+- **Modifier suppression** - Modifiers suppressed when outputting single keys from combo triggers (e.g., LALT+1 outputs "1")
+- **Repeat event handling** - Allows repeat events for non-turbo mappings to preserve native Windows behavior
 
 Performance optimizations:
-- **Lock-free data structures** - Replaced synchronization primitives with `scc` lock-free containers
-- **Process whitelist cache** - Cache with 50ms expiration to reduce Windows API calls
-- **Mapping info cache** - Worker threads cache mapping info to reduce lock reads
-- **Early exit optimization** - Skip processing when paused or not in whitelisted process
-- **Lock-free switch key access** - Convert switch_key from RwLock to AtomicU32
+- **Lock-free concurrency** - Replaced synchronization primitives with `scc` lock-free containers for mapping info and switch key access
+- **Multi-layer caching** - Process whitelist (50ms expiration), turbo state (dual-layer), and mapping info caches in worker threads
+- **Combo key reverse index** - O(1) main key lookup with HashMap-based reverse index
+- **Early exit** - Skip processing when paused or not in whitelisted process
 
 Configuration:
-- Support "+" separator in key names for combos (e.g., "ALT+A")
-- Backward compatible with existing single-key configurations
-- Configuration examples updated with combo key and mouse button mappings
+- Support "+" separator in key names for combos (e.g., "LALT+A")
+- `turbo_enabled` field for per-mapping turbo control (defaults to true)
+- Timing parameter minimums: `input_timeout` 2ms, `event_duration` 2ms
 
 UI Improvements:
 - Updated UI translations
+- Turbo toggle button with visual state indication (⚡ for ON, ○ for OFF)
+- Localized hover tooltips for turbo toggle button in all supported languages
+- Increased settings window width to 720px for improved layout
 
 Testing:
-- Comprehensive test suite covering unit and integration tests
-- Unit tests for config, state, i18n, keyboard, mouse, tray, and signal modules
-- Tests for combo key parsing, modifier key scancodes, and mapping creation
-- Arc reference counting validation tests
-- TESTING.md with testing guide and example patterns
-- Added lib target to Cargo.toml for module testing
+- Comprehensive unit and integration test suite for all modules
+- Tests for combo key parsing, modifier scancodes, and mapping creation
+- TESTING.md with testing guide and examples
 
 Documentation:
-- README.md updated with combo key examples and mouse support
-- Config.toml updated with combo key and mouse button mapping examples
+- Updated README.md and Config.toml with turbo mode, combo keys, and mouse support examples
 
 0.2.0
 =====

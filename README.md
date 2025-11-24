@@ -224,45 +224,55 @@ trigger_key = "A"            # Physical key you press
 target_key = "A"             # Key that gets repeatedly sent
 interval = 5                 # Override global interval
 event_duration = 5           # Override global press duration
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 [[mappings]]
 trigger_key = "B"            # Physical key you press
 target_key = "F"             # Key that gets repeatedly sent
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 [[mappings]]
 trigger_key = "F1"           # Physical key you press
 target_key = "1"             # Key that gets repeatedly sent
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 [[mappings]]
 trigger_key = "F2"           # Physical key you press
 target_key = "2"             # Key that gets repeatedly sent
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 [[mappings]]
 trigger_key = "LSHIFT"       # Physical key you press
 target_key = "3"             # Key that gets repeatedly sent
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 # Mouse button examples
 [[mappings]]
 trigger_key = "LBUTTON"      # Left mouse button trigger
 target_key = "LBUTTON"       # Auto-click left button
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 [[mappings]]
 trigger_key = "XBUTTON1"     # Side button 1 trigger
 target_key = "SPACE"         # Press space when side button is held
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 # Key combination examples
 # Use '+' to separate keys for combo triggers and outputs
 [[mappings]]
 trigger_key = "LALT+A"       # Press left ALT and A together
 target_key = "B"             # Auto-press B key
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 [[mappings]]
 trigger_key = "LALT+1"       # Left ALT + 1
 target_key = "F1"            # Auto-press F1
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 [[mappings]]
 trigger_key = "LCTRL+LSHIFT+F" # Multiple modifiers
-target_key = "LALT+F4"       # Output can also be combo (close window)
+target_key = "LALT+F4"       # Output can also be combo
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press) (close window)
 
 [[mappings]]
 trigger_key = "LSHIFT"       # Single modifier key as trigger

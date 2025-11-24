@@ -34,22 +34,27 @@ trigger_key = "A"            # Physical key you press
 target_key = "A"             # Key that gets repeatedly sent
 interval = 5                 # Override global interval
 event_duration = 5           # Override global press duration
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 [[mappings]]
 trigger_key = "B"            # Physical key you press
 target_key = "F"             # Key that gets repeatedly sent
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 [[mappings]]
 trigger_key = "F1"           # Physical key you press
 target_key = "1"             # Key that gets repeatedly sent
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 [[mappings]]
 trigger_key = "F2"           # Physical key you press
 target_key = "2"             # Key that gets repeatedly sent
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 [[mappings]]
 trigger_key = "LSHIFT"       # Physical key you press
 target_key = "3"             # Key that gets repeatedly sent
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
 # ─── Key Combo Examples ───
 # Combo key mappings: Use '+' to separate keys (e.g., "LALT+A", "CTRL+SHIFT+S")
@@ -61,21 +66,26 @@ target_key = "3"             # Key that gets repeatedly sent
 # [[mappings]]
 # trigger_key = "LALT+1"     # Left ALT + 1 (won't trigger with right ALT)
 # target_key = "F1"          # Auto-press F1
+# turbo_enabled = true       # Enable turbo mode (true = auto-repeat, false = single press)
 
 # [[mappings]]
 # trigger_key = "CTRL+SHIFT+F"  # Multiple modifiers
 # target_key = "ALT+F4"         # Output can also be combo
+# turbo_enabled = true       # Enable turbo mode (true = auto-repeat, false = single press)
 
 # ─── Mouse Button Examples ───
 # Uncomment to enable mouse button mappings:
 # [[mappings]]
 # trigger_key = "LBUTTON"    # Left mouse button trigger
 # target_key = "LBUTTON"     # Auto-click left button
+# turbo_enabled = true       # Enable turbo mode (true = auto-repeat, false = single press)
 
 # [[mappings]]
 # trigger_key = "RBUTTON"    # Right mouse button trigger
 # target_key = "SPACE"       # Press space when right-clicking
+# turbo_enabled = true       # Enable turbo mode (true = auto-repeat, false = single press)
 
 # [[mappings]]
 # trigger_key = "XBUTTON1"   # Side button 1 trigger
 # target_key = "F"           # Auto-press F key
+# turbo_enabled = true       # Enable turbo mode (true = auto-repeat, false = single press)

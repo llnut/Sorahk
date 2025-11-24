@@ -56,24 +56,28 @@ fn test_config_with_complex_mappings() {
             target_key: "1".to_string(),
             interval: Some(10),
             event_duration: Some(5),
+            turbo_enabled: true,
         },
         KeyMapping {
             trigger_key: "B".to_string(),
             target_key: "2".to_string(),
             interval: None,
             event_duration: None,
+            turbo_enabled: true,
         },
         KeyMapping {
             trigger_key: "F1".to_string(),
             target_key: "SPACE".to_string(),
             interval: Some(20),
             event_duration: Some(10),
+            turbo_enabled: true,
         },
         KeyMapping {
             trigger_key: "LSHIFT".to_string(),
             target_key: "ENTER".to_string(),
             interval: Some(15),
             event_duration: Some(8),
+            turbo_enabled: true,
         },
     ];
 
@@ -262,6 +266,7 @@ fn test_config_maximum_mappings() {
             target_key: format!("{}", i % 10),
             interval: Some((i as u64 + 1) * 5),
             event_duration: Some(5),
+            turbo_enabled: true,
         })
         .collect();
 
@@ -296,12 +301,14 @@ fn test_config_all_settings_combined() {
             target_key: "B".to_string(),
             interval: Some(10),
             event_duration: Some(5),
+            turbo_enabled: true,
         },
         KeyMapping {
             trigger_key: "C".to_string(),
             target_key: "D".to_string(),
             interval: None,
             event_duration: None,
+            turbo_enabled: true,
         },
     ];
 

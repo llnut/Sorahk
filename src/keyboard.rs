@@ -54,7 +54,7 @@ impl crate::state::EventDispatcher for WorkerPool {
                     mapping_idx % self.worker_count
                 }
                 InputDevice::Mouse(button) => {
-                    // Use simple discriminant-based distribution (much faster than hashing)
+                    // Use simple discriminant-based distribution
                     (*button as usize) % self.worker_count
                 }
                 InputDevice::KeyCombo(keys) => {
@@ -217,9 +217,9 @@ impl KeyboardHook {
     fn turbo_worker(_worker_id: usize, state: Arc<AppState>, event_rx: Receiver<InputEvent>) {
         use crate::state::OutputAction;
         // Store device state along with cached mapping info to avoid repeated lookups
-        let mut device_states: HashMap<InputDevice, (Instant, u64, u64, OutputAction)> =
+        // Cache format: (last_time, interval, event_duration, target_action, turbo_enabled)
+        let mut device_states: HashMap<InputDevice, (Instant, u64, u64, OutputAction, bool)> =
             HashMap::new();
-        // Cache format: (last_time, interval, event_duration, target_action)
 
         while !state.should_exit() {
             if state.is_paused() {
@@ -240,17 +240,27 @@ impl KeyboardHook {
 
     fn handle_input_event(
         state: &AppState,
-        device_states: &mut HashMap<InputDevice, (Instant, u64, u64, crate::state::OutputAction)>,
+        device_states: &mut HashMap<
+            InputDevice,
+            (Instant, u64, u64, crate::state::OutputAction, bool),
+        >,
         event: InputEvent,
     ) {
         match event {
             InputEvent::Pressed(device) => {
                 let now = Instant::now();
 
-                if let Some((last_time, interval, duration, target_action)) =
+                if let Some((last_time, interval, duration, target_action, turbo_enabled)) =
                     device_states.get_mut(&device)
                 {
-                    if now.duration_since(*last_time) >= Duration::from_millis(*interval) {
+                    if *turbo_enabled {
+                        // Turbo mode: respect interval timing
+                        if now.duration_since(*last_time) >= Duration::from_millis(*interval) {
+                            state.simulate_action(target_action.clone(), *duration);
+                            *last_time = now;
+                        }
+                    } else {
+                        // Single-shot mode: simulate on every Windows repeat event
                         state.simulate_action(target_action.clone(), *duration);
                         *last_time = now;
                     }
@@ -258,6 +268,8 @@ impl KeyboardHook {
                     // First press: lookup mapping and cache it
                     if let Some(mapping) = state.get_input_mapping(&device) {
                         let target_action_clone = mapping.target_action.clone();
+                        let turbo_enabled = mapping.turbo_enabled;
+
                         device_states.insert(
                             device,
                             (
@@ -265,11 +277,11 @@ impl KeyboardHook {
                                 mapping.interval,
                                 mapping.event_duration,
                                 mapping.target_action,
+                                turbo_enabled,
                             ),
                         );
 
-                        // Modifiers are already handled in handle_key_event
-                        // No need to do anything special here
+                        // Always simulate on first press (both turbo and single-shot mode)
                         state.simulate_action(target_action_clone, mapping.event_duration);
                     }
                 }
@@ -282,13 +294,20 @@ impl KeyboardHook {
 
     fn handle_timeout(
         state: &AppState,
-        device_states: &mut HashMap<InputDevice, (Instant, u64, u64, crate::state::OutputAction)>,
+        device_states: &mut HashMap<
+            InputDevice,
+            (Instant, u64, u64, crate::state::OutputAction, bool),
+        >,
     ) {
         let now = Instant::now();
 
         // Use cached mapping info
-        for (_device, (last_time, interval, duration, target_action)) in device_states.iter_mut() {
-            if now.duration_since(*last_time) >= Duration::from_millis(*interval) {
+        for (_device, (last_time, interval, duration, target_action, turbo_enabled)) in
+            device_states.iter_mut()
+        {
+            // Only repeat if turbo mode is enabled
+            if *turbo_enabled && now.duration_since(*last_time) >= Duration::from_millis(*interval)
+            {
                 state.simulate_action(target_action.clone(), *duration);
                 *last_time = now;
             }
@@ -363,6 +382,7 @@ mod tests {
             target_key: "B".to_string(),
             interval: Some(10),
             event_duration: Some(5),
+            turbo_enabled: true,
         }];
 
         let state = Arc::new(AppState::new(config).unwrap());

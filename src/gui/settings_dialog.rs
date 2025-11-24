@@ -26,8 +26,14 @@ impl SorahkGui {
             // Poll Windows API to get current keyboard state
             let current_pressed = Self::poll_all_pressed_keys();
 
-            // Update tracking set with currently pressed keys
-            for vk in &current_pressed {
+            // Filter out keys that were already pressed when capture started (noise baseline)
+            let new_pressed: std::collections::HashSet<u32> = current_pressed
+                .difference(&self.capture_initial_pressed)
+                .copied()
+                .collect();
+
+            // Update tracking set with newly pressed keys only
+            for vk in &new_pressed {
                 self.capture_pressed_keys.insert(*vk);
             }
 
@@ -235,6 +241,9 @@ impl SorahkGui {
                                                 {
                                                     self.key_capture_mode =
                                                         KeyCaptureMode::ToggleKey;
+                                                    self.capture_pressed_keys.clear();
+                                                    self.capture_initial_pressed =
+                                                        Self::poll_all_pressed_keys();
                                                 }
                                             });
                                         });
@@ -480,6 +489,9 @@ impl SorahkGui {
                                                     {
                                                         self.key_capture_mode =
                                                             KeyCaptureMode::MappingTrigger(idx);
+                                                        self.capture_pressed_keys.clear();
+                                                        self.capture_initial_pressed =
+                                                            Self::poll_all_pressed_keys();
                                                     }
 
                                                     ui.label(t.target_short());
@@ -516,6 +528,9 @@ impl SorahkGui {
                                                     {
                                                         self.key_capture_mode =
                                                             KeyCaptureMode::MappingTarget(idx);
+                                                        self.capture_pressed_keys.clear();
+                                                        self.capture_initial_pressed =
+                                                            Self::poll_all_pressed_keys();
                                                     }
 
                                                     ui.label(t.interval_short());
@@ -566,6 +581,46 @@ impl SorahkGui {
                                                         && let Ok(val) = duration_str.parse::<u64>()
                                                     {
                                                         mapping.event_duration = Some(val.max(2));
+                                                    }
+
+                                                    // Turbo toggle
+                                                    let turbo_color = if mapping.turbo_enabled {
+                                                        if self.dark_mode {
+                                                            egui::Color32::from_rgb(147, 197, 253) // Soft blue
+                                                        } else {
+                                                            egui::Color32::from_rgb(96, 165, 250) // Blue
+                                                        }
+                                                    } else if self.dark_mode {
+                                                        egui::Color32::from_rgb(75, 85, 99) // Gray
+                                                    } else {
+                                                        egui::Color32::from_rgb(156, 163, 175) // Light gray
+                                                    };
+
+                                                    let turbo_icon = if mapping.turbo_enabled {
+                                                        "⚡"
+                                                    } else {
+                                                        "○"
+                                                    };
+                                                    let turbo_btn = egui::Button::new(
+                                                        egui::RichText::new(turbo_icon)
+                                                            .color(egui::Color32::WHITE)
+                                                            .size(16.0),
+                                                    )
+                                                    .fill(turbo_color)
+                                                    .corner_radius(12.0)
+                                                    .sense(egui::Sense::click());
+
+                                                    if ui
+                                                        .add_sized([32.0, 24.0], turbo_btn)
+                                                        .on_hover_text(if mapping.turbo_enabled {
+                                                            self.translations.turbo_on_hover()
+                                                        } else {
+                                                            self.translations.turbo_off_hover()
+                                                        })
+                                                        .clicked()
+                                                    {
+                                                        mapping.turbo_enabled =
+                                                            !mapping.turbo_enabled;
                                                     }
 
                                                     let delete_btn = egui::Button::new(
@@ -639,6 +694,9 @@ impl SorahkGui {
                                                 {
                                                     self.key_capture_mode =
                                                         KeyCaptureMode::NewMappingTrigger;
+                                                    self.capture_pressed_keys.clear();
+                                                    self.capture_initial_pressed =
+                                                        Self::poll_all_pressed_keys();
                                                     // Clear error when user starts to modify trigger
                                                     self.duplicate_mapping_error = None;
                                                 }
@@ -679,6 +737,9 @@ impl SorahkGui {
                                                 {
                                                     self.key_capture_mode =
                                                         KeyCaptureMode::NewMappingTarget;
+                                                    self.capture_pressed_keys.clear();
+                                                    self.capture_initial_pressed =
+                                                        Self::poll_all_pressed_keys();
                                                 }
 
                                                 ui.label(t.interval_short());
@@ -708,6 +769,46 @@ impl SorahkGui {
                                                 .desired_width(45.0)
                                                 .font(egui::TextStyle::Button);
                                                 ui.add_sized([45.0, 24.0], duration_edit);
+
+                                                // Turbo toggle for new mapping
+                                                let new_turbo_color = if self.new_mapping_turbo {
+                                                    if self.dark_mode {
+                                                        egui::Color32::from_rgb(147, 197, 253)
+                                                    } else {
+                                                        egui::Color32::from_rgb(96, 165, 250)
+                                                    }
+                                                } else if self.dark_mode {
+                                                    egui::Color32::from_rgb(75, 85, 99)
+                                                } else {
+                                                    egui::Color32::from_rgb(156, 163, 175)
+                                                };
+
+                                                let new_turbo_icon = if self.new_mapping_turbo {
+                                                    "⚡"
+                                                } else {
+                                                    "○"
+                                                };
+                                                let new_turbo_btn = egui::Button::new(
+                                                    egui::RichText::new(new_turbo_icon)
+                                                        .color(egui::Color32::WHITE)
+                                                        .size(16.0),
+                                                )
+                                                .fill(new_turbo_color)
+                                                .corner_radius(12.0)
+                                                .sense(egui::Sense::click());
+
+                                                if ui
+                                                    .add_sized([32.0, 24.0], new_turbo_btn)
+                                                    .on_hover_text(if self.new_mapping_turbo {
+                                                        self.translations.turbo_on_hover()
+                                                    } else {
+                                                        self.translations.turbo_off_hover()
+                                                    })
+                                                    .clicked()
+                                                {
+                                                    self.new_mapping_turbo =
+                                                        !self.new_mapping_turbo;
+                                                }
 
                                                 let add_btn = egui::Button::new(
                                                     egui::RichText::new(t.add_button_text())
@@ -756,6 +857,7 @@ impl SorahkGui {
                                                                 .to_uppercase(),
                                                             interval,
                                                             event_duration: duration,
+                                                            turbo_enabled: self.new_mapping_turbo,
                                                         });
 
                                                         // Clear input fields
@@ -763,6 +865,7 @@ impl SorahkGui {
                                                         self.new_mapping_target.clear();
                                                         self.new_mapping_interval.clear();
                                                         self.new_mapping_duration.clear();
+                                                        self.new_mapping_turbo = true; // Reset to default
                                                     }
                                                 }
                                             });

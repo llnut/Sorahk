@@ -50,6 +50,8 @@ pub struct SorahkGui {
     new_mapping_interval: String,
     /// New mapping duration input
     new_mapping_duration: String,
+    /// New mapping turbo enabled state
+    new_mapping_turbo: bool,
     /// New process name input
     new_process_name: String,
     /// Current key capture state
@@ -58,6 +60,8 @@ pub struct SorahkGui {
     just_captured_input: bool,
     /// Keys currently pressed during capture (VK codes)
     capture_pressed_keys: std::collections::HashSet<u32>,
+    /// Keys that were pressed when capture mode started (noise baseline)
+    capture_initial_pressed: std::collections::HashSet<u32>,
     /// Close dialog highlight expiration time
     dialog_highlight_until: Option<std::time::Instant>,
     /// Pause state before entering settings
@@ -95,10 +99,12 @@ impl SorahkGui {
             new_mapping_target: String::new(),
             new_mapping_interval: String::new(),
             new_mapping_duration: String::new(),
+            new_mapping_turbo: true,
             new_process_name: String::new(),
             key_capture_mode: KeyCaptureMode::None,
             just_captured_input: false,
             capture_pressed_keys: std::collections::HashSet::new(),
+            capture_initial_pressed: std::collections::HashSet::new(),
             was_paused_before_settings: None,
             duplicate_mapping_error: None,
             duplicate_process_error: None,
@@ -203,8 +209,8 @@ impl SorahkGui {
         let icon = crate::gui::utils::create_icon();
 
         let mut viewport = egui::ViewportBuilder::default()
-            .with_inner_size([600.0, 530.0])
-            .with_min_inner_size([600.0, 530.0])
+            .with_inner_size([720.0, 530.0])
+            .with_min_inner_size([720.0, 530.0])
             .with_resizable(true)
             .with_title("Sorahk - Auto Key Press Tool")
             .with_icon(icon)

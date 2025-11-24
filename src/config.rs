@@ -58,6 +58,13 @@ pub struct KeyMapping {
     /// Optional override for press duration
     #[serde(default)]
     pub event_duration: Option<u64>,
+    /// Enable turbo mode (auto-repeat)
+    #[serde(default = "default_turbo_enabled")]
+    pub turbo_enabled: bool,
+}
+
+fn default_turbo_enabled() -> bool {
+    true
 }
 
 fn default_input_timeout() -> u64 {
@@ -88,6 +95,7 @@ impl Default for AppConfig {
                 target_key: "Q".to_string(),
                 interval: None,
                 event_duration: None,
+                turbo_enabled: true,
             }],
             input_timeout: default_input_timeout(),
             interval: default_interval(),
@@ -242,6 +250,10 @@ impl AppConfig {
                         duration
                     ));
                 }
+                result.push_str(&format!(
+                    "turbo_enabled = {}        # Enable turbo mode (true = auto-repeat, false = single press)\n",
+                    mapping.turbo_enabled
+                ));
                 result.push('\n');
             }
         }
@@ -443,6 +455,7 @@ mod tests {
             target_key: "B".to_string(),
             interval: Some(10),
             event_duration: Some(8),
+            turbo_enabled: true,
         };
 
         assert_eq!(mapping.trigger_key, "A");
@@ -458,6 +471,7 @@ mod tests {
             target_key: "D".to_string(),
             interval: None,
             event_duration: None,
+            turbo_enabled: true,
         };
 
         assert_eq!(mapping.trigger_key, "C");
@@ -530,18 +544,21 @@ mod tests {
                 target_key: "1".to_string(),
                 interval: Some(10),
                 event_duration: Some(5),
+                turbo_enabled: true,
             },
             KeyMapping {
                 trigger_key: "B".to_string(),
                 target_key: "2".to_string(),
                 interval: None,
                 event_duration: None,
+                turbo_enabled: true,
             },
             KeyMapping {
                 trigger_key: "F1".to_string(),
                 target_key: "SPACE".to_string(),
                 interval: Some(20),
                 event_duration: Some(10),
+                turbo_enabled: true,
             },
         ];
 
