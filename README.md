@@ -50,12 +50,12 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
       <br/>
       <sub>⚙️ <b>Settings Dialog</b></sub>
     </td>
-    <td align="center" width="25%">
-      <a href="https://github.com/user-attachments/assets/3f23e328-1171-4b74-a99b-dfee3f120a41https://github.com/user-attachments/assets/ee19f744-e810-49cb-bf86-3a82e74207e1">
-        <img src="https://github.com/user-attachments/assets/ee19f744-e810-49cb-bf86-3a82e74207e1" alt="About Dialog - Light Theme" width="100%"/>
-      </a>
-      <br/>
-      <sub>💫 <b>About Dialog</b></sub>
+      <td align="center" width="25%">
+        <a href="https://github.com/user-attachments/assets/ee19f744-e810-49cb-bf86-3a82e74207e1">
+          <img src="https://github.com/user-attachments/assets/ee19f744-e810-49cb-bf86-3a82e74207e1" alt="About Dialog - Light Theme" width="100%"/>
+        </a>
+        <br/>
+        <sub>💫 <b>About Dialog</b></sub>
     </td>
     <td align="center" width="25%">
       <a href="https://github.com/user-attachments/assets/4f3844b9-3b34-4ab6-ab2c-509cf8008490">
