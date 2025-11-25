@@ -96,6 +96,7 @@ struct TranslationCache {
     target_header: String,
     interval_header: String,
     duration_header: String,
+    turbo_header: String,
     add_new_mapping_title: String,
     click_text: String,
     add_button_text: String,
@@ -373,6 +374,9 @@ impl CachedTranslations {
     pub fn duration_header(&self) -> &str {
         &self.inner.duration_header
     }
+    pub fn turbo_header(&self) -> &str {
+        &self.inner.turbo_header
+    }
     pub fn add_new_mapping_title(&self) -> &str {
         &self.inner.add_new_mapping_title
     }
@@ -483,6 +487,7 @@ impl TranslationCache {
             target_header: get_raw_translation(lang, RawKey::Target).to_string(),
             interval_header: get_raw_translation(lang, RawKey::IntervalMs).to_string(),
             duration_header: get_raw_translation(lang, RawKey::DurationMs).to_string(),
+            turbo_header: get_raw_translation(lang, RawKey::TurboHeader).to_string(),
 
             add_new_mapping_title: get_raw_translation(lang, RawKey::AddNewMappingTitle)
                 .to_string(),
@@ -616,6 +621,7 @@ enum RawKey {
     AboutInspired,
     TurboOnHover,
     TurboOffHover,
+    TurboHeader,
 }
 
 /// Gets raw translation string without formatting.
@@ -949,6 +955,11 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::SimplifiedChinese, RawKey::TurboOffHover) => "连发关闭 - 仅单次输入",
         (Language::TraditionalChinese, RawKey::TurboOffHover) => "連發關閉 - 僅單次輸入",
         (Language::Japanese, RawKey::TurboOffHover) => "連打オフ - 単発入力",
+
+        (Language::English, RawKey::TurboHeader) => "Turbo",
+        (Language::SimplifiedChinese, RawKey::TurboHeader) => "连发",
+        (Language::TraditionalChinese, RawKey::TurboHeader) => "連發",
+        (Language::Japanese, RawKey::TurboHeader) => "連打",
 
         (Language::English, RawKey::HotkeySettingsTitle) => "⌨ Hotkey Settings",
         (Language::SimplifiedChinese, RawKey::HotkeySettingsTitle) => "⌨ 快捷键设置",

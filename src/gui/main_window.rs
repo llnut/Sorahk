@@ -696,13 +696,13 @@ impl SorahkGui {
                 ui.add_space(5.0);
 
                 egui::ScrollArea::vertical()
-                    .max_height(200.0)
+                    .max_height(280.0)
                     .show(ui, |ui| {
                         let available = ui.available_width();
                         egui::Grid::new("mappings_grid")
-                            .num_columns(4)
-                            .spacing([20.0, 6.0])
-                            .min_col_width(available * 0.2)
+                            .num_columns(5)
+                            .spacing([15.0, 6.0])
+                            .min_col_width(available * 0.18)
                             .striped(true)
                             .show(ui, |ui| {
                                 // Header
@@ -752,6 +752,33 @@ impl SorahkGui {
                                             },
                                         ),
                                     );
+
+                                    // Turbo status
+                                    let (turbo_icon, turbo_color) = if mapping.turbo_enabled {
+                                        (
+                                            "⚡",
+                                            if self.dark_mode {
+                                                egui::Color32::from_rgb(100, 200, 255)
+                                            } else {
+                                                egui::Color32::from_rgb(0, 120, 220)
+                                            },
+                                        )
+                                    } else {
+                                        (
+                                            "○",
+                                            if self.dark_mode {
+                                                egui::Color32::from_rgb(120, 120, 120)
+                                            } else {
+                                                egui::Color32::from_rgb(160, 160, 160)
+                                            },
+                                        )
+                                    };
+                                    ui.label(
+                                        egui::RichText::new(turbo_icon)
+                                            .size(16.0)
+                                            .color(turbo_color),
+                                    );
+
                                     ui.end_row();
                                 }
                             });
@@ -767,6 +794,7 @@ impl SorahkGui {
             t.target_header(),
             t.interval_header(),
             t.duration_header(),
+            t.turbo_header(),
         ];
         for header in &headers {
             ui.label(
