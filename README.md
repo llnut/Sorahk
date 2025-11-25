@@ -491,7 +491,7 @@ Performance data was collected using [sorahk-perf-monitor](https://github.com/ll
 - **Architecture**: x86_64
 
 **Software Configuration:**
-- **Operating System**: Windows 11 Enterprise (Version 23H2, Build 25375.1)
+- **Operating System**: Windows 11 23H2
 - **Sorahk Version**: 0.3.0
 - **AutoHotkey Version**: 2.0.19
 - **Measurement Tool**: sorahk-perf-monitor with RDTSC timing (calibrated at 2995.19 MHz)
