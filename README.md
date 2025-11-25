@@ -36,26 +36,33 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
 
 <table>
   <tr>
-    <td align="center" width="33%">
-      <a href="https://github.com/user-attachments/assets/07590bde-4169-40aa-8d8b-4c708f88f87f">
-        <img src="https://github.com/user-attachments/assets/07590bde-4169-40aa-8d8b-4c708f88f87f" alt="Main Window - Light Theme" width="100%"/>
+    <td align="center" width="25%">
+      <a href="https://github.com/user-attachments/assets/f674ed34-b119-41c5-91b6-64da34c0b612">
+        <img src="https://github.com/user-attachments/assets/f674ed34-b119-41c5-91b6-64da34c0b612" alt="Main Window - Light Theme" width="100%"/>
       </a>
       <br/>
       <sub>🖥️ <b>Main Window</b></sub>
     </td>
-    <td align="center" width="33%">
-      <a href="https://github.com/user-attachments/assets/894bd83c-954d-4863-8aad-8ae55e991e7f">
-        <img src="https://github.com/user-attachments/assets/894bd83c-954d-4863-8aad-8ae55e991e7f" alt="Settings Dialog - Light Theme" width="100%"/>
+    <td align="center" width="25%">
+      <a href="https://github.com/user-attachments/assets/3f23e328-1171-4b74-a99b-dfee3f120a41">
+        <img src="https://github.com/user-attachments/assets/3f23e328-1171-4b74-a99b-dfee3f120a41" alt="Settings Dialog - Light Theme" width="100%"/>
       </a>
       <br/>
       <sub>⚙️ <b>Settings Dialog</b></sub>
     </td>
-    <td align="center" width="33%">
-      <a href="https://github.com/user-attachments/assets/4e94f0be-83db-496f-9786-d481422c78dc">
-        <img src="https://github.com/user-attachments/assets/4e94f0be-83db-496f-9786-d481422c78dc" alt="About Dialog - Light Theme" width="100%"/>
+    <td align="center" width="25%">
+      <a href="https://github.com/user-attachments/assets/3f23e328-1171-4b74-a99b-dfee3f120a41https://github.com/user-attachments/assets/ee19f744-e810-49cb-bf86-3a82e74207e1">
+        <img src="https://github.com/user-attachments/assets/ee19f744-e810-49cb-bf86-3a82e74207e1" alt="About Dialog - Light Theme" width="100%"/>
       </a>
       <br/>
       <sub>💫 <b>About Dialog</b></sub>
+    </td>
+    <td align="center" width="25%">
+      <a href="https://github.com/user-attachments/assets/4f3844b9-3b34-4ab6-ab2c-509cf8008490">
+        <img src="https://github.com/user-attachments/assets/4f3844b9-3b34-4ab6-ab2c-509cf8008490" alt="Close Dialog - Light Theme" width="100%"/>
+      </a>
+      <br/>
+      <sub>🚪 <b>Close Dialog</b></sub>
     </td>
   </tr>
 </table>
@@ -67,26 +74,33 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
 
 <table>
   <tr>
-    <td align="center" width="33%">
-      <a href="https://github.com/user-attachments/assets/8826544d-8dd7-41c3-8a80-9bfb420c25f7">
-        <img src="https://github.com/user-attachments/assets/8826544d-8dd7-41c3-8a80-9bfb420c25f7" alt="Main Window - Dark Theme" width="100%"/>
+    <td align="center" width="25%">
+      <a href="https://github.com/user-attachments/assets/71545c71-d1f0-4806-8fa4-8d91196fb595">
+        <img src="https://github.com/user-attachments/assets/71545c71-d1f0-4806-8fa4-8d91196fb595" alt="Main Window - Dark Theme" width="100%"/>
       </a>
       <br/>
       <sub>🖥️ <b>Main Window</b></sub>
     </td>
-    <td align="center" width="33%">
-      <a href="https://github.com/user-attachments/assets/30c2094b-ec77-4f28-8b2c-2049707a62b0">
-        <img src="https://github.com/user-attachments/assets/30c2094b-ec77-4f28-8b2c-2049707a62b0" alt="Settings Dialog - Dark Theme" width="100%"/>
+    <td align="center" width="25%">
+      <a href="https://github.com/user-attachments/assets/80724acf-16ad-4780-815c-7319904bccf8">
+        <img src="https://github.com/user-attachments/assets/80724acf-16ad-4780-815c-7319904bccf8" alt="Settings Dialog - Dark Theme" width="100%"/>
       </a>
       <br/>
       <sub>⚙️ <b>Settings Dialog</b></sub>
     </td>
-    <td align="center" width="33%">
-      <a href="https://github.com/user-attachments/assets/2467be45-cc88-4cd6-8f33-ff3f2016c419">
-        <img src="https://github.com/user-attachments/assets/2467be45-cc88-4cd6-8f33-ff3f2016c419" alt="About Dialog - Dark Theme" width="100%"/>
+    <td align="center" width="25%">
+      <a href="https://github.com/user-attachments/assets/279f2f4c-f0cf-4029-99bd-4ef60a1c7e35">
+        <img src="https://github.com/user-attachments/assets/279f2f4c-f0cf-4029-99bd-4ef60a1c7e35" alt="About Dialog - Dark Theme" width="100%"/>
       </a>
       <br/>
       <sub>💫 <b>About Dialog</b></sub>
+    </td>
+    <td align="center" width="25%">
+      <a href="https://github.com/user-attachments/assets/c728556e-c226-4f2b-a940-79c92112ac2b">
+        <img src="https://github.com/user-attachments/assets/c728556e-c226-4f2b-a940-79c92112ac2b" alt="Close Dialog - Dark Theme" width="100%"/>
+      </a>
+      <br/>
+      <sub>🚪 <b>Close Dialog</b></sub>
     </td>
   </tr>
 </table>
