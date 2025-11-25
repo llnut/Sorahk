@@ -405,6 +405,105 @@ For additional testing documentation, see [TESTING.md](TESTING.md).
 
 ---
 
+## 📊 Performance Benchmarks
+
+**Sorahk v0.3.0** has been benchmarked against **AutoHotkey v2.0.19** using microsecond-precision measurements. The tests were conducted with a 5ms target interval (200 Hz) across three scenarios.
+
+### 🔬 Test Methodology
+
+Performance data was collected using [sorahk-perf-monitor](https://github.com/llnut/sorahk-perf-monitor), a specialized keyboard event recorder with RDTSC-based timing. Each test recorded 1000 events to ensure statistical reliability.
+
+### 📈 Results Summary
+
+<table>
+<tr>
+<th>Test Scenario</th>
+<th>Tool</th>
+<th>Avg Interval</th>
+<th>Actual Rate</th>
+<th>Std Deviation</th>
+</tr>
+<tr>
+<td rowspan="2"><b>Single Key (Same)</b><br/><sub>A → A</sub></td>
+<td>Sorahk v0.3.0</td>
+<td>9.47 ms</td>
+<td>105.55 Hz</td>
+<td>6.69 ms</td>
+</tr>
+<tr>
+<td>AutoHotkey v2.0.19</td>
+<td>32.67 ms</td>
+<td>30.61 Hz</td>
+<td>8.21 ms</td>
+</tr>
+<tr>
+<td rowspan="2"><b>Single Key (Different)</b><br/><sub>A → B</sub></td>
+<td>Sorahk v0.3.0</td>
+<td>12.90 ms</td>
+<td>77.53 Hz</td>
+<td>4.23 ms</td>
+</tr>
+<tr>
+<td>AutoHotkey v2.0.19</td>
+<td>32.23 ms</td>
+<td>31.03 Hz</td>
+<td>8.03 ms</td>
+</tr>
+<tr>
+<td rowspan="2"><b>Concurrent (3 Keys)</b><br/><sub>A→1, B→2, C→3</sub></td>
+<td>Sorahk v0.3.0</td>
+<td>15.63 ms</td>
+<td>64.00 Hz</td>
+<td>0.96 ms</td>
+</tr>
+<tr>
+<td>AutoHotkey v2.0.19</td>
+<td>49.13 ms</td>
+<td>20.43 Hz</td>
+<td>32.35 ms</td>
+</tr>
+</table>
+
+*Concurrent test values represent averages across all three keys.*
+
+### 🎯 Key Observations
+
+**Single Key Performance:**
+- Sorahk v0.3.0 shows **3.4x higher** turbo rate compared to AutoHotkey v2.0.19 in same-key scenarios
+- Sorahk v0.3.0 shows **2.5x higher** turbo rate compared to AutoHotkey v2.0.19 in cross-key scenarios
+- Both tools maintain consistent performance characteristics in single-key workloads
+
+**Concurrent Performance:**
+- Sorahk v0.3.0 maintains a **64 Hz** average rate across three simultaneous turbo keys
+- AutoHotkey v2.0.19 averages **20 Hz** under the same conditions, resulting in **3.1x difference**
+- Sorahk's multi-threaded architecture scales well with multiple active mappings
+
+**Timing Consistency:**
+- Sorahk v0.3.0 shows **0.96ms standard deviation** in concurrent scenarios
+- AutoHotkey v2.0.19 shows **32.35ms standard deviation** under the same conditions
+- Sorahk's lock-free worker pool architecture contributes to stable interval timing
+
+### 📝 Test Environment
+
+**Hardware Configuration:**
+- **Processor**: Intel Core i9-13900H (13th Gen) @ 2.60 GHz base clock
+- **Memory**: 32 GB RAM
+- **Architecture**: x86_64
+
+**Software Configuration:**
+- **Operating System**: Windows 11 Enterprise (Version 23H2, Build 25375.1)
+- **Sorahk Version**: 0.3.0
+- **AutoHotkey Version**: 2.0.19
+- **Measurement Tool**: sorahk-perf-monitor with RDTSC timing (calibrated at 2995.19 MHz)
+
+**Test Parameters:**
+- Target interval: 5ms (200 Hz theoretical maximum)
+- Sample size: 1000 events per test
+- Both tools configured with equivalent settings where applicable
+
+---
+
+
 ## 🤝 Contributing
 
 Contributions are accepted through issues and pull requests. Please report bugs or suggest features via issues. Code contributions should follow Rust conventions and maintain compatibility with existing functionality.
