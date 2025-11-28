@@ -291,6 +291,15 @@ impl AppState {
             self.cached_turbo_keyboard[i].store(true, Ordering::Relaxed);
         }
 
+        // Reset vk_to_worker array by creating a new mutable copy
+        // This is safe because we're the only one modifying it during reload
+        let vk_to_worker_ptr = self.vk_to_worker.as_ptr() as *mut [u8; 256];
+        unsafe {
+            for i in 0..256 {
+                (*vk_to_worker_ptr)[i] = 0;
+            }
+        }
+
         for (idx, mapping) in config.mappings.iter().enumerate() {
             if let Some(device) = Self::input_name_to_device(&mapping.trigger_key) {
                 let _ = self.device_to_worker.insert_sync(device.clone(), idx as u8);
@@ -298,11 +307,20 @@ impl AppState {
                 // Update turbo cache and combo index
                 match &device {
                     InputDevice::Keyboard(vk) if *vk < 256 => {
+                        unsafe {
+                            (*vk_to_worker_ptr)[*vk as usize] = idx as u8;
+                        }
                         self.cached_turbo_keyboard[*vk as usize]
                             .store(mapping.turbo_enabled, Ordering::Relaxed);
                     }
                     InputDevice::KeyCombo(keys) => {
                         if let Some(&last_key) = keys.last() {
+                            if last_key < 256 {
+                                unsafe {
+                                    (*vk_to_worker_ptr)[last_key as usize] = idx as u8;
+                                }
+                            }
+
                             let mut combos = self
                                 .cached_combo_index
                                 .get_sync(&last_key)
