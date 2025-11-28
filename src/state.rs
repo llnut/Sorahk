@@ -5,9 +5,30 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, LazyLock, Mutex, OnceLock};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
+
+/// Branch prediction hints
+#[inline(always)]
+#[cold]
+fn cold() {}
+
+#[inline(always)]
+fn unlikely(b: bool) -> bool {
+    if b {
+        cold()
+    }
+    b
+}
+
+#[inline(always)]
+fn likely(b: bool) -> bool {
+    if !b {
+        cold()
+    }
+    b
+}
 
 use windows::Win32::Foundation::MAX_PATH;
 use windows::Win32::System::Threading::{
@@ -49,6 +70,128 @@ pub enum InputDevice {
     /// Format: [modifier1, modifier2, ..., main_key]
     /// The last element is always the main key, others are modifiers
     KeyCombo(Vec<u32>),
+    /// Generic device input for gamepads, joysticks, and other HID devices
+    /// Format: (device_type, button_id)
+    GenericDevice {
+        device_type: DeviceType,
+        button_id: u64,
+    },
+}
+
+impl std::fmt::Display for InputDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InputDevice::GenericDevice {
+                device_type,
+                button_id,
+            } => {
+                // HID device format: [32-bit stable_device_id][32-bit position]
+                let stable_device_id = (button_id >> 32) as u32;
+                let position = (button_id & 0xFFFFFFFF) as u32;
+
+                // Get device display info (VID/PID/Serial)
+                let display_info =
+                    crate::rawinput::get_device_display_info(stable_device_id as u64)
+                        .expect("Device display info not available - device may not be connected");
+
+                let prefix = match device_type {
+                    DeviceType::Gamepad(_) => "GAMEPAD",
+                    DeviceType::Joystick(_) => "JOYSTICK",
+                    DeviceType::HidDevice { usage_page, .. } => {
+                        return if let Some(ref serial) = display_info.serial_number {
+                            write!(
+                                f,
+                                "HID_{:04X}_{:04X}_{:04X}_{}",
+                                usage_page, display_info.vendor_id, display_info.product_id, serial
+                            )
+                        } else {
+                            write!(
+                                f,
+                                "HID_{:04X}_{:04X}_{:04X}_DEV{:08X}",
+                                usage_page,
+                                display_info.vendor_id,
+                                display_info.product_id,
+                                stable_device_id
+                            )
+                        };
+                    }
+                };
+
+                // Format with VID/PID/Serial or VID/PID/DEV
+                if let Some(ref serial) = display_info.serial_number {
+                    // Has serial number: format with serial
+                    if position & 0x80000000 != 0 {
+                        // Byte-level
+                        let byte_idx = position & 0x7FFFFFFF;
+                        write!(
+                            f,
+                            "{}_{:04X}_{:04X}_{}_B{}",
+                            prefix,
+                            display_info.vendor_id,
+                            display_info.product_id,
+                            serial,
+                            byte_idx
+                        )
+                    } else {
+                        // Bit-level
+                        let byte_idx = (position >> 16) as u16;
+                        let bit_idx = (position & 0xFFFF) as u16;
+                        write!(
+                            f,
+                            "{}_{:04X}_{:04X}_{}_B{}.{}",
+                            prefix,
+                            display_info.vendor_id,
+                            display_info.product_id,
+                            serial,
+                            byte_idx,
+                            bit_idx
+                        )
+                    }
+                } else {
+                    // No serial number: format with DEV prefix
+                    if position & 0x80000000 != 0 {
+                        // Byte-level
+                        let byte_idx = position & 0x7FFFFFFF;
+                        write!(
+                            f,
+                            "{}_{:04X}_{:04X}_DEV{:08X}_B{}",
+                            prefix,
+                            display_info.vendor_id,
+                            display_info.product_id,
+                            stable_device_id,
+                            byte_idx
+                        )
+                    } else {
+                        // Bit-level
+                        let byte_idx = (position >> 16) as u16;
+                        let bit_idx = (position & 0xFFFF) as u16;
+                        write!(
+                            f,
+                            "{}_{:04X}_{:04X}_DEV{:08X}_B{}.{}",
+                            prefix,
+                            display_info.vendor_id,
+                            display_info.product_id,
+                            stable_device_id,
+                            byte_idx,
+                            bit_idx
+                        )
+                    }
+                }
+            }
+            _ => write!(f, "{:?}", self),
+        }
+    }
+}
+
+/// Device type classification for generic input devices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DeviceType {
+    /// HID gamepad (Xbox, PlayStation, etc.)
+    Gamepad(u16),
+    /// Joystick device
+    Joystick(u16),
+    /// Custom HID device with usage page and usage
+    HidDevice { usage_page: u16, usage: u16 },
 }
 
 /// Mouse button types.
@@ -94,9 +237,6 @@ pub struct InputMappingInfo {
     pub turbo_enabled: bool,
 }
 
-/// Legacy type alias for backward compatibility.
-pub type KeyMappingInfo = InputMappingInfo;
-
 /// Central application state manager.
 ///
 /// Manages all runtime state including configuration, key mappings,
@@ -124,20 +264,14 @@ pub struct AppState {
     configured_worker_count: usize,
     /// Input mapping configuration (keyboard + mouse)
     input_mappings: scc::HashMap<InputDevice, InputMappingInfo>,
-    /// Legacy key mappings for backward compatibility
-    key_mappings: scc::HashMap<u32, KeyMappingInfo>,
-    /// Pre-computed input device to worker index mapping for fast dispatch
-    device_to_worker: scc::HashMap<InputDevice, u8>,
-    /// Legacy VK to worker index mapping for backward compatibility
-    vk_to_worker: [u8; 256],
     /// Worker pool for event processing
     worker_pool: OnceLock<Arc<dyn EventDispatcher>>,
     /// Notification event sender
     notification_sender: OnceLock<Sender<NotificationEvent>>,
     /// Process whitelist (empty means all processes enabled)
     process_whitelist: Mutex<Vec<String>>,
-    /// Cached foreground process name with timestamp
-    cached_process_info: Mutex<(Option<String>, Instant)>,
+    /// Cached foreground process name with timestamp (RwLock for optimized reads)
+    cached_process_info: RwLock<(Option<String>, Instant)>,
     /// Currently pressed keys for combo detection
     pressed_keys: scc::HashSet<u32>,
     /// Active combo triggers (multiple combos can be active simultaneously)
@@ -150,6 +284,12 @@ pub struct AppState {
     /// Cached combo key index for efficient combo matching
     /// Maps main key to all combos that end with that key
     cached_combo_index: scc::HashMap<u32, Vec<InputDevice>>,
+    /// Raw Input capture event sender for GUI
+    raw_input_capture_sender: Sender<InputDevice>,
+    /// Raw Input capture event receiver for GUI
+    raw_input_capture_receiver: Mutex<Receiver<InputDevice>>,
+    /// Flag indicating GUI is in capture mode for Raw Input
+    is_capturing_raw_input: AtomicBool,
 }
 
 impl AppState {
@@ -162,23 +302,15 @@ impl AppState {
         let switch_key = Self::key_name_to_vk(&config.switch_key)
             .ok_or_else(|| anyhow::anyhow!("Invalid switch key: {}", config.switch_key))?;
 
-        let (input_mappings_map, key_mappings_map) = Self::create_input_mappings(&config)?;
+        let input_mappings_map = Self::create_input_mappings(&config)?;
 
-        // Create lock-free concurrent HashMaps
+        // Create lock-free concurrent HashMap
         let input_mappings = scc::HashMap::new();
-        let key_mappings = scc::HashMap::new();
-        let device_to_worker = scc::HashMap::new();
 
-        // Populate input_mappings and key_mappings
+        // Populate input_mappings
         for (k, v) in input_mappings_map {
             let _ = input_mappings.insert_sync(k, v);
         }
-        for (k, v) in key_mappings_map {
-            let _ = key_mappings.insert_sync(k, v);
-        }
-
-        // Pre-compute device_to_worker mapping for fast dispatch
-        let mut vk_to_worker = [0u8; 256];
 
         // Initialize cached data structures for performance optimization
         let cached_turbo_keyboard: [AtomicBool; 256] =
@@ -186,23 +318,16 @@ impl AppState {
         let cached_turbo_other = scc::HashMap::new();
         let cached_combo_index: scc::HashMap<u32, Vec<InputDevice>> = scc::HashMap::new();
 
-        for (idx, mapping) in config.mappings.iter().enumerate() {
+        for mapping in config.mappings.iter() {
             if let Some(device) = Self::input_name_to_device(&mapping.trigger_key) {
-                let _ = device_to_worker.insert_sync(device.clone(), idx as u8);
-
                 // Populate turbo cache and combo index
                 match &device {
                     InputDevice::Keyboard(vk) if *vk < 256 => {
-                        vk_to_worker[*vk as usize] = idx as u8;
                         cached_turbo_keyboard[*vk as usize]
                             .store(mapping.turbo_enabled, Ordering::Relaxed);
                     }
                     InputDevice::KeyCombo(keys) => {
                         if let Some(&last_key) = keys.last() {
-                            if last_key < 256 {
-                                vk_to_worker[last_key as usize] = idx as u8;
-                            }
-
                             let mut combos = cached_combo_index
                                 .get_sync(&last_key)
                                 .map(|v| v.get().clone())
@@ -221,6 +346,8 @@ impl AppState {
             }
         }
 
+        let (raw_input_capture_sender, raw_input_capture_receiver) = mpsc::channel();
+
         Ok(Self {
             show_tray_icon: AtomicBool::new(config.show_tray_icon),
             show_notifications: AtomicBool::new(config.show_notifications),
@@ -234,17 +361,17 @@ impl AppState {
             process_whitelist: Mutex::new(config.process_whitelist.clone()),
             configured_worker_count: config.worker_count,
             input_mappings,
-            key_mappings,
-            device_to_worker,
-            vk_to_worker,
             worker_pool: OnceLock::new(),
             notification_sender: OnceLock::new(),
-            cached_process_info: Mutex::new((None, Instant::now())),
+            cached_process_info: RwLock::new((None, Instant::now())),
             pressed_keys: scc::HashSet::new(),
             active_combo_triggers: scc::HashMap::new(),
             cached_turbo_keyboard,
             cached_turbo_other,
             cached_combo_index,
+            raw_input_capture_sender,
+            raw_input_capture_receiver: Mutex::new(raw_input_capture_receiver),
+            is_capturing_raw_input: AtomicBool::new(false),
         })
     }
 
@@ -271,18 +398,13 @@ impl AppState {
             .store(config.input_timeout, Ordering::Relaxed);
 
         // Update mappings (lock-free concurrent HashMap)
-        let (new_input_mappings, new_key_mappings) = Self::create_input_mappings(&config)?;
+        let new_input_mappings = Self::create_input_mappings(&config)?;
         self.input_mappings.clear_sync();
         for (k, v) in new_input_mappings {
             let _ = self.input_mappings.insert_sync(k, v);
         }
-        self.key_mappings.clear_sync();
-        for (k, v) in new_key_mappings {
-            let _ = self.key_mappings.insert_sync(k, v);
-        }
 
         // Update cached data structures
-        self.device_to_worker.clear_sync();
         self.cached_turbo_other.clear_sync();
         self.cached_combo_index.clear_sync();
 
@@ -291,36 +413,16 @@ impl AppState {
             self.cached_turbo_keyboard[i].store(true, Ordering::Relaxed);
         }
 
-        // Reset vk_to_worker array by creating a new mutable copy
-        // This is safe because we're the only one modifying it during reload
-        let vk_to_worker_ptr = self.vk_to_worker.as_ptr() as *mut [u8; 256];
-        unsafe {
-            for i in 0..256 {
-                (*vk_to_worker_ptr)[i] = 0;
-            }
-        }
-
-        for (idx, mapping) in config.mappings.iter().enumerate() {
+        for mapping in config.mappings.iter() {
             if let Some(device) = Self::input_name_to_device(&mapping.trigger_key) {
-                let _ = self.device_to_worker.insert_sync(device.clone(), idx as u8);
-
                 // Update turbo cache and combo index
                 match &device {
                     InputDevice::Keyboard(vk) if *vk < 256 => {
-                        unsafe {
-                            (*vk_to_worker_ptr)[*vk as usize] = idx as u8;
-                        }
                         self.cached_turbo_keyboard[*vk as usize]
                             .store(mapping.turbo_enabled, Ordering::Relaxed);
                     }
                     InputDevice::KeyCombo(keys) => {
                         if let Some(&last_key) = keys.last() {
-                            if last_key < 256 {
-                                unsafe {
-                                    (*vk_to_worker_ptr)[last_key as usize] = idx as u8;
-                                }
-                            }
-
                             let mut combos = self
                                 .cached_combo_index
                                 .get_sync(&last_key)
@@ -349,7 +451,7 @@ impl AppState {
         }
 
         // Clear process name cache
-        if let Ok(mut cache) = self.cached_process_info.lock() {
+        if let Ok(mut cache) = self.cached_process_info.write() {
             *cache = (None, Instant::now());
         }
 
@@ -363,6 +465,47 @@ impl AppState {
     /// Sets the worker pool for event dispatching.
     pub fn set_worker_pool(&self, pool: Arc<dyn EventDispatcher>) {
         let _ = self.worker_pool.set(pool);
+    }
+
+    /// Gets the worker pool for event dispatching.
+    pub fn get_worker_pool(&self) -> Option<&Arc<dyn EventDispatcher>> {
+        self.worker_pool.get()
+    }
+
+    /// Gets the Raw Input capture sender for GUI key capture mode.
+    pub fn get_raw_input_capture_sender(&self) -> &Sender<InputDevice> {
+        &self.raw_input_capture_sender
+    }
+
+    /// Tries to receive a captured Raw Input event (non-blocking).
+    pub fn try_recv_raw_input_capture(&self) -> Option<InputDevice> {
+        if let Ok(receiver) = self.raw_input_capture_receiver.lock() {
+            receiver.try_recv().ok()
+        } else {
+            None
+        }
+    }
+
+    /// Sets the Raw Input capture mode flag.
+    pub fn set_raw_input_capture_mode(&self, enabled: bool) {
+        self.is_capturing_raw_input
+            .store(enabled, Ordering::Relaxed);
+
+        // When entering capture mode, clear all caches to ensure fresh state
+        if enabled {
+            // Clear all old events in the channel to avoid showing stale captures
+            if let Ok(receiver) = self.raw_input_capture_receiver.lock() {
+                while receiver.try_recv().is_ok() {}
+            }
+
+            // Clear device display info cache to avoid showing stale device info
+            crate::rawinput::clear_device_display_info_cache();
+        }
+    }
+
+    /// Checks if Raw Input capture mode is active.
+    pub fn is_raw_input_capture_active(&self) -> bool {
+        self.is_capturing_raw_input.load(Ordering::Relaxed)
     }
 
     /// Sets the notification event sender.
@@ -380,7 +523,8 @@ impl AppState {
         self.should_exit.store(true, Ordering::Relaxed);
     }
 
-    /// Checks if the application should exit.
+    /// Checks if the application should exit (hot path - inlined)
+    #[inline(always)]
     pub fn should_exit(&self) -> bool {
         self.should_exit.load(Ordering::Relaxed)
     }
@@ -390,7 +534,8 @@ impl AppState {
         self.is_paused.fetch_xor(true, Ordering::Relaxed)
     }
 
-    /// Returns the current pause state.
+    /// Returns the current pause state (hot path - inlined)
+    #[inline(always)]
     pub fn is_paused(&self) -> bool {
         self.is_paused.load(Ordering::Relaxed)
     }
@@ -449,13 +594,13 @@ impl AppState {
         self.worker_count.store(count as u64, Ordering::Relaxed);
     }
 
+    /// Fast mapping lookup using lock-free read
+    #[inline(always)]
     pub fn get_input_mapping(&self, device: &InputDevice) -> Option<InputMappingInfo> {
-        self.input_mappings
-            .get_sync(device)
-            .map(|v| v.get().clone())
+        self.input_mappings.read_sync(device, |_, v| v.clone())
     }
 
-    /// Check turbo_enabled state from cache
+    /// Check turbo_enabled state from cache (hot path)
     #[inline(always)]
     fn is_turbo_enabled(&self, device: &InputDevice) -> bool {
         match device {
@@ -464,19 +609,8 @@ impl AppState {
             }
             _ => self
                 .cached_turbo_other
-                .get_sync(device)
-                .map(|v| *v.get())
+                .read_sync(device, |_, v| *v)
                 .unwrap_or(true),
-        }
-    }
-
-    #[inline(always)]
-    pub fn get_worker_index(&self, vk_code: u32) -> usize {
-        if vk_code < 256 {
-            self.vk_to_worker[vk_code as usize] as usize
-        } else {
-            // Fallback for out-of-range vkCodes (rare edge case)
-            (vk_code as usize) % 256
         }
     }
 
@@ -545,6 +679,7 @@ impl AppState {
     }
 
     /// Check if a specific combo is active
+    #[inline(always)]
     fn is_combo_active(&self, combo: &InputDevice) -> bool {
         self.active_combo_triggers.contains_sync(combo)
     }
@@ -558,7 +693,7 @@ impl AppState {
 
         // Check which modifiers are already suppressed by active combos
         let mut already_suppressed: std::collections::HashSet<u32> =
-            std::collections::HashSet::new();
+            std::collections::HashSet::with_capacity(8);
         self.active_combo_triggers.iter_sync(|_, modifiers| {
             already_suppressed.extend(modifiers.iter().copied());
             true
@@ -612,7 +747,8 @@ impl AppState {
     /// Returns vec of combos that were removed
     fn cleanup_released_combos(&self) -> Vec<InputDevice> {
         // Create snapshot of currently pressed keys
-        let mut pressed_snapshot: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        let mut pressed_snapshot: std::collections::HashSet<u32> =
+            std::collections::HashSet::with_capacity(16);
         self.pressed_keys.iter_sync(|key| {
             pressed_snapshot.insert(*key);
             true
@@ -671,6 +807,7 @@ impl AppState {
         }
     }
 
+    #[inline]
     pub fn simulate_action(&self, action: OutputAction, duration: u64) {
         unsafe {
             match action {
@@ -831,28 +968,27 @@ impl AppState {
             return true;
         }
 
-        // Cache duration: 50ms is a good balance between responsiveness and performance
-        // Window switches are rare (1-2 times per second at most), so we can safely cache
         const CACHE_DURATION_MS: u64 = 50;
         let now = Instant::now();
 
-        // Try to get cached process name
+        // Optimized cache access using RwLock
         let process_name = {
-            let cache = self.cached_process_info.lock().unwrap();
+            // Fast path: read-only access (most common case)
+            let cache = self.cached_process_info.read().unwrap();
             let (cached_name, cached_time) = &*cache;
 
-            if now.duration_since(*cached_time) < Duration::from_millis(CACHE_DURATION_MS) {
-                // Cache hit: use cached name
+            if likely(now.duration_since(*cached_time) < Duration::from_millis(CACHE_DURATION_MS)) {
+                // Cache hit: return cached name without write lock
                 cached_name.clone()
             } else {
-                // Cache miss: need to refresh
-                drop(cache); // Release read lock before expensive API call
+                // Cache miss: need refresh
+                drop(cache);
 
-                // Query Windows API (slow operation)
+                // Query Windows API
                 let new_name = Self::get_foreground_process_name();
 
-                // Update cache
-                let mut cache = self.cached_process_info.lock().unwrap();
+                // Write lock only when updating
+                let mut cache = self.cached_process_info.write().unwrap();
                 *cache = (new_name.clone(), now);
 
                 new_name
@@ -869,12 +1005,13 @@ impl AppState {
     }
 
     #[allow(non_snake_case)]
+    #[inline]
     pub fn handle_key_event(&self, message: u32, vk_code: u32) -> bool {
         let mut should_block = false;
         let switch_key = self.get_switch_key();
 
-        // Handle switch key first (always works even when paused)
-        if vk_code == switch_key && matches!(message, WM_KEYUP | WM_SYSKEYUP) {
+        // Handle switch key first (always works even when paused) - unlikely path
+        if unlikely(vk_code == switch_key && matches!(message, WM_KEYUP | WM_SYSKEYUP)) {
             let was_paused = self.toggle_paused();
             // Clear all state when toggling
             self.pressed_keys.clear_sync();
@@ -889,15 +1026,15 @@ impl AppState {
             return true;
         }
 
-        // Only process if not paused and in whitelisted process
-        if self.is_paused() || !self.is_process_whitelisted() {
+        // Only process if not paused and in whitelisted process - likely active
+        if unlikely(self.is_paused() || !self.is_process_whitelisted()) {
             return should_block;
         }
 
         match message {
             WM_KEYDOWN | WM_SYSKEYDOWN => {
-                // Check if this key is in an active combo
-                if self.is_in_active_combo(vk_code) {
+                // Check if this key is in an active combo - unlikely for most keys
+                if unlikely(self.is_in_active_combo(vk_code)) {
                     // Check if this is a main key of a combo with turbo disabled
                     let is_main_key_no_turbo = self.is_main_key_in_active_combo_no_turbo(vk_code);
 
@@ -914,7 +1051,7 @@ impl AppState {
                 // Try to match combo key first, then single key
                 // Create snapshot for combo matching
                 let mut pressed_snapshot: std::collections::HashSet<u32> =
-                    std::collections::HashSet::new();
+                    std::collections::HashSet::with_capacity(16);
                 self.pressed_keys.iter_sync(|key| {
                     pressed_snapshot.insert(*key);
                     true
@@ -947,7 +1084,7 @@ impl AppState {
                     // Handle combo key: always suppress physical modifiers to avoid interference
                     if let InputDevice::KeyCombo(_) = &device {
                         let mut modifiers: std::collections::HashSet<u32> =
-                            std::collections::HashSet::new();
+                            std::collections::HashSet::with_capacity(8);
                         self.pressed_keys.iter_sync(|key| {
                             if *key != vk_code && self.is_modifier_key(*key) {
                                 modifiers.insert(*key);
@@ -1002,21 +1139,23 @@ impl AppState {
         should_block
     }
 
-    /// Find a matching key combo from currently pressed keys
+    /// Find a matching key combo from currently pressed keys (optimized lookup)
     /// Supports multiple combos simultaneously (e.g., LALT+1, LALT+2, LALT+3 all active)
+    #[inline]
     fn find_matching_combo(
         &self,
         pressed_keys: &std::collections::HashSet<u32>,
         main_key: u32,
     ) -> Option<InputDevice> {
-        // Lookup combos by main key using cached index
+        // Fast path: use lock-free read
         self.cached_combo_index
             .read_sync(&main_key, |_, combos| {
+                // Iterate through potential combos (usually small list)
                 for device in combos {
                     if let InputDevice::KeyCombo(combo_keys) = device {
-                        // Check if all combo keys are pressed
+                        // Check if all combo keys are pressed (fast path optimization)
                         let all_pressed = combo_keys.iter().all(|&k| pressed_keys.contains(&k));
-                        if all_pressed {
+                        if likely(all_pressed) {
                             return Some(device.clone());
                         }
                     }
@@ -1080,12 +1219,8 @@ impl AppState {
 
     fn create_input_mappings(
         config: &AppConfig,
-    ) -> anyhow::Result<(
-        HashMap<InputDevice, InputMappingInfo>,
-        HashMap<u32, KeyMappingInfo>,
-    )> {
+    ) -> anyhow::Result<HashMap<InputDevice, InputMappingInfo>> {
         let mut input_mappings = HashMap::new();
-        let mut key_mappings = HashMap::new();
 
         for mapping in &config.mappings {
             let trigger_device = Self::input_name_to_device(&mapping.trigger_key)
@@ -1110,24 +1245,9 @@ impl AppState {
                     turbo_enabled: mapping.turbo_enabled,
                 },
             );
-
-            // Create legacy key mapping for backward compatibility (keyboard only)
-            if let InputDevice::Keyboard(vk) = &trigger_device
-                && let OutputAction::KeyboardKey(scancode) = &target_action
-            {
-                key_mappings.insert(
-                    *vk,
-                    KeyMappingInfo {
-                        target_action: OutputAction::KeyboardKey(*scancode),
-                        interval,
-                        event_duration,
-                        turbo_enabled: mapping.turbo_enabled,
-                    },
-                );
-            }
         }
 
-        Ok((input_mappings, key_mappings))
+        Ok(input_mappings)
     }
 
     fn key_name_to_vk(key_name: &str) -> Option<u32> {
@@ -1233,11 +1353,22 @@ impl AppState {
         SCANCODE_MAP.get(&vk_code).copied().unwrap_or(0)
     }
 
-    /// Parse input name to InputDevice (supports both keyboard and mouse)
+    /// Parse input name to InputDevice (supports keyboard, mouse, gamepad, joystick, and custom devices)
     fn input_name_to_device(name: &str) -> Option<InputDevice> {
         let name_upper = name.to_uppercase();
 
-        // Try mouse button first
+        // Check for HID device formats (VID/PID with serial or device ID)
+        // Format: "GAMEPAD_045E_0B05_ABC123_B2.0" (with serial)
+        // Format: "GAMEPAD_045E_0B05_DEV12345678_B2.0" (without serial, uses device ID)
+        if (name_upper.starts_with("GAMEPAD_")
+            || name_upper.starts_with("JOYSTICK_")
+            || name_upper.starts_with("HID_"))
+            && let Some(device) = Self::parse_device_with_handle(&name_upper)
+        {
+            return Some(device);
+        }
+
+        // Try mouse button
         if let Some(button) = Self::mouse_button_name_to_type(&name_upper) {
             return Some(InputDevice::Mouse(button));
         }
@@ -1249,19 +1380,36 @@ impl AppState {
                 return None;
             }
 
-            let mut vk_codes = Vec::new();
-            for part in parts {
-                if let Some(vk) = Self::key_name_to_vk(part) {
-                    vk_codes.push(vk);
+            // Try to parse each part as a device
+            let mut devices = Vec::new();
+            for part in &parts {
+                if let Some(device) = Self::input_name_to_device(part) {
+                    devices.push(device);
                 } else {
-                    // Invalid key name in combination
-                    return None;
+                    // Fallback: try as VK code for keyboard
+                    if let Some(vk) = Self::key_name_to_vk(part) {
+                        devices.push(InputDevice::Keyboard(vk));
+                    } else {
+                        return None;
+                    }
                 }
             }
 
-            // Ensure the combination is valid (has at least 2 keys)
-            if vk_codes.len() >= 2 {
-                return Some(InputDevice::KeyCombo(vk_codes));
+            // If all parts are keyboard keys, use KeyCombo for efficiency
+            let all_keyboard = devices
+                .iter()
+                .all(|d| matches!(d, InputDevice::Keyboard(_)));
+            if all_keyboard {
+                let vk_codes: Vec<u32> = devices
+                    .into_iter()
+                    .filter_map(|d| match d {
+                        InputDevice::Keyboard(vk) => Some(vk),
+                        _ => None,
+                    })
+                    .collect();
+                if vk_codes.len() >= 2 {
+                    return Some(InputDevice::KeyCombo(vk_codes));
+                }
             }
         }
 
@@ -1273,11 +1421,105 @@ impl AppState {
         None
     }
 
+    /// Supported formats:
+    /// - "GAMEPAD_045E_0B05_ABC123_B2.0" (with serial number)
+    /// - "GAMEPAD_045E_0B05_DEV12345678_B2.0" (without serial number, uses device handle)
+    /// - "HID_0001_045E_0B05_ABC123" (HID with serial)
+    /// - "HID_0001_045E_0B05_DEV12345678" (HID without serial)
+    fn parse_device_with_handle(input: &str) -> Option<InputDevice> {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let parts: Vec<&str> = input.split('_').collect();
+
+        // Minimum parts: TYPE_VID_PID_SERIAL_B (5 parts)
+        // For HID: HID_USAGE_VID_PID_SERIAL (5 parts minimum)
+        if parts.len() < 5 {
+            return None;
+        }
+
+        let is_hid = parts[0] == "HID";
+
+        // Determine device type
+        let device_type = match parts[0] {
+            "GAMEPAD" => DeviceType::Gamepad(0),
+            "JOYSTICK" => DeviceType::Joystick(0),
+            "HID" => {
+                let usage_page = u16::from_str_radix(parts[1], 16).ok()?;
+                DeviceType::HidDevice {
+                    usage_page,
+                    usage: 0,
+                }
+            }
+            _ => return None,
+        };
+
+        // Parse VID/PID
+        let (vid_idx, pid_idx, serial_idx) = if is_hid { (2, 3, 4) } else { (1, 2, 3) };
+
+        let vendor_id = u16::from_str_radix(parts.get(vid_idx)?, 16).ok()?;
+        let product_id = u16::from_str_radix(parts.get(pid_idx)?, 16).ok()?;
+
+        // Check if serial part starts with "DEV" (no serial) or is a serial number
+        let serial_part = parts.get(serial_idx)?;
+
+        let stable_device_id = if serial_part.starts_with("DEV") {
+            let handle_str = serial_part.strip_prefix("DEV")?;
+            let parsed = u32::from_str_radix(handle_str, 16).ok()?;
+            parsed as u64
+        } else {
+            // Use same hash as rawinput for consistency
+            let mut hasher = DefaultHasher::new();
+            vendor_id.hash(&mut hasher);
+            product_id.hash(&mut hasher);
+            serial_part.hash(&mut hasher);
+            hasher.finish()
+        };
+
+        // Update device_type with actual VID
+        let device_type = match device_type {
+            DeviceType::Gamepad(_) => DeviceType::Gamepad(vendor_id),
+            DeviceType::Joystick(_) => DeviceType::Joystick(vendor_id),
+            other => other,
+        };
+
+        // Parse position (button location)
+        let pos_idx = serial_idx + 1;
+        let button_id = if let Some(pos) = parts.get(pos_idx) {
+            let pos_str = pos.strip_prefix('B')?;
+
+            if pos_str.contains('.') {
+                // Bit-level: "2.0" -> byte 2, bit 0
+                let bit_parts: Vec<&str> = pos_str.split('.').collect();
+                if bit_parts.len() != 2 {
+                    return None;
+                }
+                let byte_idx = bit_parts[0].parse::<u64>().ok()?;
+                let bit_idx = bit_parts[1].parse::<u64>().ok()?;
+                (stable_device_id << 32) | (byte_idx << 16) | bit_idx
+            } else {
+                // Byte-level: "4" -> byte 4 (analog)
+                let byte_idx = pos_str.parse::<u64>().ok()?;
+                (stable_device_id << 32) | 0x80000000u64 | byte_idx
+            }
+        } else {
+            // No position (HID device without button info)
+            stable_device_id << 32
+        };
+
+        Some(InputDevice::GenericDevice {
+            device_type,
+            button_id,
+        })
+    }
+
     /// Parse input name to OutputAction
+    /// Note: Output currently supports keyboard and mouse only.
+    /// Generic device output would require virtual device drivers.
     fn input_name_to_output(name: &str) -> Option<OutputAction> {
         let name_upper = name.to_uppercase();
 
-        // Try mouse button first
+        // Try mouse button
         if let Some(button) = Self::mouse_button_name_to_type(&name_upper) {
             return Some(OutputAction::MouseButton(button));
         }
@@ -1602,7 +1844,7 @@ mod tests {
         let result = AppState::create_input_mappings(&config);
         assert!(result.is_ok());
 
-        let (input_mappings, _key_mappings) = result.unwrap();
+        let input_mappings = result.unwrap();
         assert_eq!(input_mappings.len(), 2);
 
         let device_a = InputDevice::Keyboard(0x41); // 'A' key
@@ -1734,27 +1976,6 @@ mod tests {
     }
 
     #[test]
-    fn test_worker_index_calculation() {
-        let config = AppConfig::default();
-        let state = AppState::new(config).unwrap();
-
-        let index_a = state.get_worker_index(0x41); // A key
-        let index_b = state.get_worker_index(0x42); // B key
-
-        assert!(index_a < 256);
-        assert!(index_b < 256);
-    }
-
-    #[test]
-    fn test_worker_index_out_of_range() {
-        let config = AppConfig::default();
-        let state = AppState::new(config).unwrap();
-
-        let index = state.get_worker_index(300); // Out of range VK code
-        assert!(index < 256);
-    }
-
-    #[test]
     fn test_scancode_map_coverage() {
         let map = &*SCANCODE_MAP;
 
@@ -1813,7 +2034,7 @@ mod tests {
             },
         ];
 
-        let (input_mappings, _) = AppState::create_input_mappings(&config).unwrap();
+        let input_mappings = AppState::create_input_mappings(&config).unwrap();
         assert_eq!(input_mappings.len(), 3);
 
         let device_a = InputDevice::Keyboard(0x41);
@@ -2077,7 +2298,7 @@ mod tests {
 
         // Values should be adjusted to minimum of 2
         // This test verifies auto-adjustment behavior
-        assert!(state.key_mappings.len() > 0);
+        assert!(state.input_mappings.len() > 0);
     }
 
     #[test]
@@ -2150,6 +2371,45 @@ mod tests {
         assert_eq!(AppState::key_name_to_vk("RETURN"), Some(0x0D));
         assert_eq!(AppState::key_name_to_vk("BACKSPACE"), Some(0x08));
         assert_eq!(AppState::key_name_to_vk("BACK"), Some(0x08));
+    }
+
+    #[test]
+    fn test_input_name_to_device_backward_compatibility() {
+        // Ensure keyboard input still works
+        assert!(matches!(
+            AppState::input_name_to_device("A"),
+            Some(InputDevice::Keyboard(0x41))
+        ));
+
+        // Ensure mouse input still works
+        assert!(matches!(
+            AppState::input_name_to_device("LBUTTON"),
+            Some(InputDevice::Mouse(MouseButton::Left))
+        ));
+
+        // Ensure key combos still work
+        let combo = AppState::input_name_to_device("LALT+A");
+        assert!(matches!(combo, Some(InputDevice::KeyCombo(_))));
+    }
+
+    #[test]
+    fn test_device_type_equality() {
+        let gamepad1 = DeviceType::Gamepad(0x045e);
+        let gamepad2 = DeviceType::Gamepad(0x045e);
+        let gamepad3 = DeviceType::Gamepad(0x046d);
+
+        assert_eq!(gamepad1, gamepad2);
+        assert_ne!(gamepad1, gamepad3);
+
+        let hid1 = DeviceType::HidDevice {
+            usage_page: 0x01,
+            usage: 0x05,
+        };
+        let hid2 = DeviceType::HidDevice {
+            usage_page: 0x01,
+            usage: 0x05,
+        };
+        assert_eq!(hid1, hid2);
     }
 
     #[test]
@@ -2285,6 +2545,69 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_device_with_vid_pid_serial() {
+        // Test parsing new format with VID/PID/Serial
+        let device = AppState::input_name_to_device("GAMEPAD_045E_0B05_ABC123_B2.0");
+        assert!(device.is_some());
+        match device.unwrap() {
+            InputDevice::GenericDevice {
+                device_type: DeviceType::Gamepad(_),
+                button_id,
+            } => {
+                let stable_id = (button_id >> 32) as u32;
+                let position = (button_id & 0xFFFFFFFF) as u32;
+                let byte_idx = (position >> 16) as u16;
+                let bit_idx = (position & 0xFFFF) as u16;
+
+                // Stable ID should be a hash (non-zero)
+                assert_ne!(stable_id, 0);
+                assert_eq!(byte_idx, 2);
+                assert_eq!(bit_idx, 0);
+            }
+            _ => panic!("Expected GenericDevice"),
+        }
+    }
+
+    #[test]
+    fn test_parse_device_with_vid_pid_no_serial() {
+        // Test parsing new format with VID/PID but no serial (DEV fallback)
+        let device = AppState::input_name_to_device("GAMEPAD_045E_0B05_DEV12345678_B2.0");
+        assert!(device.is_some());
+        match device.unwrap() {
+            InputDevice::GenericDevice {
+                device_type: DeviceType::Gamepad(_),
+                button_id,
+            } => {
+                let stable_id = (button_id >> 32) as u32;
+                let position = (button_id & 0xFFFFFFFF) as u32;
+                let byte_idx = (position >> 16) as u16;
+                let bit_idx = (position & 0xFFFF) as u16;
+
+                assert_eq!(stable_id, 0x12345678); // Should match DEV value
+                assert_eq!(byte_idx, 2);
+                assert_eq!(bit_idx, 0);
+            }
+            _ => panic!("Expected GenericDevice"),
+        }
+    }
+
+    #[test]
+    fn test_multiple_device_handles() {
+        // Test that different handles produce different button IDs
+        let device1 = InputDevice::GenericDevice {
+            device_type: DeviceType::Gamepad(0x045e),
+            button_id: (0x11111111u64 << 32) | (2u64 << 16) | 0u64,
+        };
+
+        let device2 = InputDevice::GenericDevice {
+            device_type: DeviceType::Gamepad(0x045e),
+            button_id: (0x22222222u64 << 32) | (2u64 << 16) | 0u64,
+        };
+
+        assert_ne!(device1, device2);
+    }
+
+    #[test]
     fn test_modifier_key_scancodes() {
         // Test that modifier keys have proper scancodes
         assert_eq!(AppState::vk_to_scancode(0xA0), 0x2A); // LSHIFT
@@ -2316,7 +2639,7 @@ mod tests {
             },
         ];
 
-        let (input_mappings, _) = AppState::create_input_mappings(&config).unwrap();
+        let input_mappings = AppState::create_input_mappings(&config).unwrap();
         assert_eq!(input_mappings.len(), 2);
 
         // Check first mapping
@@ -2396,7 +2719,7 @@ mod tests {
         let _ = state.is_process_whitelisted();
 
         // Verify cache was populated
-        let cache = state.cached_process_info.lock().unwrap();
+        let cache = state.cached_process_info.read().unwrap();
         let (cached_name, _) = &*cache;
         let initial_name = cached_name.clone();
         drop(cache);
@@ -2405,7 +2728,7 @@ mod tests {
         let _ = state.is_process_whitelisted();
 
         // Verify cache still has same value
-        let cache = state.cached_process_info.lock().unwrap();
+        let cache = state.cached_process_info.read().unwrap();
         let (cached_name, _) = &*cache;
         assert_eq!(*cached_name, initial_name);
         drop(cache);
@@ -2417,9 +2740,9 @@ mod tests {
         let _ = state.is_process_whitelisted();
 
         // Cache should be refreshed with new timestamp
-        let cache = state.cached_process_info.lock().unwrap();
+        let cache = state.cached_process_info.read().unwrap();
         let (_, timestamp) = &*cache;
-        assert!(timestamp.elapsed() < Duration::from_millis(10)); // Should be very recent
+        assert!(timestamp.elapsed() < Duration::from_millis(10));
     }
 
     #[test]

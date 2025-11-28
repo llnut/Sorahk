@@ -127,6 +127,7 @@ struct TranslationCache {
     about_inspired: String,
     turbo_on_hover: String,
     turbo_off_hover: String,
+    hid_device_no_turbo: String,
 }
 
 impl CachedTranslations {
@@ -304,6 +305,9 @@ impl CachedTranslations {
     }
     pub fn turbo_off_hover(&self) -> &str {
         &self.inner.turbo_off_hover
+    }
+    pub fn hid_device_no_turbo(&self) -> &str {
+        &self.inner.hid_device_no_turbo
     }
 
     // Additional main window status card
@@ -540,6 +544,7 @@ impl TranslationCache {
             // Turbo toggle tooltips
             turbo_on_hover: get_raw_translation(lang, RawKey::TurboOnHover).to_string(),
             turbo_off_hover: get_raw_translation(lang, RawKey::TurboOffHover).to_string(),
+            hid_device_no_turbo: get_raw_translation(lang, RawKey::HidDeviceNoTurbo).to_string(),
         }
     }
 }
@@ -622,6 +627,7 @@ enum RawKey {
     TurboOnHover,
     TurboOffHover,
     TurboHeader,
+    HidDeviceNoTurbo,
 }
 
 /// Gets raw translation string without formatting.
@@ -1050,6 +1056,12 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::SimplifiedChinese, RawKey::ToggleKeySection) => "⌨ 开关键",
         (Language::TraditionalChinese, RawKey::ToggleKeySection) => "⌨ 開關鍵",
         (Language::Japanese, RawKey::ToggleKeySection) => "⌨ 切替キー",
+
+        // HID Device No Turbo
+        (Language::English, RawKey::HidDeviceNoTurbo) => "Turbo not supported for this device",
+        (Language::SimplifiedChinese, RawKey::HidDeviceNoTurbo) => "此设备暂不支持连发",
+        (Language::TraditionalChinese, RawKey::HidDeviceNoTurbo) => "此裝置暫不支援連發",
+        (Language::Japanese, RawKey::HidDeviceNoTurbo) => "このデバイスは連打非対応",
     }
 }
 

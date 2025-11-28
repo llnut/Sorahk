@@ -1,12 +1,12 @@
 // Hide console window in release mode
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//mod about;
 mod config;
 mod gui;
 mod i18n;
 mod keyboard;
 mod mouse;
+mod rawinput;
 mod signal;
 mod state;
 mod tray;
@@ -19,6 +19,7 @@ use config::AppConfig;
 use gui::{SorahkGui, show_error};
 use keyboard::KeyboardHook;
 use mouse::MouseHook;
+use rawinput::RawInputHandler;
 use state::AppState;
 use tray::TrayIcon;
 
@@ -56,6 +57,10 @@ fn main() -> Result<()> {
         Ok(hook) => hook.run_message_loop(),
         Err(e) => Err(e),
     });
+
+    // Start Raw Input handler for HID devices (gamepads, joysticks, etc.)
+    let rawinput_state = app_state.clone();
+    let _rawinput_thread = RawInputHandler::start_thread(rawinput_state);
 
     // Give hooks time to initialize
     thread::sleep(std::time::Duration::from_millis(200));

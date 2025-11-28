@@ -203,7 +203,21 @@ impl AppConfig {
              # target_key = \"SPACE\"        # Press space when right-clicking\n\n\
              # [[mappings]]\n\
              # trigger_key = \"XBUTTON1\"    # Side button 1 trigger\n\
-             # target_key = \"F\"            # Auto-press F key\n\n",
+             # target_key = \"F\"            # Auto-press F key\n\n\
+             # ─── HID Device Examples (Gamepads, Joysticks, Custom Controllers) ───\n\
+             # Automatic support for any HID device via GUI capture!\n\
+             # Format: DEVICE_VID_PID_SERIAL_Bx.x (with serial) or DEVICE_VID_PID_DEVxxxxxxxx_Bx.x (without serial)\n\
+             # How to configure:\n\
+             # 1. Connect your HID device (gamepad, joystick, etc.)\n\
+             # 2. Open settings dialog, click Capture button for trigger key\n\
+             # 3. Press the button on your device\n\
+             # 4. The button ID will be captured automatically\n\
+             # [[mappings]]\n\
+             # trigger_key = \"GAMEPAD_045E_0B05_ABC123_B2.0\"  # Example: Xbox controller with serial\n\
+             # target_key = \"SPACE\"                           # Press space\n\n\
+             # [[mappings]]\n\
+             # trigger_key = \"JOYSTICK_1234_5678_DEV87654321_B0.0\"  # Example: Joystick without serial\n\
+             # target_key = \"LBUTTON\"                               # Left mouse click\n\n",
             self.show_tray_icon,
             self.show_notifications,
             self.always_on_top,

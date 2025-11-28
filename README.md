@@ -165,13 +165,15 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
 - **System Tray Integration** – Minimize to tray for background operation
 
 ### ⚙️ **Core Functionality**
-- **Flexible Input Mapping** – Map any trigger input (keyboard or mouse) to auto-repeat any target action
+- **Flexible Input Mapping** – Map any trigger input (keyboard, mouse, or HID device) to auto-repeat any target action
 - **Advanced Combo Key Support** – Full combo key triggers and outputs with:
   - Single or multiple modifier keys (e.g., `LALT+A`, `LCTRL+LSHIFT+F`)
   - Left/right modifier distinction (e.g., `LSHIFT+A` and `RSHIFT+A` are treated as different triggers)
   - Single modifier keys as triggers (e.g., `LSHIFT` alone)
   - Multiple simultaneous combos with shared modifiers (e.g., `LALT+1`, `LALT+2`)
 - **Mouse Button Support** – Full support for left, right, middle, and side mouse buttons (X1/X2)
+- **HID Device Support** – Raw Input API integration for gamepads, joysticks, and other controllers
+- **Per-Mapping Turbo Control** – Individual turbo mode toggle for each mapping
 - **Adjustable Timing** – Configure repeat interval and press duration per mapping
 - **Global Toggle** – Quick enable/disable with a single hotkey (default: DELETE)
 - **Process Whitelist** – Optional filtering to restrict turbo-fire to specific applications

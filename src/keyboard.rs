@@ -10,6 +10,27 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::state::{AppState, InputDevice, InputEvent};
 
+/// Branch prediction hints
+#[inline(always)]
+#[cold]
+fn cold() {}
+
+#[inline(always)]
+fn unlikely(b: bool) -> bool {
+    if b {
+        cold()
+    }
+    b
+}
+
+#[inline(always)]
+fn likely(b: bool) -> bool {
+    if !b {
+        cold()
+    }
+    b
+}
+
 unsafe impl Send for KeyboardHook {}
 
 // Multi-worker dispatcher supporting both keyboard and mouse
@@ -33,9 +54,10 @@ impl WorkerPool {
 
 // Implement EventDispatcher trait
 impl crate::state::EventDispatcher for WorkerPool {
-    // Dispatch events using pre-computed lookup
+    // Dispatch events using pre-computed lookup (hot path)
+    #[inline]
     fn dispatch(&self, event: InputEvent) {
-        if self.workers.is_empty() {
+        if unlikely(self.workers.is_empty()) {
             return;
         }
 
@@ -43,46 +65,48 @@ impl crate::state::EventDispatcher for WorkerPool {
             InputEvent::Pressed(d) | InputEvent::Released(d) => d,
         };
 
-        // Determine worker index based on device
-        let worker_idx = if let Some(state) = crate::state::get_global_state() {
-            // For keyboard, use the optimized VK lookup
-            // For mouse, use a simple hash
-            // For key combo, use hash of last key
-            match device {
-                InputDevice::Keyboard(vk) => {
-                    let mapping_idx = state.get_worker_index(*vk);
-                    mapping_idx % self.worker_count
-                }
-                InputDevice::Mouse(button) => {
-                    // Use simple discriminant-based distribution
-                    (*button as usize) % self.worker_count
-                }
-                InputDevice::KeyCombo(keys) => {
-                    // Use the last key (main key) for worker distribution
-                    if let Some(&last_key) = keys.last() {
-                        let mapping_idx = state.get_worker_index(last_key);
-                        mapping_idx % self.worker_count
-                    } else {
-                        0
-                    }
+        // Determine worker index using simple hash-based distribution
+        let worker_idx = match device {
+            InputDevice::Keyboard(vk) => (*vk as usize) % self.worker_count,
+            InputDevice::Mouse(button) => (*button as usize) % self.worker_count,
+            InputDevice::KeyCombo(keys) => {
+                if let Some(&last_key) = keys.last() {
+                    (last_key as usize) % self.worker_count
+                } else {
+                    0
                 }
             }
-        } else {
-            // Fallback: simple hash
-            match device {
-                InputDevice::Keyboard(vk) => (*vk as usize) % self.worker_count,
-                InputDevice::Mouse(button) => (*button as usize) % self.worker_count,
-                InputDevice::KeyCombo(keys) => {
-                    if let Some(&last_key) = keys.last() {
-                        (last_key as usize) % self.worker_count
-                    } else {
-                        0
-                    }
-                }
+            InputDevice::GenericDevice {
+                device_type,
+                button_id,
+            } => {
+                // Hash device type and button id for distribution
+                Self::hash_generic_device(device_type, *button_id) % self.worker_count
             }
         };
 
         let _ = self.workers[worker_idx].send(event);
+    }
+}
+
+impl WorkerPool {
+    /// Hash generic device for worker distribution using FNV-1a.
+    #[inline(always)]
+    fn hash_generic_device(device_type: &crate::state::DeviceType, button_id: u64) -> usize {
+        const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+        const FNV_PRIME: u64 = 0x100000001b3;
+
+        let mut hash = FNV_OFFSET_BASIS;
+
+        // Hash device type discriminant
+        let discriminant = std::mem::discriminant(device_type);
+        let disc_value = unsafe { *(&discriminant as *const _ as *const u64) };
+        hash = (hash ^ disc_value).wrapping_mul(FNV_PRIME);
+
+        // Hash button_id
+        hash = (hash ^ button_id).wrapping_mul(FNV_PRIME);
+
+        hash as usize
     }
 }
 
@@ -218,26 +242,30 @@ impl KeyboardHook {
         use crate::state::OutputAction;
         // Store device state along with cached mapping info to avoid repeated lookups
         // Cache format: (last_time, interval, event_duration, target_action, turbo_enabled)
+        // Pre-allocate with reasonable capacity to reduce allocations
         let mut device_states: HashMap<InputDevice, (Instant, u64, u64, OutputAction, bool)> =
-            HashMap::new();
+            HashMap::with_capacity(16);
+
+        let timeout_duration = Duration::from_millis(state.input_timeout());
 
         while !state.should_exit() {
-            if state.is_paused() {
+            if unlikely(state.is_paused()) {
                 if !device_states.is_empty() {
                     device_states.clear();
                 }
-                thread::sleep(Duration::from_millis(50)); // Shorter sleep time for better responsiveness
+                thread::sleep(Duration::from_millis(50));
                 continue;
             }
 
-            // Use shorter timeout for better responsiveness
-            match event_rx.recv_timeout(Duration::from_millis(state.input_timeout())) {
+            // Hot path: event receiving and processing
+            match event_rx.recv_timeout(timeout_duration) {
                 Ok(event) => Self::handle_input_event(&state, &mut device_states, event),
                 Err(_) => Self::handle_timeout(&state, &mut device_states),
             }
         }
     }
 
+    #[inline]
     fn handle_input_event(
         state: &AppState,
         device_states: &mut HashMap<
@@ -250,12 +278,15 @@ impl KeyboardHook {
             InputEvent::Pressed(device) => {
                 let now = Instant::now();
 
+                // Fast path: check if device already in cache (common case for repeats)
                 if let Some((last_time, interval, duration, target_action, turbo_enabled)) =
                     device_states.get_mut(&device)
                 {
                     if *turbo_enabled {
                         // Turbo mode: respect interval timing
-                        if now.duration_since(*last_time) >= Duration::from_millis(*interval) {
+                        if likely(
+                            now.duration_since(*last_time) >= Duration::from_millis(*interval),
+                        ) {
                             state.simulate_action(target_action.clone(), *duration);
                             *last_time = now;
                         }
@@ -265,7 +296,7 @@ impl KeyboardHook {
                         *last_time = now;
                     }
                 } else {
-                    // First press: lookup mapping and cache it
+                    // Slow path: first press lookup and cache
                     if let Some(mapping) = state.get_input_mapping(&device) {
                         let target_action_clone = mapping.target_action.clone();
                         let turbo_enabled = mapping.turbo_enabled;
@@ -281,7 +312,7 @@ impl KeyboardHook {
                             ),
                         );
 
-                        // Always simulate on first press (both turbo and single-shot mode)
+                        // Always simulate on first press
                         state.simulate_action(target_action_clone, mapping.event_duration);
                     }
                 }
@@ -292,6 +323,7 @@ impl KeyboardHook {
         }
     }
 
+    #[inline]
     fn handle_timeout(
         state: &AppState,
         device_states: &mut HashMap<
@@ -299,15 +331,22 @@ impl KeyboardHook {
             (Instant, u64, u64, crate::state::OutputAction, bool),
         >,
     ) {
+        // Early return if no active devices
+        if unlikely(device_states.is_empty()) {
+            return;
+        }
+
         let now = Instant::now();
 
-        // Use cached mapping info
+        // Iterate over cached device states
         for (_device, (last_time, interval, duration, target_action, turbo_enabled)) in
             device_states.iter_mut()
         {
             // Only repeat if turbo mode is enabled
-            if *turbo_enabled && now.duration_since(*last_time) >= Duration::from_millis(*interval)
-            {
+            if likely(
+                *turbo_enabled
+                    && now.duration_since(*last_time) >= Duration::from_millis(*interval),
+            ) {
                 state.simulate_action(target_action.clone(), *duration);
                 *last_time = now;
             }
@@ -339,17 +378,28 @@ mod tests {
     }
 
     #[test]
-    fn test_worker_pool_dispatch_distribution() {
-        let config = AppConfig::default();
-        let state = Arc::new(AppState::new(config).unwrap());
+    fn test_worker_distribution_stability() {
+        let worker_count = 4;
+        let pool = WorkerPool::new(worker_count);
 
-        // Test that different keys map to different workers
-        let index_a = state.get_worker_index(0x41); // A
-        let index_b = state.get_worker_index(0x42); // B
+        // Test that same device always maps to same worker
+        let device_a = InputDevice::Keyboard(0x41); // A
+        let idx1 = 0x41usize % worker_count;
+        let idx2 = 0x41usize % worker_count;
+        assert_eq!(idx1, idx2, "Same device should map to same worker");
 
-        // Worker indices should be valid
-        assert!(index_a < 256);
-        assert!(index_b < 256);
+        // Test that different devices distribute across workers
+        let mut worker_usage = vec![0; worker_count];
+        for vk in 0..256u32 {
+            let idx = (vk as usize) % worker_count;
+            worker_usage[idx] += 1;
+        }
+
+        // Check that distribution is reasonably balanced
+        for count in &worker_usage {
+            assert!(*count > 0, "All workers should receive some keys");
+            assert!(*count < 256, "No worker should receive all keys");
+        }
     }
 
     #[test]

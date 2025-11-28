@@ -6,6 +6,17 @@ use crate::gui::types::KeyCaptureMode;
 use eframe::egui;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
+const TEXT_TRUNCATE_LEN: usize = 10;
+
+/// Check if a trigger key is an HID device (gamepad/joystick)
+fn is_hid_device(trigger_key: &str) -> bool {
+    let trigger_upper = trigger_key.to_uppercase();
+    trigger_upper.contains("GAMEPAD")
+        || trigger_upper.contains("JOYSTICK")
+        || trigger_upper.contains("HID")
+        || trigger_upper.contains("_DEV") // Device ID pattern from GenericDevice
+}
+
 impl SorahkGui {
     /// Renders the settings dialog for configuration management.
     pub(super) fn render_settings_dialog(&mut self, ctx: &egui::Context) {
@@ -14,16 +25,12 @@ impl SorahkGui {
 
         let t = &self.translations;
 
-        // Clear the just_captured_input flag at the start of each frame
-        if self.just_captured_input {
-            self.just_captured_input = false;
-        }
-
         // Handle key and mouse capture if in capture mode
+        // Priority: Keyboard > Mouse > Raw Input (gamepad/joystick)
         if self.key_capture_mode != KeyCaptureMode::None {
             let mut captured_input: Option<String> = None;
 
-            // Poll Windows API to get current keyboard state
+            // Check keyboard input first
             let current_pressed = Self::poll_all_pressed_keys();
 
             // Filter out keys that were already pressed when capture started (noise baseline)
@@ -48,8 +55,10 @@ impl SorahkGui {
                 captured_input = Self::format_captured_keys(&self.capture_pressed_keys);
             }
 
-            // Check for mouse button input if no key was captured
-            if captured_input.is_none() {
+            // Check mouse button input ONLY if keyboard not captured
+            // Skip mouse capture on the first frame after entering capture mode (just_captured_input flag)
+            // to avoid capturing the click on the "Capture" button itself
+            if captured_input.is_none() && !self.just_captured_input {
                 ctx.input(|i| {
                     if i.pointer.button_clicked(egui::PointerButton::Primary) {
                         captured_input = Some("LBUTTON".to_string());
@@ -65,6 +74,22 @@ impl SorahkGui {
                 });
             }
 
+            // Check Raw Input (gamepad/joystick) ONLY if neither keyboard nor mouse captured
+            if captured_input.is_none() {
+                let should_check_raw_input = matches!(
+                    self.key_capture_mode,
+                    KeyCaptureMode::ToggleKey
+                        | KeyCaptureMode::MappingTrigger(_)
+                        | KeyCaptureMode::NewMappingTrigger
+                );
+
+                if should_check_raw_input
+                    && let Some(device) = self.app_state.try_recv_raw_input_capture()
+                {
+                    captured_input = Some(device.to_string());
+                }
+            }
+
             if let Some(input_name) = captured_input {
                 // Update the appropriate field
                 if let Some(temp_config) = &mut self.temp_config {
@@ -75,6 +100,10 @@ impl SorahkGui {
                         KeyCaptureMode::MappingTrigger(idx) => {
                             if let Some(mapping) = temp_config.mappings.get_mut(idx) {
                                 mapping.trigger_key = input_name.clone();
+                                // Force disable turbo for HID devices
+                                if is_hid_device(&input_name) {
+                                    mapping.turbo_enabled = false;
+                                }
                             }
                         }
                         KeyCaptureMode::MappingTarget(idx) => {
@@ -93,12 +122,23 @@ impl SorahkGui {
                 }
                 // Exit capture mode and clear capture state
                 self.key_capture_mode = KeyCaptureMode::None;
+                // Flag will be cleared after capture completes, used to ignore button click on next frame
                 self.just_captured_input = true;
                 self.capture_pressed_keys.clear();
+                self.app_state.set_raw_input_capture_mode(false);
+            } else {
+                // In capture mode but no input captured yet - clear the flag after first frame
+                if self.just_captured_input {
+                    self.just_captured_input = false;
+                }
             }
         } else {
             // Not in capture mode: ensure state is clean
             self.capture_pressed_keys.clear();
+            // Clear flag when not in capture mode
+            if self.just_captured_input {
+                self.just_captured_input = false;
+            }
         }
 
         let dialog_bg = if self.dark_mode {
@@ -244,6 +284,9 @@ impl SorahkGui {
                                                     self.capture_pressed_keys.clear();
                                                     self.capture_initial_pressed =
                                                         Self::poll_all_pressed_keys();
+                                                    self.app_state.set_raw_input_capture_mode(true);
+                                                    // Set flag to skip mouse capture on this frame
+                                                    self.just_captured_input = true;
                                                 }
                                             });
                                         });
@@ -458,13 +501,26 @@ impl SorahkGui {
                                                     let is_capturing_trigger = self
                                                         .key_capture_mode
                                                         == KeyCaptureMode::MappingTrigger(idx);
+                                                    let full_trigger_text = &mapping.trigger_key;
                                                     let trigger_text = if is_capturing_trigger {
                                                         "⌨..."
                                                     } else {
-                                                        &mapping.trigger_key
+                                                        full_trigger_text
                                                     };
+                                                    // Truncate text to fit in button
+                                                    let display_text = if trigger_text.len()
+                                                        > TEXT_TRUNCATE_LEN
+                                                    {
+                                                        format!(
+                                                            "{}...",
+                                                            &trigger_text[..TEXT_TRUNCATE_LEN - 3]
+                                                        )
+                                                    } else {
+                                                        trigger_text.to_string()
+                                                    };
+                                                    // Create button with truncated text
                                                     let trigger_btn = egui::Button::new(
-                                                        egui::RichText::new(trigger_text).color(
+                                                        egui::RichText::new(&display_text).color(
                                                             if is_capturing_trigger {
                                                                 egui::Color32::from_rgb(255, 200, 0)
                                                             } else if self.dark_mode {
@@ -482,9 +538,16 @@ impl SorahkGui {
                                                         egui::Color32::from_rgb(220, 220, 220)
                                                     })
                                                     .corner_radius(4.0);
-                                                    if ui
-                                                        .add_sized([80.0, 24.0], trigger_btn)
-                                                        .clicked()
+                                                    let mut response =
+                                                        ui.add_sized([80.0, 24.0], trigger_btn);
+                                                    // Show full text on hover if truncated
+                                                    if !is_capturing_trigger
+                                                        && trigger_text.len() > TEXT_TRUNCATE_LEN
+                                                    {
+                                                        response =
+                                                            response.on_hover_text(trigger_text);
+                                                    }
+                                                    if response.clicked()
                                                         && !self.just_captured_input
                                                     {
                                                         self.key_capture_mode =
@@ -492,6 +555,10 @@ impl SorahkGui {
                                                         self.capture_pressed_keys.clear();
                                                         self.capture_initial_pressed =
                                                             Self::poll_all_pressed_keys();
+                                                        self.app_state
+                                                            .set_raw_input_capture_mode(true);
+                                                        // Set flag to skip mouse capture on this frame
+                                                        self.just_captured_input = true;
                                                     }
 
                                                     ui.label(t.target_short());
@@ -583,41 +650,63 @@ impl SorahkGui {
                                                         mapping.event_duration = Some(val.max(2));
                                                     }
 
-                                                    // Turbo toggle
-                                                    let turbo_color = if mapping.turbo_enabled {
+                                                    // Turbo toggle - disabled for HID devices
+                                                    let is_hid =
+                                                        is_hid_device(&mapping.trigger_key);
+                                                    // Force disable turbo for HID devices
+                                                    if is_hid && mapping.turbo_enabled {
+                                                        mapping.turbo_enabled = false;
+                                                    }
+                                                    let turbo_enabled = mapping.turbo_enabled;
+                                                    let turbo_color = if is_hid {
+                                                        // Disabled gray for HID devices
+                                                        egui::Color32::from_rgb(128, 128, 128)
+                                                    } else if turbo_enabled {
                                                         if self.dark_mode {
-                                                            egui::Color32::from_rgb(147, 197, 253) // Soft blue
+                                                            egui::Color32::from_rgb(147, 197, 253)
                                                         } else {
-                                                            egui::Color32::from_rgb(96, 165, 250) // Blue
+                                                            egui::Color32::from_rgb(96, 165, 250)
                                                         }
                                                     } else if self.dark_mode {
-                                                        egui::Color32::from_rgb(75, 85, 99) // Gray
+                                                        egui::Color32::from_rgb(75, 85, 99)
                                                     } else {
-                                                        egui::Color32::from_rgb(156, 163, 175) // Light gray
+                                                        egui::Color32::from_rgb(156, 163, 175)
                                                     };
 
-                                                    let turbo_icon = if mapping.turbo_enabled {
-                                                        "⚡"
-                                                    } else {
-                                                        "○"
-                                                    };
+                                                    let turbo_icon =
+                                                        if turbo_enabled { "⚡" } else { "○" };
                                                     let turbo_btn = egui::Button::new(
                                                         egui::RichText::new(turbo_icon)
-                                                            .color(egui::Color32::WHITE)
+                                                            .color(if is_hid {
+                                                                egui::Color32::from_rgb(
+                                                                    180, 180, 180,
+                                                                )
+                                                            } else {
+                                                                egui::Color32::WHITE
+                                                            })
                                                             .size(16.0),
                                                     )
                                                     .fill(turbo_color)
                                                     .corner_radius(12.0)
-                                                    .sense(egui::Sense::click());
+                                                    .sense(if is_hid {
+                                                        egui::Sense::hover()
+                                                    } else {
+                                                        egui::Sense::click()
+                                                    });
+
+                                                    let hover_text = if is_hid {
+                                                        self.translations.hid_device_no_turbo()
+                                                    } else if turbo_enabled {
+                                                        self.translations.turbo_on_hover()
+                                                    } else {
+                                                        self.translations.turbo_off_hover()
+                                                    };
 
                                                     if ui
                                                         .add_sized([32.0, 24.0], turbo_btn)
-                                                        .on_hover_text(if mapping.turbo_enabled {
-                                                            self.translations.turbo_on_hover()
-                                                        } else {
-                                                            self.translations.turbo_off_hover()
-                                                        })
+                                                        .on_hover_text(hover_text)
                                                         .clicked()
+                                                        && !is_hid
                                                     {
                                                         mapping.turbo_enabled =
                                                             !mapping.turbo_enabled;
@@ -661,15 +750,29 @@ impl SorahkGui {
                                                 let is_capturing_new_trigger = self
                                                     .key_capture_mode
                                                     == KeyCaptureMode::NewMappingTrigger;
-                                                let new_trigger_text = if is_capturing_new_trigger {
-                                                    t.press_any_key()
-                                                } else if self.new_mapping_trigger.is_empty() {
-                                                    t.click_text()
+                                                let full_new_trigger_text =
+                                                    if is_capturing_new_trigger {
+                                                        t.press_any_key()
+                                                    } else if self.new_mapping_trigger.is_empty() {
+                                                        t.click_text()
+                                                    } else {
+                                                        &self.new_mapping_trigger
+                                                    };
+                                                // Truncate text to fit in button
+                                                let new_display_text = if full_new_trigger_text
+                                                    .len()
+                                                    > TEXT_TRUNCATE_LEN
+                                                {
+                                                    format!(
+                                                        "{}...",
+                                                        &full_new_trigger_text
+                                                            [..TEXT_TRUNCATE_LEN - 3]
+                                                    )
                                                 } else {
-                                                    &self.new_mapping_trigger
+                                                    full_new_trigger_text.to_string()
                                                 };
                                                 let new_trigger_btn = egui::Button::new(
-                                                    egui::RichText::new(new_trigger_text).color(
+                                                    egui::RichText::new(&new_display_text).color(
                                                         if is_capturing_new_trigger {
                                                             egui::Color32::from_rgb(255, 200, 0)
                                                         } else if self.dark_mode {
@@ -687,9 +790,18 @@ impl SorahkGui {
                                                     egui::Color32::from_rgb(220, 220, 220)
                                                 })
                                                 .corner_radius(4.0);
-                                                if ui
-                                                    .add_sized([80.0, 24.0], new_trigger_btn)
-                                                    .clicked()
+                                                let mut new_trigger_response =
+                                                    ui.add_sized([80.0, 24.0], new_trigger_btn);
+                                                // Show full text on hover if truncated
+                                                if !is_capturing_new_trigger
+                                                    && !self.new_mapping_trigger.is_empty()
+                                                    && full_new_trigger_text.len()
+                                                        > TEXT_TRUNCATE_LEN
+                                                {
+                                                    new_trigger_response = new_trigger_response
+                                                        .on_hover_text(full_new_trigger_text);
+                                                }
+                                                if new_trigger_response.clicked()
                                                     && !self.just_captured_input
                                                 {
                                                     self.key_capture_mode =
@@ -697,6 +809,9 @@ impl SorahkGui {
                                                     self.capture_pressed_keys.clear();
                                                     self.capture_initial_pressed =
                                                         Self::poll_all_pressed_keys();
+                                                    self.app_state.set_raw_input_capture_mode(true);
+                                                    // Set flag to skip mouse capture on this frame
+                                                    self.just_captured_input = true;
                                                     // Clear error when user starts to modify trigger
                                                     self.duplicate_mapping_error = None;
                                                 }
@@ -770,8 +885,18 @@ impl SorahkGui {
                                                 .font(egui::TextStyle::Button);
                                                 ui.add_sized([45.0, 24.0], duration_edit);
 
-                                                // Turbo toggle for new mapping
-                                                let new_turbo_color = if self.new_mapping_turbo {
+                                                // Turbo toggle for new mapping - disabled for HID devices
+                                                let is_new_hid =
+                                                    is_hid_device(&self.new_mapping_trigger);
+                                                // Force disable turbo for HID devices
+                                                if is_new_hid && self.new_mapping_turbo {
+                                                    self.new_mapping_turbo = false;
+                                                }
+                                                let new_turbo_enabled = self.new_mapping_turbo;
+                                                let new_turbo_color = if is_new_hid {
+                                                    // Disabled gray for HID devices
+                                                    egui::Color32::from_rgb(128, 128, 128)
+                                                } else if new_turbo_enabled {
                                                     if self.dark_mode {
                                                         egui::Color32::from_rgb(147, 197, 253)
                                                     } else {
@@ -783,28 +908,39 @@ impl SorahkGui {
                                                     egui::Color32::from_rgb(156, 163, 175)
                                                 };
 
-                                                let new_turbo_icon = if self.new_mapping_turbo {
-                                                    "⚡"
-                                                } else {
-                                                    "○"
-                                                };
+                                                let new_turbo_icon =
+                                                    if new_turbo_enabled { "⚡" } else { "○" };
+
                                                 let new_turbo_btn = egui::Button::new(
                                                     egui::RichText::new(new_turbo_icon)
-                                                        .color(egui::Color32::WHITE)
+                                                        .color(if is_new_hid {
+                                                            egui::Color32::from_rgb(180, 180, 180)
+                                                        } else {
+                                                            egui::Color32::WHITE
+                                                        })
                                                         .size(16.0),
                                                 )
                                                 .fill(new_turbo_color)
                                                 .corner_radius(12.0)
-                                                .sense(egui::Sense::click());
+                                                .sense(if is_new_hid {
+                                                    egui::Sense::hover()
+                                                } else {
+                                                    egui::Sense::click()
+                                                });
+
+                                                let new_hover_text = if is_new_hid {
+                                                    self.translations.hid_device_no_turbo()
+                                                } else if new_turbo_enabled {
+                                                    self.translations.turbo_on_hover()
+                                                } else {
+                                                    self.translations.turbo_off_hover()
+                                                };
 
                                                 if ui
                                                     .add_sized([32.0, 24.0], new_turbo_btn)
-                                                    .on_hover_text(if self.new_mapping_turbo {
-                                                        self.translations.turbo_on_hover()
-                                                    } else {
-                                                        self.translations.turbo_off_hover()
-                                                    })
+                                                    .on_hover_text(new_hover_text)
                                                     .clicked()
+                                                    && !is_new_hid
                                                 {
                                                     self.new_mapping_turbo =
                                                         !self.new_mapping_turbo;
@@ -850,6 +986,14 @@ impl SorahkGui {
                                                             .ok()
                                                             .map(|v| v.max(2));
 
+                                                        // Force disable turbo for HID devices
+                                                        let turbo_enabled =
+                                                            if is_hid_device(&trigger_upper) {
+                                                                false
+                                                            } else {
+                                                                self.new_mapping_turbo
+                                                            };
+
                                                         temp_config.mappings.push(KeyMapping {
                                                             trigger_key: trigger_upper,
                                                             target_key: self
@@ -857,7 +1001,7 @@ impl SorahkGui {
                                                                 .to_uppercase(),
                                                             interval,
                                                             event_duration: duration,
-                                                            turbo_enabled: self.new_mapping_turbo,
+                                                            turbo_enabled,
                                                         });
 
                                                         // Clear input fields
@@ -1188,6 +1332,7 @@ impl SorahkGui {
             self.key_capture_mode = KeyCaptureMode::None;
             self.duplicate_mapping_error = None;
             self.duplicate_process_error = None;
+            self.app_state.set_raw_input_capture_mode(false);
 
             // Restore previous paused state after exiting settings
             if let Some(was_paused) = self.was_paused_before_settings.take()
@@ -1204,6 +1349,7 @@ impl SorahkGui {
             self.key_capture_mode = KeyCaptureMode::None;
             self.duplicate_mapping_error = None;
             self.duplicate_process_error = None;
+            self.app_state.set_raw_input_capture_mode(false);
             // Clear input fields
             self.new_mapping_trigger.clear();
             self.new_mapping_target.clear();

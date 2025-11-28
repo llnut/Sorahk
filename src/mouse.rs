@@ -5,6 +5,20 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::state::AppState;
 
+/// Branch prediction helper for error paths.
+#[inline(always)]
+#[cold]
+fn cold() {}
+
+/// Indicates that the condition is unlikely to be true.
+#[inline(always)]
+fn unlikely(b: bool) -> bool {
+    if b {
+        cold()
+    }
+    b
+}
+
 unsafe impl Send for MouseHook {}
 
 pub struct MouseHook {
@@ -12,6 +26,7 @@ pub struct MouseHook {
 }
 
 impl MouseHook {
+    #[inline]
     pub fn new(_state: Arc<AppState>) -> anyhow::Result<Self> {
         unsafe {
             let hook = SetWindowsHookExA(WH_MOUSE_LL, Some(Self::mouse_proc), None, 0)?;
@@ -52,23 +67,22 @@ impl MouseHook {
     }
 
     unsafe extern "system" fn mouse_proc(code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-        if code < 0 {
+        if unlikely(code < 0) {
             return unsafe { CallNextHookEx(None, code, w_param, l_param) };
         }
 
         let mouse_struct = unsafe { &*(l_param.0 as *mut MSLLHOOKSTRUCT) };
 
-        // Skip simulated mouse events
-        if mouse_struct.dwExtraInfo == crate::state::SIMULATED_EVENT_MARKER {
+        // Skip simulated mouse events (unlikely to be our own events)
+        if unlikely(mouse_struct.dwExtraInfo == crate::state::SIMULATED_EVENT_MARKER) {
             return unsafe { CallNextHookEx(None, code, w_param, l_param) };
         }
 
         if let Some(state) = crate::state::get_global_state() {
-            // Extract mouse data (needed for X button identification)
             let mouse_data = mouse_struct.mouseData;
             let should_block = state.handle_mouse_event(w_param.0 as u32, mouse_data);
             if should_block {
-                return LRESULT(1); // block raw mouse event
+                return LRESULT(1);
             }
         }
 

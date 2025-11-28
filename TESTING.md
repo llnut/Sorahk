@@ -44,6 +44,7 @@ src/
 ├── i18n.rs        # Internationalization
 ├── keyboard.rs    # Worker pool and event handling
 ├── mouse.rs       # Mouse input handling
+├── rawinput.rs    # HID device input processing
 ├── tray.rs        # System tray utilities
 ├── signal.rs      # Signal handling
 └── gui/
@@ -66,10 +67,11 @@ tests/
 | Module | Primary Focus |
 |--------|---------------|
 | **config.rs** | Configuration loading, saving, validation, error handling, TOML serialization |
-| **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings, combo key parsing (including numpad and OEM keys), state management, thread safety, atomic operations, lock-free concurrent data structures |
+| **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings (keyboard, mouse, HID devices), combo key parsing (including numpad and OEM keys), device type parsing (gamepad, joystick), state management, thread safety, atomic operations, lock-free concurrent data structures |
 | **i18n.rs** | Multi-language translations, formatting functions, translation completeness |
-| **keyboard.rs** | Worker pool creation, event distribution, multi-threading, channel communication |
+| **keyboard.rs** | Worker pool creation, event distribution, multi-threading, channel communication, device hashing for load balancing |
 | **mouse.rs** | Mouse button handling, message parsing, event processing |
+| **rawinput.rs** | FNV-1a hash algorithm, device ID generation, VID/PID parsing, HID data processing |
 | **gui/utils.rs** | Key string conversion, icon loading |
 | **gui/types.rs** | KeyCaptureMode enum |
 | **tray.rs** | XML escaping for notifications, utility functions, constants |
@@ -85,9 +87,14 @@ Run `cargo test -- --list` to see all available test functions.
 - VK code to scancode mapping
 - Combo key parsing and validation
 - Mouse button name parsing and event handling
+- HID device input parsing and device type identification
+- Device ID generation and vendor/product ID handling
+- FNV-1a hash algorithm correctness
+- Generic device button ID format parsing
 - GUI utility functions and type definitions
 - Multi-language translation system
 - Worker pool and event distribution
+- Device-based load balancing and hashing
 - Thread safety and atomic operations
 - Error handling and edge cases
 

@@ -89,3 +89,19 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = si
 # trigger_key = "XBUTTON1"   # Side button 1 trigger
 # target_key = "F"           # Auto-press F key
 # turbo_enabled = true       # Enable turbo mode (true = auto-repeat, false = single press)
+
+# ─── HID Device Examples (Gamepads, Joysticks, Custom Controllers) ───
+# Automatic support for any HID device via GUI capture!
+# Format: DEVICE_VID_PID_SERIAL_Bx.x (with serial) or DEVICE_VID_PID_DEVxxxxxxxx_Bx.x (without serial)
+# How to configure:
+# 1. Connect your HID device (gamepad, joystick, etc.)
+# 2. Open settings dialog, click Capture button for trigger key
+# 3. Press the button on your device
+# 4. The button ID will be captured automatically
+# [[mappings]]
+# trigger_key = "GAMEPAD_045E_0B05_ABC123_B2.0"  # Example: Xbox controller with serial
+# target_key = "SPACE"                           # Press space
+
+# [[mappings]]
+# trigger_key = "JOYSTICK_1234_5678_DEV87654321_B0.0"  # Example: Joystick without serial
+# target_key = "LBUTTON"                               # Left mouse click
