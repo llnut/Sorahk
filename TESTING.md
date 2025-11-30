@@ -87,6 +87,7 @@ Run `cargo test -- --list` to see all available test functions.
 - VK code to scancode mapping
 - Combo key parsing and validation
 - Mouse button name parsing and event handling
+- Mouse movement target validation and direction parsing
 - HID device input parsing and device type identification
 - Device ID generation and vendor/product ID handling
 - FNV-1a hash algorithm correctness

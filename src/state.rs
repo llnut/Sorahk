@@ -211,6 +211,19 @@ pub enum InputEvent {
     Released(InputDevice),
 }
 
+/// Mouse movement direction
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MouseMoveDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+    UpLeft,
+    UpRight,
+    DownLeft,
+    DownRight,
+}
+
 /// Output action type for input mapping.
 #[derive(Debug, Clone)]
 pub enum OutputAction {
@@ -218,6 +231,8 @@ pub enum OutputAction {
     KeyboardKey(u16),
     /// Mouse button output
     MouseButton(MouseButton),
+    /// Mouse movement output (direction, speed in pixels per move)
+    MouseMove(MouseMoveDirection, i32),
     /// Key combination output (modifier scancodes + main key scancode)
     /// Format: [modifier1_scancode, modifier2_scancode, ..., main_key_scancode]
     /// Using Arc to avoid cloning on every key repeat
@@ -231,7 +246,7 @@ pub struct InputMappingInfo {
     pub target_action: OutputAction,
     /// Repeat interval in milliseconds
     pub interval: u64,
-    /// Event duration in milliseconds
+    /// Event duration in milliseconds (not used for MouseMove)
     pub event_duration: u64,
     /// Enable turbo mode (auto-repeat)
     pub turbo_enabled: bool,
@@ -946,6 +961,36 @@ impl AppState {
                     input.Anonymous.mi.dwFlags = up_flag;
                     SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
                 }
+                OutputAction::MouseMove(direction, speed) => {
+                    use windows::Win32::UI::Input::KeyboardAndMouse::*;
+
+                    let (dx, dy) = match direction {
+                        MouseMoveDirection::Up => (0, -speed),
+                        MouseMoveDirection::Down => (0, speed),
+                        MouseMoveDirection::Left => (-speed, 0),
+                        MouseMoveDirection::Right => (speed, 0),
+                        MouseMoveDirection::UpLeft => (-speed, -speed),
+                        MouseMoveDirection::UpRight => (speed, -speed),
+                        MouseMoveDirection::DownLeft => (-speed, speed),
+                        MouseMoveDirection::DownRight => (speed, speed),
+                    };
+
+                    let input = INPUT {
+                        r#type: INPUT_MOUSE,
+                        Anonymous: INPUT_0 {
+                            mi: MOUSEINPUT {
+                                dx,
+                                dy,
+                                mouseData: 0,
+                                dwFlags: MOUSEEVENTF_MOVE,
+                                time: 0,
+                                dwExtraInfo: SIMULATED_EVENT_MARKER,
+                            },
+                        },
+                    };
+
+                    SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                }
                 OutputAction::KeyCombo(scancodes) => {
                     // Press all keys in sequence (modifiers first, then main key)
                     for &scancode in scancodes.iter() {
@@ -970,6 +1015,156 @@ impl AppState {
                     std::thread::sleep(std::time::Duration::from_millis(duration));
 
                     // Release all keys in reverse order (main key first, then modifiers)
+                    for &scancode in scancodes.iter().rev() {
+                        let input = INPUT {
+                            r#type: INPUT_KEYBOARD,
+                            Anonymous: INPUT_0 {
+                                ki: KEYBDINPUT {
+                                    wVk: VIRTUAL_KEY(0),
+                                    wScan: scancode,
+                                    dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                                    time: 0,
+                                    dwExtraInfo: SIMULATED_EVENT_MARKER,
+                                },
+                            },
+                        };
+                        SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Simulates only the press event for an action
+    pub fn simulate_press(&self, action: &OutputAction) {
+        unsafe {
+            match action {
+                OutputAction::KeyboardKey(scancode) => {
+                    let input = INPUT {
+                        r#type: INPUT_KEYBOARD,
+                        Anonymous: INPUT_0 {
+                            ki: KEYBDINPUT {
+                                wVk: VIRTUAL_KEY(0),
+                                wScan: *scancode,
+                                dwFlags: KEYEVENTF_SCANCODE,
+                                time: 0,
+                                dwExtraInfo: SIMULATED_EVENT_MARKER,
+                            },
+                        },
+                    };
+                    SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                }
+                OutputAction::MouseButton(button) => {
+                    use windows::Win32::UI::Input::KeyboardAndMouse::*;
+
+                    let down_flag = match button {
+                        MouseButton::Left => MOUSEEVENTF_LEFTDOWN,
+                        MouseButton::Right => MOUSEEVENTF_RIGHTDOWN,
+                        MouseButton::Middle => MOUSEEVENTF_MIDDLEDOWN,
+                        MouseButton::X1 | MouseButton::X2 => MOUSEEVENTF_XDOWN,
+                    };
+
+                    let mouse_data = match button {
+                        MouseButton::X1 => 1,
+                        MouseButton::X2 => 2,
+                        _ => 0,
+                    };
+
+                    let input = INPUT {
+                        r#type: INPUT_MOUSE,
+                        Anonymous: INPUT_0 {
+                            mi: MOUSEINPUT {
+                                dx: 0,
+                                dy: 0,
+                                mouseData: mouse_data,
+                                dwFlags: down_flag,
+                                time: 0,
+                                dwExtraInfo: SIMULATED_EVENT_MARKER,
+                            },
+                        },
+                    };
+                    SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                }
+                OutputAction::MouseMove(_, _) => {
+                    // Mouse movement doesn't have press/release states
+                }
+                OutputAction::KeyCombo(scancodes) => {
+                    for &scancode in scancodes.iter() {
+                        let input = INPUT {
+                            r#type: INPUT_KEYBOARD,
+                            Anonymous: INPUT_0 {
+                                ki: KEYBDINPUT {
+                                    wVk: VIRTUAL_KEY(0),
+                                    wScan: scancode,
+                                    dwFlags: KEYEVENTF_SCANCODE,
+                                    time: 0,
+                                    dwExtraInfo: SIMULATED_EVENT_MARKER,
+                                },
+                            },
+                        };
+                        SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Simulates only the release event for an action
+    pub fn simulate_release(&self, action: &OutputAction) {
+        unsafe {
+            match action {
+                OutputAction::KeyboardKey(scancode) => {
+                    let input = INPUT {
+                        r#type: INPUT_KEYBOARD,
+                        Anonymous: INPUT_0 {
+                            ki: KEYBDINPUT {
+                                wVk: VIRTUAL_KEY(0),
+                                wScan: *scancode,
+                                dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                                time: 0,
+                                dwExtraInfo: SIMULATED_EVENT_MARKER,
+                            },
+                        },
+                    };
+                    SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                }
+                OutputAction::MouseButton(button) => {
+                    use windows::Win32::UI::Input::KeyboardAndMouse::*;
+
+                    let up_flag = match button {
+                        MouseButton::Left => MOUSEEVENTF_LEFTUP,
+                        MouseButton::Right => MOUSEEVENTF_RIGHTUP,
+                        MouseButton::Middle => MOUSEEVENTF_MIDDLEUP,
+                        MouseButton::X1 | MouseButton::X2 => MOUSEEVENTF_XUP,
+                    };
+
+                    let mouse_data = match button {
+                        MouseButton::X1 => 1,
+                        MouseButton::X2 => 2,
+                        _ => 0,
+                    };
+
+                    let input = INPUT {
+                        r#type: INPUT_MOUSE,
+                        Anonymous: INPUT_0 {
+                            mi: MOUSEINPUT {
+                                dx: 0,
+                                dy: 0,
+                                mouseData: mouse_data,
+                                dwFlags: up_flag,
+                                time: 0,
+                                dwExtraInfo: SIMULATED_EVENT_MARKER,
+                            },
+                        },
+                    };
+                    SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                }
+                OutputAction::MouseMove(_, _) => {
+                    // Mouse movement doesn't have press/release states
+                }
+                OutputAction::KeyCombo(scancodes) => {
                     for &scancode in scancodes.iter().rev() {
                         let input = INPUT {
                             r#type: INPUT_KEYBOARD,
@@ -1308,12 +1503,21 @@ impl AppState {
                 .event_duration
                 .unwrap_or(config.event_duration)
                 .max(2);
+            let move_speed = mapping.move_speed.max(1);
+
+            // Update MouseMove action with configured speed
+            let target_action = match target_action {
+                OutputAction::MouseMove(direction, _) => {
+                    OutputAction::MouseMove(direction, move_speed)
+                }
+                other => other,
+            };
 
             // Create input mapping
             input_mappings.insert(
                 trigger_device.clone(),
                 InputMappingInfo {
-                    target_action: target_action.clone(),
+                    target_action,
                     interval,
                     event_duration,
                     turbo_enabled: mapping.turbo_enabled,
@@ -1593,6 +1797,11 @@ impl AppState {
     fn input_name_to_output(name: &str) -> Option<OutputAction> {
         let name_upper = name.to_uppercase();
 
+        // Try mouse movement
+        if let Some(direction) = Self::mouse_move_name_to_direction(&name_upper) {
+            return Some(OutputAction::MouseMove(direction, 10)); // Default speed, will be overridden by move_speed
+        }
+
         // Try mouse button
         if let Some(button) = Self::mouse_button_name_to_type(&name_upper) {
             return Some(OutputAction::MouseButton(button));
@@ -1638,6 +1847,27 @@ impl AppState {
         }
 
         None
+    }
+
+    /// Parse mouse movement name to MouseMoveDirection
+    fn mouse_move_name_to_direction(name: &str) -> Option<MouseMoveDirection> {
+        match name {
+            "MOUSE_UP" | "MOUSEUP" | "MOVE_UP" | "M_UP" => Some(MouseMoveDirection::Up),
+            "MOUSE_DOWN" | "MOUSEDOWN" | "MOVE_DOWN" | "M_DOWN" => Some(MouseMoveDirection::Down),
+            "MOUSE_LEFT" | "MOUSELEFT" | "MOVE_LEFT" | "M_LEFT" => Some(MouseMoveDirection::Left),
+            "MOUSE_RIGHT" | "MOUSERIGHT" | "MOVE_RIGHT" | "M_RIGHT" => {
+                Some(MouseMoveDirection::Right)
+            }
+            "MOUSE_UP_LEFT" | "MOUSEUPLEFT" | "M_UP_LEFT" => Some(MouseMoveDirection::UpLeft),
+            "MOUSE_UP_RIGHT" | "MOUSEUPRIGHT" | "M_UP_RIGHT" => Some(MouseMoveDirection::UpRight),
+            "MOUSE_DOWN_LEFT" | "MOUSEDOWNLEFT" | "M_DOWN_LEFT" => {
+                Some(MouseMoveDirection::DownLeft)
+            }
+            "MOUSE_DOWN_RIGHT" | "MOUSEDOWNRIGHT" | "M_DOWN_RIGHT" => {
+                Some(MouseMoveDirection::DownRight)
+            }
+            _ => None,
+        }
     }
 
     /// Parse mouse button name to MouseButton type
@@ -1905,6 +2135,7 @@ mod tests {
                 interval: Some(10),
                 event_duration: Some(5),
                 turbo_enabled: true,
+                move_speed: 10,
             },
             KeyMapping {
                 trigger_key: "F1".to_string(),
@@ -1912,6 +2143,7 @@ mod tests {
                 interval: None,
                 event_duration: None,
                 turbo_enabled: true,
+                move_speed: 10,
             },
         ];
 
@@ -1941,6 +2173,7 @@ mod tests {
             interval: None,
             event_duration: None,
             turbo_enabled: true,
+            move_speed: 10,
         }];
 
         let result = AppState::create_input_mappings(&config);
@@ -1956,6 +2189,7 @@ mod tests {
             interval: None,
             event_duration: None,
             turbo_enabled: true,
+            move_speed: 10,
         }];
 
         let result = AppState::create_input_mappings(&config);
@@ -1972,6 +2206,7 @@ mod tests {
             interval: Some(3), // Below minimum
             event_duration: None,
             turbo_enabled: true,
+            move_speed: 10,
         }];
 
         let result = AppState::create_input_mappings(&config);
@@ -1996,6 +2231,7 @@ mod tests {
             interval: None,
             event_duration: Some(3), // Below minimum
             turbo_enabled: true,
+            move_speed: 10,
         }];
 
         let result = AppState::create_input_mappings(&config);
@@ -2040,6 +2276,7 @@ mod tests {
                 interval: Some(10),
                 event_duration: Some(5),
                 turbo_enabled: true,
+                move_speed: 10,
             },
             KeyMapping {
                 trigger_key: "B".to_string(),
@@ -2047,6 +2284,7 @@ mod tests {
                 interval: Some(15),
                 event_duration: Some(8),
                 turbo_enabled: true,
+                move_speed: 10,
             },
             KeyMapping {
                 trigger_key: "C".to_string(),
@@ -2054,6 +2292,7 @@ mod tests {
                 interval: Some(20),
                 event_duration: Some(10),
                 turbo_enabled: true,
+                move_speed: 10,
             },
         ];
 
@@ -2104,6 +2343,7 @@ mod tests {
             interval: Some(5), // Minimum valid value
             event_duration: Some(2),
             turbo_enabled: true,
+            move_speed: 10,
         }];
 
         let state = AppState::new(config);
@@ -2121,6 +2361,7 @@ mod tests {
             interval: Some(0),
             event_duration: Some(0),
             turbo_enabled: true,
+            move_speed: 10,
         }];
 
         let state = AppState::new(config).unwrap();
@@ -2458,6 +2699,7 @@ mod tests {
                 interval: Some(10),
                 event_duration: Some(5),
                 turbo_enabled: true,
+                move_speed: 10,
             },
             KeyMapping {
                 trigger_key: "CTRL+SHIFT+F".to_string(),
@@ -2465,6 +2707,7 @@ mod tests {
                 interval: None,
                 event_duration: None,
                 turbo_enabled: true,
+                move_speed: 10,
             },
         ];
 

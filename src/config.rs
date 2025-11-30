@@ -73,6 +73,13 @@ pub struct KeyMapping {
     /// Enable turbo mode (auto-repeat)
     #[serde(default = "default_turbo_enabled")]
     pub turbo_enabled: bool,
+    /// Mouse move speed in pixels per move (only for mouse movement)
+    #[serde(default = "default_move_speed")]
+    pub move_speed: i32,
+}
+
+fn default_move_speed() -> i32 {
+    10
 }
 
 fn default_turbo_enabled() -> bool {
@@ -108,6 +115,7 @@ impl Default for AppConfig {
                 interval: None,
                 event_duration: None,
                 turbo_enabled: true,
+                move_speed: 10,
             }],
             input_timeout: default_input_timeout(),
             interval: default_interval(),
@@ -190,9 +198,15 @@ impl AppConfig {
              # Only processes in this list will have turbo-fire enabled\n\
              process_whitelist = {:?}      # Example: [\"notepad.exe\", \"game.exe\"]\n\n\
              # ─── Input Mappings ───\n\
-             # Input mapping definitions (supports both keyboard and mouse)\n\
+             # Input mapping definitions (supports keyboard, mouse, and HID devices)\n\
              # Supported mouse buttons: LBUTTON, RBUTTON, MBUTTON, XBUTTON1, XBUTTON2\n\
              # Key combinations: Use '+' to separate keys (e.g., \"LALT+A\", \"RCTRL+RSHIFT+S\")\n\n\
+             # Turbo Mode Behavior:\n\
+             # - turbo_enabled = true: Auto-repeat with configurable interval (for rapid fire/continuous action)\n\
+             # - turbo_enabled = false: Press-to-press, release-to-release behavior\n\
+             #   * Keyboard targets: Supports Windows key repeat (holding trigger sends repeated key presses)\n\
+             #   * Mouse button targets: Pure follow mode (press follows trigger press, release follows trigger release)\n\
+             #   * Note: event_duration is ignored in non-turbo mode\n\n\
              # ─── Key Combo Examples ───\n\
              # Combo key mappings: Use '+' to separate keys\n\
              # - Supports modifier keys: LSHIFT/RSHIFT, LCTRL/RCTRL, LALT/RALT, LWIN/RWIN\n\
@@ -217,6 +231,19 @@ impl AppConfig {
              # [[mappings]]\n\
              # trigger_key = \"XBUTTON1\"    # Side button 1 trigger\n\
              # target_key = \"F\"            # Auto-press F key\n\n\
+             # ─── Mouse Movement Examples ───\n\
+             # Move mouse cursor smoothly with configurable speed\n\
+             # [[mappings]]\n\
+             # trigger_key = \"W\"           # Hold W to move mouse up\n\
+             # target_key = \"MOUSE_UP\"     # Move cursor upward\n\
+             # move_speed = 10             # Pixels per move (1-100)\n\
+             # interval = 5                # Movement interval in ms\n\
+             # turbo_enabled = true        # Must be true for continuous movement\n\n\
+             # [[mappings]]\n\
+             # trigger_key = \"A\"           # Hold A to move left\n\
+             # target_key = \"MOUSE_LEFT\"\n\
+             # move_speed = 10\n\n\
+             # Diagonal: MOUSE_UP_LEFT, MOUSE_UP_RIGHT, MOUSE_DOWN_LEFT, MOUSE_DOWN_RIGHT\n\n\
              # ─── HID Device Examples (Gamepads, Joysticks, Custom Controllers) ───\n\
              # Automatic support for any HID device via GUI capture!\n\
              # Format: DEVICE_VID_PID_SERIAL_Bx.x (with serial) or DEVICE_VID_PID_DEVxxxxxxxx_Bx.x (without serial)\n\
@@ -294,7 +321,11 @@ impl AppConfig {
                     ));
                 }
                 result.push_str(&format!(
-                    "turbo_enabled = {}        # Enable turbo mode (true = auto-repeat, false = single press)\n",
+                    "move_speed = {}              # Mouse move speed in pixels (1-100)\n",
+                    mapping.move_speed
+                ));
+                result.push_str(&format!(
+                    "turbo_enabled = {}        # Enable turbo mode (true = auto-repeat, false = follow trigger press/release)\n",
                     mapping.turbo_enabled
                 ));
                 result.push('\n');
@@ -512,6 +543,7 @@ mod tests {
             interval: Some(10),
             event_duration: Some(8),
             turbo_enabled: true,
+            move_speed: 10,
         };
 
         assert_eq!(mapping.trigger_key, "A");
@@ -528,6 +560,7 @@ mod tests {
             interval: None,
             event_duration: None,
             turbo_enabled: true,
+            move_speed: 10,
         };
 
         assert_eq!(mapping.trigger_key, "C");
@@ -601,6 +634,7 @@ mod tests {
                 interval: Some(10),
                 event_duration: Some(5),
                 turbo_enabled: true,
+                move_speed: 10,
             },
             KeyMapping {
                 trigger_key: "B".to_string(),
@@ -608,6 +642,7 @@ mod tests {
                 interval: None,
                 event_duration: None,
                 turbo_enabled: true,
+                move_speed: 10,
             },
             KeyMapping {
                 trigger_key: "F1".to_string(),
@@ -615,6 +650,7 @@ mod tests {
                 interval: Some(20),
                 event_duration: Some(10),
                 turbo_enabled: true,
+                move_speed: 10,
             },
         ];
 

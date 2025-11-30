@@ -14,6 +14,11 @@ Feature enhancements:
   - Baseline data persistence across application restarts
   - Press/release event detection based on HID data state changes
   - Always-on-top modal activation window
+- Add mouse movement functionality
+  - Eight-directional movement support (up, down, left, right, and diagonals)
+  - Configurable movement speed (1-100 pixels per interval)
+  - Target keys: MOUSE_UP, MOUSE_DOWN, MOUSE_LEFT, MOUSE_RIGHT, MOUSE_UP_LEFT, MOUSE_UP_RIGHT, MOUSE_DOWN_LEFT, MOUSE_DOWN_RIGHT
+  - Works with turbo mode for continuous movement
 - Add performance optimizations for input processing pipeline
   - Thread-local buffer pool for Raw Input data
   - Three-tier device information cache (thread-local, global, Windows API)
@@ -24,14 +29,16 @@ Feature enhancements:
 
 UI Improvements:
 
+- Add dedicated mouse direction selection dialog
+- Add mouse direction selector button in settings dialog
 - Add HID device activation dialog with theme support
 - Add HID device button capture in settings dialog
-- Add truncated display for long device names with hover tooltips
-- Add configuration file examples for HID device mapping
+- Add configuration file examples for HID device and mouse movement mapping
 
 Configuration:
 
 - Add `hid_baselines` field for persisting device activation data
+- Add `move_speed` field to KeyMapping structure for mouse movement control
 
 0.3.0
 =====

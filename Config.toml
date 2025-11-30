@@ -24,9 +24,16 @@ switch_key = "DELETE"        # Reserved key to toggle SoraHK behavior
 process_whitelist = []       # Example: ["notepad.exe", "game.exe"]
 
 # ─── Input Mappings ───
-# Input mapping definitions (supports both keyboard and mouse)
+# Input mapping definitions (supports keyboard, mouse, and HID devices)
 # Supported mouse buttons: LBUTTON, RBUTTON, MBUTTON, XBUTTON1, XBUTTON2
 # Key combinations: Use '+' to separate keys (e.g., "LALT+A", "RCTRL+RSHIFT+S")
+
+# Turbo Mode Behavior:
+# - turbo_enabled = true: Auto-repeat with configurable interval (for rapid fire/continuous action)
+# - turbo_enabled = false: Press-to-press, release-to-release behavior
+#   * Keyboard targets: Supports Windows key repeat (holding trigger sends repeated key presses)
+#   * Mouse button targets: Pure follow mode (press follows trigger press, release follows trigger release)
+#   * Note: event_duration is ignored in non-turbo mode
 
 # ─── Single Key Examples ───
 [[mappings]]
@@ -34,27 +41,27 @@ trigger_key = "A"            # Physical key you press
 target_key = "A"             # Key that gets repeatedly sent
 interval = 5                 # Override global interval
 event_duration = 5           # Override global press duration
-turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = follow trigger press/release)
 
 [[mappings]]
 trigger_key = "B"            # Physical key you press
 target_key = "F"             # Key that gets repeatedly sent
-turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = follow trigger press/release)
 
 [[mappings]]
 trigger_key = "F1"           # Physical key you press
 target_key = "1"             # Key that gets repeatedly sent
-turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = follow trigger press/release)
 
 [[mappings]]
 trigger_key = "F2"           # Physical key you press
 target_key = "2"             # Key that gets repeatedly sent
-turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = follow trigger press/release)
 
 [[mappings]]
 trigger_key = "LSHIFT"       # Physical key you press
 target_key = "3"             # Key that gets repeatedly sent
-turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = follow trigger press/release)
 
 # ─── Key Combo Examples ───
 # Combo key mappings: Use '+' to separate keys (e.g., "LALT+A", "CTRL+SHIFT+S")
@@ -89,6 +96,39 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = si
 # trigger_key = "XBUTTON1"   # Side button 1 trigger
 # target_key = "F"           # Auto-press F key
 # turbo_enabled = true       # Enable turbo mode (true = auto-repeat, false = single press)
+
+# ─── Mouse Movement Examples ───
+# Move mouse cursor smoothly with configurable speed
+# [[mappings]]
+# trigger_key = "W"          # Hold W to move mouse up
+# target_key = "MOUSE_UP"    # Move cursor upward
+# move_speed = 10            # Pixels per move (1-100)
+# interval = 5               # Movement interval in ms (faster = smoother)
+# turbo_enabled = true       # Must be true for continuous movement
+
+# [[mappings]]
+# trigger_key = "S"          # Hold S to move mouse down
+# target_key = "MOUSE_DOWN"  # Move cursor downward
+# move_speed = 15            # Faster movement
+# interval = 5
+# turbo_enabled = true
+
+# [[mappings]]
+# trigger_key = "A"          # Hold A to move mouse left
+# target_key = "MOUSE_LEFT"
+# move_speed = 10
+# interval = 5
+# turbo_enabled = true
+
+# [[mappings]]
+# trigger_key = "D"          # Hold D to move mouse right
+# target_key = "MOUSE_RIGHT"
+# move_speed = 10
+# interval = 5
+# turbo_enabled = true
+
+# Diagonal movement examples:
+# MOUSE_UP_LEFT, MOUSE_UP_RIGHT, MOUSE_DOWN_LEFT, MOUSE_DOWN_RIGHT
 
 # ─── HID Device Examples (Gamepads, Joysticks, Custom Controllers) ───
 # Automatic support for any HID device via GUI capture!

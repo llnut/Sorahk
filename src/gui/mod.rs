@@ -8,6 +8,7 @@ mod error_dialog;
 mod fonts;
 mod hid_activation_dialog;
 mod main_window;
+mod mouse_direction_dialog;
 mod settings_dialog;
 mod types;
 mod utils;
@@ -41,6 +42,10 @@ pub struct SorahkGui {
     hid_activation_dialog: Option<hid_activation_dialog::HidActivationDialog>,
     /// HID activation dialog creation time (for 10ms debounce)
     hid_activation_creation_time: Option<std::time::Instant>,
+    /// Mouse direction selection dialog
+    mouse_direction_dialog: Option<mouse_direction_dialog::MouseDirectionDialog>,
+    /// Index of mapping being edited for mouse direction (None for new mapping)
+    mouse_direction_mapping_idx: Option<usize>,
     /// Whether to minimize to tray on close
     minimize_on_close: bool,
     /// Current theme mode
@@ -57,6 +62,8 @@ pub struct SorahkGui {
     new_mapping_duration: String,
     /// New mapping turbo enabled state
     new_mapping_turbo: bool,
+    /// New mapping move speed input
+    new_mapping_move_speed: String,
     /// New process name input
     new_process_name: String,
     /// Current key capture state
@@ -98,6 +105,8 @@ impl SorahkGui {
             show_about_dialog: false,
             hid_activation_dialog: None,
             hid_activation_creation_time: None,
+            mouse_direction_dialog: None,
+            mouse_direction_mapping_idx: None,
             minimize_on_close: true,
             dialog_highlight_until: None,
             dark_mode,
@@ -107,6 +116,7 @@ impl SorahkGui {
             new_mapping_interval: String::new(),
             new_mapping_duration: String::new(),
             new_mapping_turbo: true,
+            new_mapping_move_speed: "10".to_string(),
             new_process_name: String::new(),
             key_capture_mode: KeyCaptureMode::None,
             just_captured_input: false,

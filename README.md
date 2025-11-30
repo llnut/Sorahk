@@ -173,6 +173,11 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
   - Multiple simultaneous combos with shared modifiers (e.g., `LALT+1`, `LALT+2`)
   - HID combo keys with multiple buttons pressed simultaneously
 - **Mouse Button Support** – Full support for left, right, middle, and side mouse buttons (X1/X2)
+- **Mouse Movement Control** – Programmable cursor movement with directional mapping
+  - Eight-directional movement (up, down, left, right, and diagonals)
+  - Adjustable movement speed (1-100 pixels per interval)
+  - Visual direction selector dialog in settings
+  - Compatible with turbo mode for smooth continuous movement
 - **HID Device Support** – Raw Input API integration for gamepads, joysticks, and other controllers
   - Interactive activation dialog for first-time device setup
   - Single button and combo key mapping
@@ -204,10 +209,11 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
 
 ## 🎯 Use Cases
 
-- 🎮 **Gaming** – Rapid fire in action games, auto-farming in MMORPGs
-- 📝 **Productivity** – Automate repetitive text input tasks
+- 🎮 **Gaming** – Rapid fire in action games, keyboard-based cursor control
+- 📝 **Productivity** – Automate repetitive text input tasks, cursor positioning
 - 🎨 **Creative Work** – Streamline workflow in design applications
 - 🧪 **Testing** – Generate repetitive input for software testing
+- ♿ **Accessibility** – Alternative cursor control methods for users with mobility needs
 
 ---
 
@@ -282,6 +288,39 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = si
 trigger_key = "XBUTTON1"     # Side button 1 trigger
 target_key = "SPACE"         # Press space when side button is held
 turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
+
+# Mouse movement examples
+[[mappings]]
+trigger_key = "W"            # Hold W to move cursor up
+target_key = "MOUSE_UP"      # Move cursor upward
+move_speed = 10              # Movement speed in pixels (1-100)
+interval = 5                 # Movement interval in milliseconds
+turbo_enabled = true         # Must be true for continuous movement
+
+[[mappings]]
+trigger_key = "S"            # Hold S to move cursor down
+target_key = "MOUSE_DOWN"    # Move cursor downward
+move_speed = 10              # Movement speed in pixels
+turbo_enabled = true
+
+[[mappings]]
+trigger_key = "A"            # Hold A to move cursor left
+target_key = "MOUSE_LEFT"    # Move cursor leftward
+move_speed = 10
+turbo_enabled = true
+
+[[mappings]]
+trigger_key = "D"            # Hold D to move cursor right
+target_key = "MOUSE_RIGHT"   # Move cursor rightward
+move_speed = 10
+turbo_enabled = true
+
+# Diagonal movement examples
+[[mappings]]
+trigger_key = "Q"            # Hold Q for diagonal up-left
+target_key = "MOUSE_UP_LEFT" # Move cursor diagonally up-left
+move_speed = 10
+turbo_enabled = true
 
 # HID device examples (gamepad/joystick buttons)
 # Button IDs are captured automatically through GUI
@@ -378,6 +417,13 @@ Input names support both keyboard keys and mouse buttons:
 - **Side Button 1**: `XBUTTON1`, `X1`, `MB4`
 - **Side Button 2**: `XBUTTON2`, `X2`, `MB5`
 
+**Mouse Movement:**
+- **Cardinal Directions**: `MOUSE_UP`, `MOUSE_DOWN`, `MOUSE_LEFT`, `MOUSE_RIGHT`
+- **Diagonal Directions**: `MOUSE_UP_LEFT`, `MOUSE_UP_RIGHT`, `MOUSE_DOWN_LEFT`, `MOUSE_DOWN_RIGHT`
+- **Configuration**: Requires `move_speed` parameter (1-100 pixels per movement)
+- **Usage**: Must enable `turbo_enabled = true` for continuous movement
+- **GUI Support**: Visual direction selector dialog in settings
+
 **HID Devices (Gamepads/Joysticks):**
 - Button IDs are captured through GUI automatically
 - First-time device activation required to establish baseline
@@ -387,6 +433,7 @@ Input names support both keyboard keys and mouse buttons:
 **GUI Capture Notes:**
 - **Print Screen (SNAPSHOT)**: Requires two key presses to capture reliably due to Windows API timing constraints
 - **Windows Keys (LWIN/RWIN)**: Can be captured, but will trigger the Start menu; return to the application to verify capture success
+- **Mouse Movement**: Click the mouse direction button (⌖) to open direction selector dialog; choose from 8 directions
 - **HID Devices**: First-time use triggers activation dialog; press and release a single button to establish baseline
 - **HID Combo Keys**: Press all desired buttons, then release all to capture the combination
 - **Other Keys**: All other keys (including Pause, Scroll Lock) can be captured with a single press
@@ -475,7 +522,7 @@ run_tests.bat
 
 - **Configuration Management**: Loading, saving, and validation
 - **Key Mapping**: Virtual key code conversion and scancode mapping
-- **Mouse Support**: Button name parsing and event handling
+- **Mouse Support**: Button name parsing, event handling, and movement direction validation
 - **Internationalization**: Multi-language support and translations
 - **Worker Pool**: Event distribution and multi-threading
 - **Integration**: Cross-module interactions and data persistence

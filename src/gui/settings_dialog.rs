@@ -6,7 +6,7 @@ use crate::gui::types::KeyCaptureMode;
 use eframe::egui;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
-const TEXT_TRUNCATE_LEN: usize = 10;
+const TEXT_TRUNCATE_LEN: usize = 9;
 
 /// Safely truncate a string by character count (not byte count) to avoid UTF-8 boundary issues.
 fn truncate_text_safe(text: &str, max_chars: usize) -> String {
@@ -17,6 +17,42 @@ fn truncate_text_safe(text: &str, max_chars: usize) -> String {
     } else {
         text.to_string()
     }
+}
+
+/// Check if target key is a mouse movement action.
+fn is_mouse_move_target(target: &str) -> bool {
+    let upper = target.to_uppercase();
+    matches!(
+        upper.as_str(),
+        "MOUSE_UP"
+            | "MOUSE_DOWN"
+            | "MOUSE_LEFT"
+            | "MOUSE_RIGHT"
+            | "MOUSE_UP_LEFT"
+            | "MOUSE_UP_RIGHT"
+            | "MOUSE_DOWN_LEFT"
+            | "MOUSE_DOWN_RIGHT"
+            | "MOUSEUP"
+            | "MOUSEDOWN"
+            | "MOUSELEFT"
+            | "MOUSERIGHT"
+            | "MOVE_UP"
+            | "MOVE_DOWN"
+            | "MOVE_LEFT"
+            | "MOVE_RIGHT"
+            | "M_UP"
+            | "M_DOWN"
+            | "M_LEFT"
+            | "M_RIGHT"
+            | "MOUSEUPLEFT"
+            | "MOUSEUPRIGHT"
+            | "MOUSEDOWNLEFT"
+            | "MOUSEDOWNRIGHT"
+            | "M_UP_LEFT"
+            | "M_UP_RIGHT"
+            | "M_DOWN_LEFT"
+            | "M_DOWN_RIGHT"
+    )
 }
 
 impl SorahkGui {
@@ -561,8 +597,16 @@ impl SorahkGui {
                                                     } else {
                                                         &mapping.target_key
                                                     };
+                                                    let display_target_text = if is_capturing_target {
+                                                        target_text.to_string()
+                                                    } else {
+                                                        truncate_text_safe(
+                                                            target_text,
+                                                            TEXT_TRUNCATE_LEN,
+                                                        )
+                                                    };
                                                     let target_btn = egui::Button::new(
-                                                        egui::RichText::new(target_text).color(
+                                                        egui::RichText::new(&display_target_text).color(
                                                             if is_capturing_target {
                                                                 egui::Color32::from_rgb(255, 200, 0)
                                                             } else if self.dark_mode {
@@ -580,9 +624,15 @@ impl SorahkGui {
                                                         egui::Color32::from_rgb(220, 220, 220)
                                                     })
                                                     .corner_radius(4.0);
-                                                    if ui
-                                                        .add_sized([80.0, 24.0], target_btn)
-                                                        .clicked()
+                                                    let mut target_response = ui
+                                                        .add_sized([80.0, 24.0], target_btn);
+                                                    if !is_capturing_target
+                                                        && target_text.len() > TEXT_TRUNCATE_LEN
+                                                    {
+                                                        target_response =
+                                                            target_response.on_hover_text(target_text);
+                                                    }
+                                                    if target_response.clicked()
                                                         && !self.just_captured_input
                                                     {
                                                         self.key_capture_mode =
@@ -592,54 +642,109 @@ impl SorahkGui {
                                                             Self::poll_all_pressed_keys();
                                                     }
 
-                                                    ui.label(t.interval_short());
-                                                    let mut interval_str = mapping
-                                                        .interval
-                                                        .unwrap_or(temp_config.interval)
-                                                        .to_string();
+                                                    // Check if this mapping is for mouse movement
+                                                    let is_mouse_move_mapping = is_mouse_move_target(&mapping.target_key);
 
-                                                    let interval_edit = egui::TextEdit::singleline(
-                                                        &mut interval_str,
-                                                    )
-                                                    .background_color(if self.dark_mode {
-                                                        egui::Color32::from_rgb(50, 50, 50)
+                                                    if is_mouse_move_mapping {
+                                                        // Show move speed for mouse movement
+                                                        ui.label(t.mouse_move_speed_label());
+                                                        let mut speed_str = mapping
+                                                            .move_speed
+                                                            .to_string();
+
+                                                        let speed_edit = egui::TextEdit::singleline(
+                                                            &mut speed_str,
+                                                        )
+                                                        .background_color(if self.dark_mode {
+                                                            egui::Color32::from_rgb(50, 50, 50)
+                                                        } else {
+                                                            egui::Color32::from_rgb(220, 220, 220)
+                                                        })
+                                                        .desired_width(45.0)
+                                                        .font(egui::TextStyle::Button);
+
+                                                        if ui
+                                                            .add_sized([75.0, 24.0], speed_edit)
+                                                            .changed()
+                                                            && let Ok(val) = speed_str.parse::<i32>()
+                                                        {
+                                                            mapping.move_speed = val.clamp(1, 100);
+                                                        }
                                                     } else {
-                                                        egui::Color32::from_rgb(220, 220, 220)
-                                                    })
-                                                    .desired_width(45.0) // Shorter width
-                                                    .font(egui::TextStyle::Button); // Match button style
+                                                        // Show interval and duration for regular keys
+                                                        ui.label(t.interval_short());
+                                                        let mut interval_str = mapping
+                                                            .interval
+                                                            .unwrap_or(temp_config.interval)
+                                                            .to_string();
 
-                                                    if ui
-                                                        .add_sized([45.0, 24.0], interval_edit)
-                                                        .changed()
-                                                        && let Ok(val) = interval_str.parse::<u64>()
-                                                    {
-                                                        mapping.interval = Some(val.max(5));
+                                                        let interval_edit = egui::TextEdit::singleline(
+                                                            &mut interval_str,
+                                                        )
+                                                        .background_color(if self.dark_mode {
+                                                            egui::Color32::from_rgb(50, 50, 50)
+                                                        } else {
+                                                            egui::Color32::from_rgb(220, 220, 220)
+                                                        })
+                                                        .desired_width(45.0)
+                                                        .font(egui::TextStyle::Button);
+
+                                                        if ui
+                                                            .add_sized([45.0, 24.0], interval_edit)
+                                                            .changed()
+                                                            && let Ok(val) = interval_str.parse::<u64>()
+                                                        {
+                                                            mapping.interval = Some(val.max(5));
+                                                        }
+
+                                                        ui.label(t.duration_short());
+                                                        let mut duration_str = mapping
+                                                            .event_duration
+                                                            .unwrap_or(temp_config.event_duration)
+                                                            .to_string();
+
+                                                        let duration_edit = egui::TextEdit::singleline(
+                                                            &mut duration_str,
+                                                        )
+                                                        .background_color(if self.dark_mode {
+                                                            egui::Color32::from_rgb(50, 50, 50)
+                                                        } else {
+                                                            egui::Color32::from_rgb(220, 220, 220)
+                                                        })
+                                                        .desired_width(45.0)
+                                                        .font(egui::TextStyle::Button);
+
+                                                        if ui
+                                                            .add_sized([45.0, 24.0], duration_edit)
+                                                            .changed()
+                                                            && let Ok(val) = duration_str.parse::<u64>()
+                                                        {
+                                                            mapping.event_duration = Some(val.max(2));
+                                                        }
                                                     }
 
-                                                    ui.label(t.duration_short());
-                                                    let mut duration_str = mapping
-                                                        .event_duration
-                                                        .unwrap_or(temp_config.event_duration)
-                                                        .to_string();
-
-                                                    let duration_edit = egui::TextEdit::singleline(
-                                                        &mut duration_str,
+                                                    // Mouse direction selector button
+                                                    let mouse_btn = egui::Button::new(
+                                                        egui::RichText::new("🖱")
+                                                            .color(egui::Color32::WHITE)
+                                                            .size(16.0),
                                                     )
-                                                    .background_color(if self.dark_mode {
-                                                        egui::Color32::from_rgb(50, 50, 50)
+                                                    .fill(if self.dark_mode {
+                                                        egui::Color32::from_rgb(177, 156, 217) // Soft lavender
                                                     } else {
-                                                        egui::Color32::from_rgb(220, 220, 220)
+                                                        egui::Color32::from_rgb(216, 191, 216) // Pale thistle
                                                     })
-                                                    .desired_width(45.0) // Shorter width
-                                                    .font(egui::TextStyle::Button); // Match button style
+                                                    .corner_radius(12.0);
 
                                                     if ui
-                                                        .add_sized([45.0, 24.0], duration_edit)
-                                                        .changed()
-                                                        && let Ok(val) = duration_str.parse::<u64>()
+                                                        .add_sized([32.0, 24.0], mouse_btn)
+                                                        .on_hover_text(t.set_mouse_direction_hover())
+                                                        .clicked()
                                                     {
-                                                        mapping.event_duration = Some(val.max(2));
+                                                        self.mouse_direction_dialog = Some(
+                                                            crate::gui::mouse_direction_dialog::MouseDirectionDialog::new(),
+                                                        );
+                                                        self.mouse_direction_mapping_idx = Some(idx);
                                                     }
 
                                                     // Turbo toggle
@@ -788,8 +893,18 @@ impl SorahkGui {
                                                 } else {
                                                     &self.new_mapping_target
                                                 };
+                                                let display_new_target_text = if is_capturing_new_target
+                                                    || self.new_mapping_target.is_empty()
+                                                {
+                                                    new_target_text.to_string()
+                                                } else {
+                                                    truncate_text_safe(
+                                                        new_target_text,
+                                                        TEXT_TRUNCATE_LEN,
+                                                    )
+                                                };
                                                 let new_target_btn = egui::Button::new(
-                                                    egui::RichText::new(new_target_text).color(
+                                                    egui::RichText::new(&display_new_target_text).color(
                                                         if is_capturing_new_target {
                                                             egui::Color32::from_rgb(255, 200, 0)
                                                         } else if self.dark_mode {
@@ -807,9 +922,16 @@ impl SorahkGui {
                                                     egui::Color32::from_rgb(220, 220, 220)
                                                 })
                                                 .corner_radius(4.0);
-                                                if ui
-                                                    .add_sized([80.0, 24.0], new_target_btn)
-                                                    .clicked()
+                                                let mut new_target_response = ui
+                                                    .add_sized([80.0, 24.0], new_target_btn);
+                                                if !is_capturing_new_target
+                                                    && !self.new_mapping_target.is_empty()
+                                                    && new_target_text.len() > TEXT_TRUNCATE_LEN
+                                                {
+                                                    new_target_response = new_target_response
+                                                        .on_hover_text(new_target_text);
+                                                }
+                                                if new_target_response.clicked()
                                                     && !self.just_captured_input
                                                 {
                                                     self.key_capture_mode =
@@ -819,33 +941,78 @@ impl SorahkGui {
                                                         Self::poll_all_pressed_keys();
                                                 }
 
-                                                ui.label(t.interval_short());
-                                                let interval_edit = egui::TextEdit::singleline(
-                                                    &mut self.new_mapping_interval,
-                                                )
-                                                .background_color(if self.dark_mode {
-                                                    egui::Color32::from_rgb(50, 50, 50)
-                                                } else {
-                                                    egui::Color32::from_rgb(220, 220, 220)
-                                                })
-                                                .hint_text("5")
-                                                .desired_width(45.0)
-                                                .font(egui::TextStyle::Button);
-                                                ui.add_sized([45.0, 24.0], interval_edit);
+                                                // Check if target is mouse movement
+                                                let is_mouse_move = is_mouse_move_target(&self.new_mapping_target);
 
-                                                ui.label(t.duration_short());
-                                                let duration_edit = egui::TextEdit::singleline(
-                                                    &mut self.new_mapping_duration,
-                                                )
-                                                .background_color(if self.dark_mode {
-                                                    egui::Color32::from_rgb(50, 50, 50)
+                                                if is_mouse_move {
+                                                    // Show move speed for mouse movement
+                                                    ui.label(t.mouse_move_speed_label());
+                                                    let speed_edit = egui::TextEdit::singleline(
+                                                        &mut self.new_mapping_move_speed,
+                                                    )
+                                                    .background_color(if self.dark_mode {
+                                                        egui::Color32::from_rgb(50, 50, 50)
+                                                    } else {
+                                                        egui::Color32::from_rgb(220, 220, 220)
+                                                    })
+                                                    .hint_text("10")
+                                                    .desired_width(45.0)
+                                                    .font(egui::TextStyle::Button);
+                                                    ui.add_sized([45.0, 24.0], speed_edit);
                                                 } else {
-                                                    egui::Color32::from_rgb(220, 220, 220)
+                                                    // Show interval and duration for regular keys
+                                                    ui.label(t.interval_short());
+                                                    let interval_edit = egui::TextEdit::singleline(
+                                                        &mut self.new_mapping_interval,
+                                                    )
+                                                    .background_color(if self.dark_mode {
+                                                        egui::Color32::from_rgb(50, 50, 50)
+                                                    } else {
+                                                        egui::Color32::from_rgb(220, 220, 220)
+                                                    })
+                                                    .hint_text("5")
+                                                    .desired_width(45.0)
+                                                    .font(egui::TextStyle::Button);
+                                                    ui.add_sized([45.0, 24.0], interval_edit);
+
+                                                    ui.label(t.duration_short());
+                                                    let duration_edit = egui::TextEdit::singleline(
+                                                        &mut self.new_mapping_duration,
+                                                    )
+                                                    .background_color(if self.dark_mode {
+                                                        egui::Color32::from_rgb(50, 50, 50)
+                                                    } else {
+                                                        egui::Color32::from_rgb(220, 220, 220)
+                                                    })
+                                                    .hint_text("5")
+                                                    .desired_width(45.0)
+                                                    .font(egui::TextStyle::Button);
+                                                    ui.add_sized([45.0, 24.0], duration_edit);
+                                                }
+
+                                                // Mouse direction selector button for new mapping
+                                                let new_mouse_btn = egui::Button::new(
+                                                    egui::RichText::new("🖱")
+                                                        .color(egui::Color32::WHITE)
+                                                        .size(16.0),
+                                                )
+                                                .fill(if self.dark_mode {
+                                                    egui::Color32::from_rgb(177, 156, 217) // Soft lavender
+                                                } else {
+                                                    egui::Color32::from_rgb(216, 191, 216) // Pale thistle
                                                 })
-                                                .hint_text("5")
-                                                .desired_width(45.0)
-                                                .font(egui::TextStyle::Button);
-                                                ui.add_sized([45.0, 24.0], duration_edit);
+                                                .corner_radius(12.0);
+
+                                                if ui
+                                                    .add_sized([32.0, 24.0], new_mouse_btn)
+                                                    .on_hover_text(t.set_mouse_direction_hover())
+                                                    .clicked()
+                                                {
+                                                    self.mouse_direction_dialog = Some(
+                                                        crate::gui::mouse_direction_dialog::MouseDirectionDialog::new(),
+                                                    );
+                                                    self.mouse_direction_mapping_idx = None;
+                                                }
 
                                                 // Turbo toggle for new mapping
                                                 let new_turbo_enabled = self.new_mapping_turbo;
@@ -927,6 +1094,11 @@ impl SorahkGui {
                                                             .parse::<u64>()
                                                             .ok()
                                                             .map(|v| v.max(2));
+                                                        let move_speed = self
+                                                            .new_mapping_move_speed
+                                                            .parse::<i32>()
+                                                            .unwrap_or(10)
+                                                            .clamp(1, 100);
 
                                                         let turbo_enabled = self.new_mapping_turbo;
 
@@ -938,6 +1110,7 @@ impl SorahkGui {
                                                             interval,
                                                             event_duration: duration,
                                                             turbo_enabled,
+                                                            move_speed,
                                                         });
 
                                                         // Clear input fields
@@ -945,6 +1118,7 @@ impl SorahkGui {
                                                         self.new_mapping_target.clear();
                                                         self.new_mapping_interval.clear();
                                                         self.new_mapping_duration.clear();
+                                                        self.new_mapping_move_speed = "10".to_string();
                                                         self.new_mapping_turbo = true; // Reset to default
                                                     }
                                                 }

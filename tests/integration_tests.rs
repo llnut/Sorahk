@@ -57,6 +57,7 @@ fn test_config_with_complex_mappings() {
             interval: Some(10),
             event_duration: Some(5),
             turbo_enabled: true,
+            move_speed: 10,
         },
         KeyMapping {
             trigger_key: "B".to_string(),
@@ -64,6 +65,7 @@ fn test_config_with_complex_mappings() {
             interval: None,
             event_duration: None,
             turbo_enabled: true,
+            move_speed: 10,
         },
         KeyMapping {
             trigger_key: "F1".to_string(),
@@ -71,6 +73,7 @@ fn test_config_with_complex_mappings() {
             interval: Some(20),
             event_duration: Some(10),
             turbo_enabled: true,
+            move_speed: 10,
         },
         KeyMapping {
             trigger_key: "LSHIFT".to_string(),
@@ -78,6 +81,7 @@ fn test_config_with_complex_mappings() {
             interval: Some(15),
             event_duration: Some(8),
             turbo_enabled: true,
+            move_speed: 10,
         },
     ];
 
@@ -267,6 +271,7 @@ fn test_config_maximum_mappings() {
             interval: Some((i as u64 + 1) * 5),
             event_duration: Some(5),
             turbo_enabled: true,
+            move_speed: 10,
         })
         .collect();
 
@@ -302,6 +307,7 @@ fn test_config_all_settings_combined() {
             interval: Some(10),
             event_duration: Some(5),
             turbo_enabled: true,
+            move_speed: 10,
         },
         KeyMapping {
             trigger_key: "C".to_string(),
@@ -309,6 +315,7 @@ fn test_config_all_settings_combined() {
             interval: None,
             event_duration: None,
             turbo_enabled: true,
+            move_speed: 10,
         },
     ];
 

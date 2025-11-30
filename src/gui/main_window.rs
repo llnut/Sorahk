@@ -151,6 +151,30 @@ impl eframe::App for SorahkGui {
             );
         }
 
+        // Handle mouse direction dialog
+        if let Some(dialog) = &mut self.mouse_direction_dialog {
+            let should_close = dialog.render(ctx, self.dark_mode, &self.translations);
+
+            if should_close {
+                if let Some(selected) = dialog.get_selected_direction() {
+                    // Apply the selected direction
+                    if let Some(idx) = self.mouse_direction_mapping_idx {
+                        // Editing existing mapping
+                        if let Some(temp_config) = &mut self.temp_config
+                            && let Some(mapping) = temp_config.mappings.get_mut(idx)
+                        {
+                            mapping.target_key = selected;
+                        }
+                    } else {
+                        // New mapping
+                        self.new_mapping_target = selected;
+                    }
+                }
+                self.mouse_direction_dialog = None;
+                self.mouse_direction_mapping_idx = None;
+            }
+        }
+
         // Handle keyboard input
         self.handle_keyboard_input(ctx);
 

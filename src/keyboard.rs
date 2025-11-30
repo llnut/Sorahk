@@ -291,9 +291,16 @@ impl KeyboardHook {
                             *last_time = now;
                         }
                     } else {
-                        // Single-shot mode: simulate on every Windows repeat event
-                        state.simulate_action(target_action.clone(), *duration);
-                        *last_time = now;
+                        // Non-turbo mode: handle Windows repeat events for keyboard only
+                        // Mouse buttons don't generate repeat events, so skip
+                        if matches!(
+                            target_action,
+                            crate::state::OutputAction::KeyboardKey(_)
+                                | crate::state::OutputAction::KeyCombo(_)
+                        ) {
+                            state.simulate_action(target_action.clone(), *duration);
+                            *last_time = now;
+                        }
                     }
                 } else {
                     // Slow path: first press lookup and cache
@@ -312,12 +319,22 @@ impl KeyboardHook {
                             ),
                         );
 
-                        // Always simulate on first press
-                        state.simulate_action(target_action_clone, mapping.event_duration);
+                        // Simulate based on turbo mode
+                        if turbo_enabled {
+                            state.simulate_action(target_action_clone, mapping.event_duration);
+                        } else {
+                            state.simulate_press(&target_action_clone);
+                        }
                     }
                 }
             }
             InputEvent::Released(device) => {
+                // For non-turbo mode, simulate release event
+                if let Some((_, _, _, target_action, turbo_enabled)) = device_states.get(&device) {
+                    if !turbo_enabled {
+                        state.simulate_release(target_action);
+                    }
+                }
                 device_states.remove(&device);
             }
         }
@@ -412,6 +429,7 @@ mod tests {
             interval: Some(10),
             event_duration: Some(5),
             turbo_enabled: true,
+            move_speed: 10,
         }];
 
         let state = Arc::new(AppState::new(config).unwrap());
