@@ -60,7 +60,8 @@ fn main() -> Result<()> {
 
     // Start Raw Input handler for HID devices (gamepads, joysticks, etc.)
     let rawinput_state = app_state.clone();
-    let _rawinput_thread = RawInputHandler::start_thread(rawinput_state);
+    let _rawinput_thread =
+        RawInputHandler::start_thread(rawinput_state, config.hid_baselines.clone());
 
     // Give hooks time to initialize
     thread::sleep(std::time::Duration::from_millis(200));

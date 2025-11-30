@@ -6,6 +6,7 @@
 mod about_dialog;
 mod error_dialog;
 mod fonts;
+mod hid_activation_dialog;
 mod main_window;
 mod settings_dialog;
 mod types;
@@ -36,6 +37,10 @@ pub struct SorahkGui {
     show_settings_dialog: bool,
     /// About dialog visibility
     show_about_dialog: bool,
+    /// HID device activation dialog
+    hid_activation_dialog: Option<hid_activation_dialog::HidActivationDialog>,
+    /// HID activation dialog creation time (for 10ms debounce)
+    hid_activation_creation_time: Option<std::time::Instant>,
     /// Whether to minimize to tray on close
     minimize_on_close: bool,
     /// Current theme mode
@@ -91,6 +96,8 @@ impl SorahkGui {
             show_close_dialog: false,
             show_settings_dialog: false,
             show_about_dialog: false,
+            hid_activation_dialog: None,
+            hid_activation_creation_time: None,
             minimize_on_close: true,
             dialog_highlight_until: None,
             dark_mode,

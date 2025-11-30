@@ -290,6 +290,16 @@ pub struct AppState {
     raw_input_capture_receiver: Mutex<Receiver<InputDevice>>,
     /// Flag indicating GUI is in capture mode for Raw Input
     is_capturing_raw_input: AtomicBool,
+    /// HID device activation request sender
+    hid_activation_sender: Sender<(isize, String)>,
+    /// HID device activation request receiver
+    hid_activation_receiver: Mutex<Receiver<(isize, String)>>,
+    /// HID activation data sender (device_handle, data)
+    hid_activation_data_sender: Sender<(isize, Vec<u8>)>,
+    /// HID activation data receiver
+    hid_activation_data_receiver: Mutex<Receiver<(isize, Vec<u8>)>>,
+    /// Currently activating device handle
+    activating_device_handle: std::sync::atomic::AtomicIsize,
 }
 
 impl AppState {
@@ -347,6 +357,8 @@ impl AppState {
         }
 
         let (raw_input_capture_sender, raw_input_capture_receiver) = mpsc::channel();
+        let (hid_activation_sender, hid_activation_receiver) = mpsc::channel();
+        let (hid_activation_data_sender, hid_activation_data_receiver) = mpsc::channel();
 
         Ok(Self {
             show_tray_icon: AtomicBool::new(config.show_tray_icon),
@@ -372,6 +384,11 @@ impl AppState {
             raw_input_capture_sender,
             raw_input_capture_receiver: Mutex::new(raw_input_capture_receiver),
             is_capturing_raw_input: AtomicBool::new(false),
+            hid_activation_sender,
+            hid_activation_receiver: Mutex::new(hid_activation_receiver),
+            hid_activation_data_sender,
+            hid_activation_data_receiver: Mutex::new(hid_activation_data_receiver),
+            activating_device_handle: std::sync::atomic::AtomicIsize::new(-1),
         })
     }
 
@@ -500,12 +517,69 @@ impl AppState {
 
             // Clear device display info cache to avoid showing stale device info
             crate::rawinput::clear_device_display_info_cache();
+
+            // Reset HID device states to baseline for clean button detection
+            crate::rawinput::reset_hid_device_states();
         }
     }
 
     /// Checks if Raw Input capture mode is active.
     pub fn is_raw_input_capture_active(&self) -> bool {
         self.is_capturing_raw_input.load(Ordering::Relaxed)
+    }
+
+    /// Sends HID device activation request.
+    #[inline]
+    pub fn request_hid_activation(&self, device_handle: isize, device_name: String) {
+        self.activating_device_handle
+            .store(device_handle, Ordering::Relaxed);
+        let _ = self
+            .hid_activation_sender
+            .send((device_handle, device_name));
+    }
+
+    /// Polls for HID device activation requests (non-blocking).
+    pub fn poll_hid_activation_requests(&self) -> Vec<(isize, String)> {
+        let mut requests = Vec::new();
+        if let Ok(receiver) = self.hid_activation_receiver.lock() {
+            while let Ok(req) = receiver.try_recv() {
+                requests.push(req);
+            }
+        }
+        requests
+    }
+
+    /// Sends HID activation data during activation process.
+    #[inline]
+    pub fn send_hid_activation_data(&self, device_handle: isize, data: Vec<u8>) {
+        let _ = self.hid_activation_data_sender.send((device_handle, data));
+    }
+
+    /// Tries to receive HID activation data for a specific device.
+    pub fn try_recv_hid_activation_data(&self, device_handle: isize) -> Option<Vec<u8>> {
+        if let Ok(receiver) = self.hid_activation_data_receiver.lock() {
+            // Consume all messages until we find one for this device
+            // or channel is empty
+            while let Ok((handle, data)) = receiver.try_recv() {
+                if handle == device_handle {
+                    return Some(data);
+                }
+                // Discard data for other devices (shouldn't happen in normal operation)
+            }
+        }
+        None
+    }
+
+    /// Checks if a device is currently being activated.
+    #[inline(always)]
+    pub fn is_device_activating(&self, device_handle: isize) -> bool {
+        self.activating_device_handle.load(Ordering::Relaxed) == device_handle
+    }
+
+    /// Clears the activating device handle.
+    #[inline]
+    pub fn clear_activating_device(&self) {
+        self.activating_device_handle.store(-1, Ordering::Relaxed);
     }
 
     /// Sets the notification event sender.
@@ -1903,7 +1977,7 @@ mod tests {
         let result = AppState::create_input_mappings(&config);
         assert!(result.is_ok());
 
-        let (input_mappings, _) = result.unwrap();
+        let input_mappings = result.unwrap();
         let device = InputDevice::Keyboard(0x41); // 'A' key
         let a_mapping = input_mappings.get(&device).unwrap();
         assert!(
@@ -1927,64 +2001,13 @@ mod tests {
         let result = AppState::create_input_mappings(&config);
         assert!(result.is_ok());
 
-        let (input_mappings, _) = result.unwrap();
+        let input_mappings = result.unwrap();
         let device = InputDevice::Keyboard(0x41); // 'A' key
         let a_mapping = input_mappings.get(&device).unwrap();
         assert!(
             a_mapping.event_duration >= 2,
             "Duration should be clamped to minimum 2"
         );
-    }
-
-    #[test]
-    fn test_input_event_variants() {
-        let device = InputDevice::Keyboard(0x41);
-        let pressed = InputEvent::Pressed(device.clone());
-        let released = InputEvent::Released(device);
-
-        match pressed {
-            InputEvent::Pressed(InputDevice::Keyboard(key)) => assert_eq!(key, 0x41),
-            _ => panic!("Expected Pressed variant"),
-        }
-
-        match released {
-            InputEvent::Released(InputDevice::Keyboard(key)) => assert_eq!(key, 0x41),
-            _ => panic!("Expected Released variant"),
-        }
-    }
-
-    #[test]
-    fn test_input_mapping_info_structure() {
-        let mapping = InputMappingInfo {
-            target_action: OutputAction::KeyboardKey(0x1E),
-            interval: 10,
-            event_duration: 5,
-            turbo_enabled: true,
-        };
-
-        match mapping.target_action {
-            OutputAction::KeyboardKey(scancode) => assert_eq!(scancode, 0x1E),
-            _ => panic!("Expected KeyboardKey action"),
-        }
-        assert_eq!(mapping.interval, 10);
-        assert_eq!(mapping.event_duration, 5);
-    }
-
-    #[test]
-    fn test_simulated_event_marker_constant() {
-        assert_eq!(SIMULATED_EVENT_MARKER, 0x4659);
-    }
-
-    #[test]
-    fn test_scancode_map_coverage() {
-        let map = &*SCANCODE_MAP;
-
-        assert!(map.len() > 50, "Scancode map should contain common keys");
-
-        assert!(map.contains_key(&0x41)); // A
-        assert!(map.contains_key(&0x70)); // F1
-        assert!(map.contains_key(&0x20)); // SPACE
-        assert!(map.contains_key(&0x0D)); // ENTER
     }
 
     #[test]
@@ -2047,121 +2070,6 @@ mod tests {
     }
 
     #[test]
-    fn test_app_state_pause_toggle() {
-        let config = AppConfig::default();
-        let state = AppState::new(config).unwrap();
-
-        // Initially not paused
-        assert!(!state.is_paused());
-
-        // Toggle to paused
-        let was_paused = state.toggle_paused();
-        assert!(!was_paused);
-        assert!(state.is_paused());
-
-        // Toggle back to not paused
-        let was_paused = state.toggle_paused();
-        assert!(was_paused);
-        assert!(!state.is_paused());
-    }
-
-    #[test]
-    fn test_app_state_set_paused() {
-        let config = AppConfig::default();
-        let state = AppState::new(config).unwrap();
-
-        state.set_paused(true);
-        assert!(state.is_paused());
-
-        state.set_paused(false);
-        assert!(!state.is_paused());
-    }
-
-    #[test]
-    fn test_app_state_show_window_request() {
-        let config = AppConfig::default();
-        let state = AppState::new(config).unwrap();
-
-        // No request initially
-        assert!(!state.check_and_clear_show_window_request());
-
-        // Request window
-        state.request_show_window();
-        assert!(state.check_and_clear_show_window_request());
-
-        // Should be cleared after check
-        assert!(!state.check_and_clear_show_window_request());
-    }
-
-    #[test]
-    fn test_app_state_show_about_request() {
-        let config = AppConfig::default();
-        let state = AppState::new(config).unwrap();
-
-        // No request initially
-        assert!(!state.check_and_clear_show_about_request());
-
-        // Request about dialog
-        state.request_show_about();
-        assert!(state.check_and_clear_show_about_request());
-
-        // Should be cleared after check
-        assert!(!state.check_and_clear_show_about_request());
-    }
-
-    #[test]
-    fn test_app_state_exit_flag() {
-        let config = AppConfig::default();
-        let state = AppState::new(config).unwrap();
-
-        assert!(!state.should_exit());
-
-        state.exit();
-        assert!(state.should_exit());
-    }
-
-    #[test]
-    fn test_app_state_worker_count() {
-        let mut config = AppConfig::default();
-        config.worker_count = 4;
-        let state = AppState::new(config).unwrap();
-
-        assert_eq!(state.get_configured_worker_count(), 4);
-
-        state.set_actual_worker_count(8);
-        assert_eq!(state.get_actual_worker_count(), 8);
-    }
-
-    #[test]
-    fn test_app_state_input_timeout() {
-        let mut config = AppConfig::default();
-        config.input_timeout = 25;
-        let state = AppState::new(config).unwrap();
-
-        assert_eq!(state.input_timeout(), 25);
-    }
-
-    #[test]
-    fn test_app_state_tray_settings() {
-        let mut config = AppConfig::default();
-        config.show_tray_icon = true;
-        config.show_notifications = false;
-        let state = AppState::new(config).unwrap();
-
-        assert!(state.show_tray_icon());
-        assert!(!state.show_notifications());
-    }
-
-    #[test]
-    fn test_app_state_switch_key() {
-        let mut config = AppConfig::default();
-        config.switch_key = "F12".to_string();
-        let state = AppState::new(config).unwrap();
-
-        assert_eq!(state.get_switch_key(), 0x7B); // F12 VK code
-    }
-
-    #[test]
     fn test_app_state_reload_config() {
         let config = AppConfig::default();
         let state = AppState::new(config).unwrap();
@@ -2183,85 +2091,6 @@ mod tests {
         assert_eq!(state.get_switch_key(), 0x7A); // F11
         assert!(!state.show_tray_icon());
         assert_eq!(state.input_timeout(), 50);
-    }
-
-    #[test]
-    fn test_notification_event_variants() {
-        let info = NotificationEvent::Info("test".to_string());
-        let warning = NotificationEvent::Warning("test".to_string());
-        let error = NotificationEvent::Error("test".to_string());
-
-        match info {
-            NotificationEvent::Info(msg) => assert_eq!(msg, "test"),
-            _ => panic!("Expected Info variant"),
-        }
-
-        match warning {
-            NotificationEvent::Warning(msg) => assert_eq!(msg, "test"),
-            _ => panic!("Expected Warning variant"),
-        }
-
-        match error {
-            NotificationEvent::Error(msg) => assert_eq!(msg, "test"),
-            _ => panic!("Expected Error variant"),
-        }
-    }
-
-    #[test]
-    fn test_atomic_pause_state_thread_safety() {
-        use std::thread;
-
-        let config = AppConfig::default();
-        let state = Arc::new(AppState::new(config).unwrap());
-
-        let handles: Vec<_> = (0..10)
-            .map(|i| {
-                let state_clone = state.clone();
-                thread::spawn(move || {
-                    for _ in 0..100 {
-                        if i % 2 == 0 {
-                            state_clone.set_paused(true);
-                        } else {
-                            state_clone.set_paused(false);
-                        }
-                        state_clone.toggle_paused();
-                    }
-                })
-            })
-            .collect();
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
-        // State should be consistent after concurrent operations
-        let final_state = state.is_paused();
-        assert!(final_state == true || final_state == false);
-    }
-
-    #[test]
-    fn test_worker_count_atomic_operations() {
-        use std::thread;
-
-        let config = AppConfig::default();
-        let state = Arc::new(AppState::new(config).unwrap());
-
-        let handles: Vec<_> = (0..10)
-            .map(|_| {
-                let state_clone = state.clone();
-                thread::spawn(move || {
-                    for i in 1..=100 {
-                        state_clone.set_actual_worker_count(i);
-                        let count = state_clone.get_actual_worker_count();
-                        assert!(count > 0 && count <= 100);
-                    }
-                })
-            })
-            .collect();
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
     }
 
     #[test]

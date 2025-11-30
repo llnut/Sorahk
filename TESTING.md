@@ -69,9 +69,9 @@ tests/
 | **config.rs** | Configuration loading, saving, validation, error handling, TOML serialization |
 | **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings (keyboard, mouse, HID devices), combo key parsing (including numpad and OEM keys), device type parsing (gamepad, joystick), state management, thread safety, atomic operations, lock-free concurrent data structures |
 | **i18n.rs** | Multi-language translations, formatting functions, translation completeness |
-| **keyboard.rs** | Worker pool creation, event distribution, multi-threading, channel communication, device hashing for load balancing |
+| **keyboard.rs** | Worker pool creation, worker distribution stability, mapping cache retrieval |
 | **mouse.rs** | Mouse button handling, message parsing, event processing |
-| **rawinput.rs** | FNV-1a hash algorithm, device ID generation, VID/PID parsing, HID data processing |
+| **rawinput.rs** | FNV-1a hash algorithm, device ID generation, VID/PID parsing, button counting, HID baseline management, combo key capture logic |
 | **gui/utils.rs** | Key string conversion, icon loading |
 | **gui/types.rs** | KeyCaptureMode enum |
 | **tray.rs** | XML escaping for notifications, utility functions, constants |
@@ -91,6 +91,9 @@ Run `cargo test -- --list` to see all available test functions.
 - Device ID generation and vendor/product ID handling
 - FNV-1a hash algorithm correctness
 - Generic device button ID format parsing
+- HID device baseline establishment and persistence
+- HID combo key capture logic (frame selection, button counting)
+- Device ID parsing and validation (VID/PID/Serial format)
 - GUI utility functions and type definitions
 - Multi-language translation system
 - Worker pool and event distribution
@@ -109,6 +112,8 @@ Due to Windows API requirements, the following are not covered by automated test
 - Physical key press and mouse click simulation
 - GUI rendering and user interactions
 - Combo key event handling with real keyboard input
+- HID device activation dialog interactions
+- Raw Input API device enumeration and data reception
 
 **Note:** Internal logic is tested without requiring Windows API interaction. Tests verify key conversion, combo parsing, and data structure operations, but avoid triggering actual input to prevent system interference.
 

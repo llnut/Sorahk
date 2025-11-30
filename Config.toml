@@ -95,13 +95,31 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = si
 # Format: DEVICE_VID_PID_SERIAL_Bx.x (with serial) or DEVICE_VID_PID_DEVxxxxxxxx_Bx.x (without serial)
 # How to configure:
 # 1. Connect your HID device (gamepad, joystick, etc.)
-# 2. Open settings dialog, click Capture button for trigger key
-# 3. Press the button on your device
-# 4. The button ID will be captured automatically
+# 2. First-time use: Activation dialog will appear automatically when you press any button
+#    - Follow instructions: press and release a single button to establish baseline
+#    - Device activation data is saved automatically
+# 3. After activation: Open settings dialog, click Capture button for trigger key
+# 4. Press button(s) on your device (supports single button or combo keys)
+# 5. Release all buttons to complete capture
 # [[mappings]]
-# trigger_key = "GAMEPAD_045E_0B05_ABC123_B2.0"  # Example: Xbox controller with serial
+# trigger_key = "GAMEPAD_045E_0B05_ABC123_B2.0"  # Example: Xbox controller single button
 # target_key = "SPACE"                           # Press space
+# turbo_enabled = true                           # Enable turbo mode
 
 # [[mappings]]
-# trigger_key = "JOYSTICK_1234_5678_DEV87654321_B0.0"  # Example: Joystick without serial
-# target_key = "LBUTTON"                               # Left mouse click
+# trigger_key = "GAMEPAD_045E_028E_B+X"          # Example: Xbox controller combo (B+X)
+# target_key = "LCTRL+C"                         # Press Ctrl+C
+# turbo_enabled = true                           # Enable turbo mode
+
+# [[mappings]]
+# trigger_key = "JOYSTICK_046D_C21D_B1.0"        # Example: Logitech joystick button
+# target_key = "LBUTTON"                         # Left mouse click
+# turbo_enabled = true                           # Enable turbo mode
+
+# ─── HID Device Baselines (Auto-generated, Do Not Edit) ───
+# This section is managed automatically by the application
+# Device activation data for press/release detection
+# Format: VID:PID:Serial or VID:PID (without serial)
+# [[hid_baselines]]
+# device_id = "045E:028E:1234567"
+# baseline_data = [0, 255, 127, 255, 127, 0, 128, 0, 0, 0, 0]

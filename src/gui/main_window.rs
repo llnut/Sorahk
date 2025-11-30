@@ -28,6 +28,91 @@ impl eframe::App for SorahkGui {
             return;
         }
 
+        // Check for HID device activation requests
+        if self.hid_activation_dialog.is_none() {
+            let requests = self.app_state.poll_hid_activation_requests();
+            if let Some((device_handle, device_name)) = requests.first() {
+                self.hid_activation_dialog =
+                    Some(crate::gui::hid_activation_dialog::HidActivationDialog::new(
+                        device_name.clone(),
+                        *device_handle,
+                    ));
+                // Record creation time for 100ms debounce
+                self.hid_activation_creation_time = Some(std::time::Instant::now());
+            }
+        }
+
+        // Render HID activation dialog if present
+        if let Some(dialog) = &mut self.hid_activation_dialog {
+            let is_debouncing = if let Some(creation_time) = self.hid_activation_creation_time {
+                creation_time.elapsed().as_millis() < 200
+            } else {
+                false
+            };
+
+            if is_debouncing {
+                while self
+                    .app_state
+                    .try_recv_hid_activation_data(dialog.device_handle())
+                    .is_some()
+                {
+                    // Discard all data during debounce period
+                }
+            } else {
+                while let Some(hid_data) = self
+                    .app_state
+                    .try_recv_hid_activation_data(dialog.device_handle())
+                {
+                    dialog.handle_hid_data(&hid_data);
+                }
+            }
+
+            let should_close = dialog.render(ctx, self.dark_mode, &self.translations);
+
+            if should_close {
+                // Save baseline to config if successful
+                if let Some(baseline) = dialog.get_baseline() {
+                    crate::rawinput::activate_hid_device(dialog.device_handle(), baseline.clone());
+
+                    // Get device info for stable identifier (VID:PID:Serial)
+                    if let Some((vid, pid, serial)) =
+                        crate::rawinput::get_device_info_for_handle(dialog.device_handle())
+                    {
+                        // Create device ID string using format: "VID:PID" or "VID:PID:Serial"
+                        let device_id = if let Some(ref serial) = serial {
+                            format!("{:04X}:{:04X}:{}", vid, pid, serial)
+                        } else {
+                            format!("{:04X}:{:04X}", vid, pid)
+                        };
+
+                        // Check if device already exists in config (avoid duplicates)
+                        if !self
+                            .config
+                            .hid_baselines
+                            .iter()
+                            .any(|b| b.device_id == device_id)
+                        {
+                            // Add to config for persistence
+                            self.config
+                                .hid_baselines
+                                .push(crate::config::HidDeviceBaseline {
+                                    device_id,
+                                    baseline_data: baseline,
+                                });
+
+                            // Save config
+                            let _ = self.config.save_to_file("Config.toml");
+                        }
+                    }
+                }
+
+                // Clear activating device handle
+                self.app_state.clear_activating_device();
+                self.hid_activation_dialog = None;
+                self.hid_activation_creation_time = None;
+            }
+        }
+
         // Apply cached visuals based on theme
         let visuals = if self.dark_mode {
             &self.cached_dark_visuals

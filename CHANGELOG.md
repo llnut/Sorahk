@@ -4,22 +4,34 @@ Feature enhancements:
 
 - Add Raw Input API integration for HID device support
   - Support for gamepads, joysticks, and other HID controllers
+  - Combo key support: capture multiple buttons pressed simultaneously
   - Automatic device detection and button mapping via GUI capture
   - Multi-device support with vendor ID and serial number identification
   - Device-specific button mapping format (e.g., GAMEPAD_045E_0B05_ABC123_B2.0)
+  - Turbo-fire support for HID devices with press/release detection
+- Add HID device activation system
+  - Interactive activation dialog for establishing device baseline
+  - Baseline data persistence across application restarts
+  - Press/release event detection based on HID data state changes
+  - Always-on-top modal activation window
 - Add performance optimizations for input processing pipeline
-  - Thread-local buffer pool for Raw Input data (eliminates allocations)
+  - Thread-local buffer pool for Raw Input data
   - Three-tier device information cache (thread-local, global, Windows API)
   - FNV-1a hash algorithm for HID data processing
-  - Lock-free read operations on concurrent data structures
+  - Optional AVX2 SIMD acceleration for data comparison (compile-time feature)
   - Branch prediction hints for hot path optimization
   - Inline optimization for frequently called functions
 
 UI Improvements:
 
+- Add HID device activation dialog with theme support
 - Add HID device button capture in settings dialog
 - Add truncated display for long device names with hover tooltips
 - Add configuration file examples for HID device mapping
+
+Configuration:
+
+- Add `hid_baselines` field for persisting device activation data
 
 0.3.0
 =====

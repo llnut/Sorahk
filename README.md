@@ -171,8 +171,14 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
   - Left/right modifier distinction (e.g., `LSHIFT+A` and `RSHIFT+A` are treated as different triggers)
   - Single modifier keys as triggers (e.g., `LSHIFT` alone)
   - Multiple simultaneous combos with shared modifiers (e.g., `LALT+1`, `LALT+2`)
+  - HID combo keys with multiple buttons pressed simultaneously
 - **Mouse Button Support** – Full support for left, right, middle, and side mouse buttons (X1/X2)
 - **HID Device Support** – Raw Input API integration for gamepads, joysticks, and other controllers
+  - Interactive activation dialog for first-time device setup
+  - Single button and combo key mapping
+  - Press/release detection with turbo-fire capability
+  - Persistent device baseline data
+  - VID/PID/Serial-based stable device identification
 - **Per-Mapping Turbo Control** – Individual turbo mode toggle for each mapping
 - **Adjustable Timing** – Configure repeat interval and press duration per mapping
 - **Global Toggle** – Quick enable/disable with a single hotkey (default: DELETE)
@@ -181,6 +187,10 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
 
 ### 🚀 **Performance & Reliability**
 - **Multi-threaded Processing** – Worker pool with load balancing for efficient key handling
+- **Lock-free Concurrency** – Uses scc containers for concurrent data access without blocking
+- **Multi-tier Caching** – Thread-local and global caches for device information
+- **Optional SIMD Acceleration** – AVX2 and POPCNT support (compile-time feature)
+- **Cache Invalidation** – Automatic cache synchronization on device changes
 - **Native Input Injection** – Uses Windows keyboard event APIs for reliable operation
 - **Low Resource Usage** – Minimal CPU and memory footprint
 
@@ -273,6 +283,19 @@ trigger_key = "XBUTTON1"     # Side button 1 trigger
 target_key = "SPACE"         # Press space when side button is held
 turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
+# HID device examples (gamepad/joystick buttons)
+# Button IDs are captured automatically through GUI
+# First-time device activation is required
+[[mappings]]
+trigger_key = "GAMEPAD_045E_028E_A"  # Example: Xbox controller A button
+target_key = "SPACE"                  # Press space when A is held
+turbo_enabled = true                  # Enable turbo mode
+
+[[mappings]]
+trigger_key = "GAMEPAD_045E_028E_B+X" # Example: Xbox controller B+X combo
+target_key = "LCTRL+C"                # Press Ctrl+C when combo is held
+turbo_enabled = true                  # Enable turbo mode
+
 # Key combination examples
 # Use '+' to separate keys for combo triggers and outputs
 [[mappings]]
@@ -285,6 +308,23 @@ trigger_key = "LALT+1"       # Left ALT + 1
 target_key = "F1"            # Auto-press F1
 turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
 
+# HID device examples (gamepad/joystick buttons)
+# Device button IDs are captured automatically through the GUI
+[[mappings]]
+trigger_key = "GAMEPAD_045E_028E_A"  # Xbox controller A button (example)
+target_key = "SPACE"                  # Press space when A is pressed
+turbo_enabled = true                  # Enable turbo mode
+
+[[mappings]]
+trigger_key = "GAMEPAD_045E_028E_B+X" # Xbox controller B+X combo (example)
+target_key = "LCTRL+C"                # Press Ctrl+C when B+X is pressed
+turbo_enabled = true                  # Enable turbo mode
+
+[[mappings]]
+trigger_key = "LALT+1"       # Left ALT + 1 (continued from above)
+target_key = "F1"            # Auto-press F1
+turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
+
 [[mappings]]
 trigger_key = "LCTRL+LSHIFT+F" # Multiple modifiers
 target_key = "LALT+F4"       # Output can also be combo
@@ -293,6 +333,14 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = si
 [[mappings]]
 trigger_key = "LSHIFT"       # Single modifier key as trigger
 target_key = "SPACE"         # Auto-press space when holding left Shift
+
+# ─── HID Device Baselines ───
+# Device activation data (managed automatically by activation dialog)
+# Do not edit manually unless necessary
+# Format: VID:PID:Serial
+[[hid_baselines]]
+device_id = "045E:028E:1234567"
+baseline_data = [0, 255, 127, 255, 127, 0, 128, 0, 0, 0, 0]
 
 # Note: Left and right modifiers are distinguished (LSHIFT ≠ RSHIFT)
 # Note: Multiple combos with shared modifiers work simultaneously
@@ -330,12 +378,20 @@ Input names support both keyboard keys and mouse buttons:
 - **Side Button 1**: `XBUTTON1`, `X1`, `MB4`
 - **Side Button 2**: `XBUTTON2`, `X2`, `MB5`
 
+**HID Devices (Gamepads/Joysticks):**
+- Button IDs are captured through GUI automatically
+- First-time device activation required to establish baseline
+- Supports single button and combo key mapping
+- Example format: `GAMEPAD_045E_028E_A`, `JOYSTICK_046D_C21D_B1`
+
 **GUI Capture Notes:**
 - **Print Screen (SNAPSHOT)**: Requires two key presses to capture reliably due to Windows API timing constraints
 - **Windows Keys (LWIN/RWIN)**: Can be captured, but will trigger the Start menu; return to the application to verify capture success
+- **HID Devices**: First-time use triggers activation dialog; press and release a single button to establish baseline
+- **HID Combo Keys**: Press all desired buttons, then release all to capture the combination
 - **Other Keys**: All other keys (including Pause, Scroll Lock) can be captured with a single press
 
-Full support for standard Windows virtual key codes and mouse buttons is included.
+Full support for standard Windows virtual key codes, mouse buttons, and HID controllers is included.
 
 ---
 
@@ -375,11 +431,18 @@ When capturing keys through the settings dialog:
 git clone https://github.com/llnut/Sorahk.git
 cd Sorahk
 
-# Build release version
+# Build standard release version
 cargo build --release
+
+# Build with AVX2 optimization (optional, for better performance)
+RUSTFLAGS="-C target-feature=+avx2" cargo build --release
 
 # The executable will be at: target\release\sorahk.exe
 ```
+
+**Note**: Pre-built releases include both versions:
+- `sorahk-x.y.z-$target.zip` - Standard (compatible with all x86_64 CPUs)
+- `sorahk-avx2-x.y.z-$target.zip` - AVX2-optimized (requires AVX2 support)
 
 ---
 

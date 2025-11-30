@@ -8,13 +8,15 @@ use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
 const TEXT_TRUNCATE_LEN: usize = 10;
 
-/// Check if a trigger key is an HID device (gamepad/joystick)
-fn is_hid_device(trigger_key: &str) -> bool {
-    let trigger_upper = trigger_key.to_uppercase();
-    trigger_upper.contains("GAMEPAD")
-        || trigger_upper.contains("JOYSTICK")
-        || trigger_upper.contains("HID")
-        || trigger_upper.contains("_DEV") // Device ID pattern from GenericDevice
+/// Safely truncate a string by character count (not byte count) to avoid UTF-8 boundary issues.
+fn truncate_text_safe(text: &str, max_chars: usize) -> String {
+    let char_count = text.chars().count();
+    if char_count > max_chars {
+        let truncated: String = text.chars().take(max_chars - 3).collect();
+        format!("{}...", truncated)
+    } else {
+        text.to_string()
+    }
 }
 
 impl SorahkGui {
@@ -100,10 +102,6 @@ impl SorahkGui {
                         KeyCaptureMode::MappingTrigger(idx) => {
                             if let Some(mapping) = temp_config.mappings.get_mut(idx) {
                                 mapping.trigger_key = input_name.clone();
-                                // Force disable turbo for HID devices
-                                if is_hid_device(&input_name) {
-                                    mapping.turbo_enabled = false;
-                                }
                             }
                         }
                         KeyCaptureMode::MappingTarget(idx) => {
@@ -508,16 +506,10 @@ impl SorahkGui {
                                                         full_trigger_text
                                                     };
                                                     // Truncate text to fit in button
-                                                    let display_text = if trigger_text.len()
-                                                        > TEXT_TRUNCATE_LEN
-                                                    {
-                                                        format!(
-                                                            "{}...",
-                                                            &trigger_text[..TEXT_TRUNCATE_LEN - 3]
-                                                        )
-                                                    } else {
-                                                        trigger_text.to_string()
-                                                    };
+                                                    let display_text = truncate_text_safe(
+                                                        trigger_text,
+                                                        TEXT_TRUNCATE_LEN,
+                                                    );
                                                     // Create button with truncated text
                                                     let trigger_btn = egui::Button::new(
                                                         egui::RichText::new(&display_text).color(
@@ -650,18 +642,9 @@ impl SorahkGui {
                                                         mapping.event_duration = Some(val.max(2));
                                                     }
 
-                                                    // Turbo toggle - disabled for HID devices
-                                                    let is_hid =
-                                                        is_hid_device(&mapping.trigger_key);
-                                                    // Force disable turbo for HID devices
-                                                    if is_hid && mapping.turbo_enabled {
-                                                        mapping.turbo_enabled = false;
-                                                    }
+                                                    // Turbo toggle
                                                     let turbo_enabled = mapping.turbo_enabled;
-                                                    let turbo_color = if is_hid {
-                                                        // Disabled gray for HID devices
-                                                        egui::Color32::from_rgb(128, 128, 128)
-                                                    } else if turbo_enabled {
+                                                    let turbo_color = if turbo_enabled {
                                                         if self.dark_mode {
                                                             egui::Color32::from_rgb(147, 197, 253)
                                                         } else {
@@ -677,26 +660,14 @@ impl SorahkGui {
                                                         if turbo_enabled { "⚡" } else { "○" };
                                                     let turbo_btn = egui::Button::new(
                                                         egui::RichText::new(turbo_icon)
-                                                            .color(if is_hid {
-                                                                egui::Color32::from_rgb(
-                                                                    180, 180, 180,
-                                                                )
-                                                            } else {
-                                                                egui::Color32::WHITE
-                                                            })
+                                                            .color(egui::Color32::WHITE)
                                                             .size(16.0),
                                                     )
                                                     .fill(turbo_color)
                                                     .corner_radius(12.0)
-                                                    .sense(if is_hid {
-                                                        egui::Sense::hover()
-                                                    } else {
-                                                        egui::Sense::click()
-                                                    });
+                                                    .sense(egui::Sense::click());
 
-                                                    let hover_text = if is_hid {
-                                                        self.translations.hid_device_no_turbo()
-                                                    } else if turbo_enabled {
+                                                    let hover_text = if turbo_enabled {
                                                         self.translations.turbo_on_hover()
                                                     } else {
                                                         self.translations.turbo_off_hover()
@@ -706,7 +677,6 @@ impl SorahkGui {
                                                         .add_sized([32.0, 24.0], turbo_btn)
                                                         .on_hover_text(hover_text)
                                                         .clicked()
-                                                        && !is_hid
                                                     {
                                                         mapping.turbo_enabled =
                                                             !mapping.turbo_enabled;
@@ -759,18 +729,10 @@ impl SorahkGui {
                                                         &self.new_mapping_trigger
                                                     };
                                                 // Truncate text to fit in button
-                                                let new_display_text = if full_new_trigger_text
-                                                    .len()
-                                                    > TEXT_TRUNCATE_LEN
-                                                {
-                                                    format!(
-                                                        "{}...",
-                                                        &full_new_trigger_text
-                                                            [..TEXT_TRUNCATE_LEN - 3]
-                                                    )
-                                                } else {
-                                                    full_new_trigger_text.to_string()
-                                                };
+                                                let new_display_text = truncate_text_safe(
+                                                    full_new_trigger_text,
+                                                    TEXT_TRUNCATE_LEN,
+                                                );
                                                 let new_trigger_btn = egui::Button::new(
                                                     egui::RichText::new(&new_display_text).color(
                                                         if is_capturing_new_trigger {
@@ -885,18 +847,9 @@ impl SorahkGui {
                                                 .font(egui::TextStyle::Button);
                                                 ui.add_sized([45.0, 24.0], duration_edit);
 
-                                                // Turbo toggle for new mapping - disabled for HID devices
-                                                let is_new_hid =
-                                                    is_hid_device(&self.new_mapping_trigger);
-                                                // Force disable turbo for HID devices
-                                                if is_new_hid && self.new_mapping_turbo {
-                                                    self.new_mapping_turbo = false;
-                                                }
+                                                // Turbo toggle for new mapping
                                                 let new_turbo_enabled = self.new_mapping_turbo;
-                                                let new_turbo_color = if is_new_hid {
-                                                    // Disabled gray for HID devices
-                                                    egui::Color32::from_rgb(128, 128, 128)
-                                                } else if new_turbo_enabled {
+                                                let new_turbo_color = if new_turbo_enabled {
                                                     if self.dark_mode {
                                                         egui::Color32::from_rgb(147, 197, 253)
                                                     } else {
@@ -913,24 +866,14 @@ impl SorahkGui {
 
                                                 let new_turbo_btn = egui::Button::new(
                                                     egui::RichText::new(new_turbo_icon)
-                                                        .color(if is_new_hid {
-                                                            egui::Color32::from_rgb(180, 180, 180)
-                                                        } else {
-                                                            egui::Color32::WHITE
-                                                        })
+                                                        .color(egui::Color32::WHITE)
                                                         .size(16.0),
                                                 )
                                                 .fill(new_turbo_color)
                                                 .corner_radius(12.0)
-                                                .sense(if is_new_hid {
-                                                    egui::Sense::hover()
-                                                } else {
-                                                    egui::Sense::click()
-                                                });
+                                                .sense(egui::Sense::click());
 
-                                                let new_hover_text = if is_new_hid {
-                                                    self.translations.hid_device_no_turbo()
-                                                } else if new_turbo_enabled {
+                                                let new_hover_text = if new_turbo_enabled {
                                                     self.translations.turbo_on_hover()
                                                 } else {
                                                     self.translations.turbo_off_hover()
@@ -940,7 +883,6 @@ impl SorahkGui {
                                                     .add_sized([32.0, 24.0], new_turbo_btn)
                                                     .on_hover_text(new_hover_text)
                                                     .clicked()
-                                                    && !is_new_hid
                                                 {
                                                     self.new_mapping_turbo =
                                                         !self.new_mapping_turbo;
@@ -986,13 +928,7 @@ impl SorahkGui {
                                                             .ok()
                                                             .map(|v| v.max(2));
 
-                                                        // Force disable turbo for HID devices
-                                                        let turbo_enabled =
-                                                            if is_hid_device(&trigger_upper) {
-                                                                false
-                                                            } else {
-                                                                self.new_mapping_turbo
-                                                            };
+                                                        let turbo_enabled = self.new_mapping_turbo;
 
                                                         temp_config.mappings.push(KeyMapping {
                                                             trigger_key: trigger_upper,

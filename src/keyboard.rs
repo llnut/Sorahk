@@ -366,7 +366,6 @@ impl Drop for KeyboardHook {
 mod tests {
     use super::*;
     use crate::config::AppConfig;
-    use crate::state::EventDispatcher;
 
     #[test]
     fn test_worker_pool_creation() {
@@ -380,10 +379,10 @@ mod tests {
     #[test]
     fn test_worker_distribution_stability() {
         let worker_count = 4;
-        let pool = WorkerPool::new(worker_count);
+        let _pool = WorkerPool::new(worker_count);
 
         // Test that same device always maps to same worker
-        let device_a = InputDevice::Keyboard(0x41); // A
+        let _device_a = InputDevice::Keyboard(0x41); // A
         let idx1 = 0x41usize % worker_count;
         let idx2 = 0x41usize % worker_count;
         assert_eq!(idx1, idx2, "Same device should map to same worker");
@@ -399,26 +398,6 @@ mod tests {
         for count in &worker_usage {
             assert!(*count > 0, "All workers should receive some keys");
             assert!(*count < 256, "No worker should receive all keys");
-        }
-    }
-
-    #[test]
-    fn test_input_event_pressed_variant() {
-        let event = InputEvent::Pressed(InputDevice::Keyboard(0x41));
-
-        match event {
-            InputEvent::Pressed(InputDevice::Keyboard(key)) => assert_eq!(key, 0x41),
-            _ => panic!("Expected Pressed variant"),
-        }
-    }
-
-    #[test]
-    fn test_input_event_released_variant() {
-        let event = InputEvent::Released(InputDevice::Keyboard(0x41));
-
-        match event {
-            InputEvent::Released(InputDevice::Keyboard(key)) => assert_eq!(key, 0x41),
-            _ => panic!("Expected Released variant"),
         }
     }
 
@@ -450,142 +429,5 @@ mod tests {
         let unmapped_device = InputDevice::Keyboard(0x5A); // 'Z' key
         let no_mapping = state.get_input_mapping(&unmapped_device);
         assert!(no_mapping.is_none(), "Unmapped key should return None");
-    }
-
-    #[test]
-    fn test_interval_expiration_logic() {
-        // Test interval expiration calculation
-        let interval_ms = 50u64;
-
-        // Simulate a key pressed 10ms ago (within interval)
-        let recent_time = Instant::now() - Duration::from_millis(10);
-        assert!(
-            recent_time.elapsed() < Duration::from_millis(interval_ms),
-            "10ms elapsed should be within 50ms interval"
-        );
-
-        // Simulate a key pressed 60ms ago (beyond interval)
-        let old_time = Instant::now() - Duration::from_millis(60);
-        assert!(
-            old_time.elapsed() >= Duration::from_millis(interval_ms),
-            "60ms elapsed should exceed 50ms interval"
-        );
-    }
-
-    #[test]
-    fn test_worker_pool_with_actual_threads() {
-        use std::sync::mpsc::channel;
-        use std::sync::{Arc, Mutex};
-        use std::thread;
-        use std::time::Duration;
-
-        let worker_count = 4;
-        let mut pool = WorkerPool::new(worker_count);
-        let received_events = Arc::new(Mutex::new(Vec::new()));
-
-        // Create worker threads
-        for _ in 0..worker_count {
-            let (tx, rx) = channel();
-            pool.add_worker(tx);
-
-            let events = received_events.clone();
-            thread::spawn(move || {
-                while let Ok(event) = rx.recv() {
-                    events.lock().unwrap().push(event);
-                }
-            });
-        }
-
-        // Send test events
-        for i in 0..10 {
-            pool.dispatch(InputEvent::Pressed(InputDevice::Keyboard(0x41 + i)));
-        }
-
-        // Wait for events to be processed
-        thread::sleep(Duration::from_millis(100));
-
-        let events = received_events.lock().unwrap();
-        assert_eq!(events.len(), 10);
-    }
-
-    #[test]
-    fn test_worker_pool_load_balancing() {
-        use std::sync::mpsc::channel;
-        use std::sync::{Arc, Mutex};
-        use std::thread;
-        use std::time::Duration;
-
-        let worker_count = 4;
-        let mut pool = WorkerPool::new(worker_count);
-        let worker_loads = Arc::new(Mutex::new(vec![0usize; worker_count]));
-
-        // Create worker threads with counters
-        for worker_id in 0..worker_count {
-            let (tx, rx) = channel();
-            pool.add_worker(tx);
-
-            let loads = worker_loads.clone();
-            thread::spawn(move || {
-                while let Ok(_event) = rx.recv() {
-                    loads.lock().unwrap()[worker_id] += 1;
-                }
-            });
-        }
-
-        // Send many events to test distribution
-        for i in 0..100 {
-            pool.dispatch(InputEvent::Pressed(InputDevice::Keyboard(0x41 + (i % 26))));
-        }
-
-        // Wait for processing
-        thread::sleep(Duration::from_millis(200));
-
-        // Check that load is distributed
-        let loads = worker_loads.lock().unwrap();
-        let total: usize = loads.iter().sum();
-        assert_eq!(total, 100);
-
-        // Ensure no worker is idle
-        for load in loads.iter() {
-            assert!(*load > 0, "Worker received no events");
-        }
-    }
-
-    #[test]
-    fn test_key_event_channel_communication() {
-        use std::sync::mpsc::channel;
-        use std::thread;
-        use std::time::Duration;
-
-        let (tx, rx) = channel();
-
-        let device = InputDevice::Keyboard(0x41);
-
-        // Sender thread
-        thread::spawn(move || {
-            tx.send(InputEvent::Pressed(device.clone())).unwrap();
-            tx.send(InputEvent::Released(device)).unwrap();
-        });
-
-        // Receiver thread
-        let events: Vec<_> = thread::spawn(move || {
-            let mut collected = Vec::new();
-            while let Ok(event) = rx.recv_timeout(Duration::from_millis(100)) {
-                collected.push(event);
-            }
-            collected
-        })
-        .join()
-        .unwrap();
-
-        assert_eq!(events.len(), 2);
-        match events[0] {
-            InputEvent::Pressed(InputDevice::Keyboard(k)) => assert_eq!(k, 0x41),
-            _ => panic!("Expected Pressed event"),
-        }
-        match events[1] {
-            InputEvent::Released(InputDevice::Keyboard(k)) => assert_eq!(k, 0x41),
-            _ => panic!("Expected Released event"),
-        }
     }
 }

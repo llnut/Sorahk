@@ -43,6 +43,18 @@ pub struct AppConfig {
     /// Process whitelist (empty means all processes)
     #[serde(default)]
     pub process_whitelist: Vec<String>,
+    /// HID device baselines for button detection
+    #[serde(default)]
+    pub hid_baselines: Vec<HidDeviceBaseline>,
+}
+
+/// HID device baseline configuration for button state detection.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct HidDeviceBaseline {
+    /// Device identifier (vendor_id, product_id, serial or handle)
+    pub device_id: String,
+    /// Baseline HID data (idle state with no buttons pressed)
+    pub baseline_data: Vec<u8>,
 }
 
 /// Key mapping configuration for trigger-target pairs.
@@ -102,6 +114,7 @@ impl Default for AppConfig {
             event_duration: default_event_duration(),
             worker_count: default_worker_count(),
             process_whitelist: vec![], // Empty means all processes enabled
+            hid_baselines: Vec::new(),
         }
     }
 }
@@ -209,15 +222,31 @@ impl AppConfig {
              # Format: DEVICE_VID_PID_SERIAL_Bx.x (with serial) or DEVICE_VID_PID_DEVxxxxxxxx_Bx.x (without serial)\n\
              # How to configure:\n\
              # 1. Connect your HID device (gamepad, joystick, etc.)\n\
-             # 2. Open settings dialog, click Capture button for trigger key\n\
-             # 3. Press the button on your device\n\
-             # 4. The button ID will be captured automatically\n\
+             # 2. First-time use: Activation dialog will appear automatically when you press any button\n\
+             #    - Follow instructions: press and release a single button to establish baseline\n\
+             #    - Device activation data is saved automatically\n\
+             # 3. After activation: Open settings dialog, click Capture button for trigger key\n\
+             # 4. Press button(s) on your device (supports single button or combo keys)\n\
+             # 5. Release all buttons to complete capture\n\
              # [[mappings]]\n\
-             # trigger_key = \"GAMEPAD_045E_0B05_ABC123_B2.0\"  # Example: Xbox controller with serial\n\
-             # target_key = \"SPACE\"                           # Press space\n\n\
+             # trigger_key = \"GAMEPAD_045E_0B05_ABC123_B2.0\"  # Example: Xbox controller single button\n\
+             # target_key = \"SPACE\"                           # Press space\n\
+             # turbo_enabled = true                           # Enable turbo mode\n\n\
              # [[mappings]]\n\
-             # trigger_key = \"JOYSTICK_1234_5678_DEV87654321_B0.0\"  # Example: Joystick without serial\n\
-             # target_key = \"LBUTTON\"                               # Left mouse click\n\n",
+             # trigger_key = \"GAMEPAD_045E_028E_B+X\"          # Example: Xbox controller combo (B+X)\n\
+             # target_key = \"LCTRL+C\"                         # Press Ctrl+C\n\
+             # turbo_enabled = true                           # Enable turbo mode\n\n\
+             # [[mappings]]\n\
+             # trigger_key = \"JOYSTICK_046D_C21D_B1.0\"        # Example: Logitech joystick button\n\
+             # target_key = \"LBUTTON\"                         # Left mouse click\n\
+             # turbo_enabled = true                           # Enable turbo mode\n\n\
+             # ─── HID Device Baselines (Auto-generated, Do Not Edit) ───\n\
+             # This section is managed automatically by the application\n\
+             # Device activation data for press/release detection\n\
+             # Format: VID:PID:Serial or VID:PID (without serial)\n\
+             # [[hid_baselines]]\n\
+             # device_id = \"045E:028E:1234567\"\n\
+             # baseline_data = [0, 255, 127, 255, 127, 0, 128, 0, 0, 0, 0]\n\n",
             self.show_tray_icon,
             self.show_notifications,
             self.always_on_top,
@@ -268,6 +297,19 @@ impl AppConfig {
                     "turbo_enabled = {}        # Enable turbo mode (true = auto-repeat, false = single press)\n",
                     mapping.turbo_enabled
                 ));
+                result.push('\n');
+            }
+        }
+
+        // Append HID device baselines
+        if !self.hid_baselines.is_empty() {
+            result.push_str("# ─── HID Device Baselines (Auto-managed) ───\n");
+            result.push_str("# Device activation data for press/release detection\n");
+            result.push_str("# Format: VID:PID:Serial or VID:PID (without serial)\n");
+            for baseline in &self.hid_baselines {
+                result.push_str("[[hid_baselines]]\n");
+                result.push_str(&format!("device_id = \"{}\"\n", baseline.device_id));
+                result.push_str(&format!("baseline_data = {:?}\n", baseline.baseline_data));
                 result.push('\n');
             }
         }

@@ -39,11 +39,25 @@ jobs:
           os: windows-latest
           rust: stable
           target: x86_64-pc-windows-msvc
+          avx2: false
 
         - build: win-gnu
           os: windows-latest
           rust: stable-x86_64-gnu
           target: x86_64-pc-windows-gnu
+          avx2: false
+
+        - build: win-msvc-avx2
+          os: windows-latest
+          rust: stable
+          target: x86_64-pc-windows-msvc
+          avx2: true
+
+        - build: win-gnu-avx2
+          os: windows-latest
+          rust: stable-x86_64-gnu
+          target: x86_64-pc-windows-gnu
+          avx2: true
 
     steps:
     - name: Checkout repository
@@ -95,11 +109,21 @@ jobs:
       run: |
         echo "TARGET_FLAGS=--target ${{ matrix.target }}" >> $GITHUB_ENV
         echo "TARGET_DIR=./target/${{ matrix.target }}" >> $GITHUB_ENV
+        if [ "${{ matrix.avx2 }}" == "true" ]; then
+          echo "RUSTFLAGS=-C target-feature=+avx2" >> $GITHUB_ENV
+          echo "AVX2_SUFFIX=-avx2" >> $GITHUB_ENV
+        else
+          echo "AVX2_SUFFIX=" >> $GITHUB_ENV
+        fi
 
     - name: Build release binary
       shell: bash
       run: |
-        echo "Building for target: ${{ matrix.target }}"
+        if [ "${{ matrix.avx2 }}" == "true" ]; then
+          echo "Building AVX2-optimized release for target: ${{ matrix.target }}"
+        else
+          echo "Building standard release for target: ${{ matrix.target }}"
+        fi
         ${{ env.CARGO }} build --release ${{ env.TARGET_FLAGS }}
         bin="target/${{ matrix.target }}/release/sorahk.exe"
         echo "BIN=$bin" >> $GITHUB_ENV
@@ -112,7 +136,7 @@ jobs:
           echo "Failed to extract version from Cargo.toml" 1>&2
           exit 1
         fi
-        echo "ARCHIVE=sorahk-$version-${{ matrix.target }}" >> $GITHUB_ENV
+        echo "ARCHIVE=sorahk${{ env.AVX2_SUFFIX }}-$version-${{ matrix.target }}" >> $GITHUB_ENV
 
     - name: Creating directory for archive
       shell: bash
@@ -128,4 +152,3 @@ jobs:
         path: ${{ env.ARCHIVE }}
         compression-level: 9
         retention-days: 30
-

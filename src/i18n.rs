@@ -127,7 +127,21 @@ struct TranslationCache {
     about_inspired: String,
     turbo_on_hover: String,
     turbo_off_hover: String,
-    hid_device_no_turbo: String,
+    hid_activation_title: String,
+    hid_activation_press_prompt: String,
+    hid_activation_release_prompt: String,
+    hid_activation_warning_title: String,
+    hid_activation_warning_1: String,
+    hid_activation_warning_2: String,
+    hid_activation_warning_3: String,
+    hid_activation_success_title: String,
+    hid_activation_success_message: String,
+    hid_activation_success_hint: String,
+    hid_activation_auto_close: String,
+    hid_activation_failed_title: String,
+    hid_activation_error: String,
+    hid_activation_retry: String,
+    hid_activation_cancel: String,
 }
 
 impl CachedTranslations {
@@ -306,8 +320,52 @@ impl CachedTranslations {
     pub fn turbo_off_hover(&self) -> &str {
         &self.inner.turbo_off_hover
     }
-    pub fn hid_device_no_turbo(&self) -> &str {
-        &self.inner.hid_device_no_turbo
+
+    // HID Activation Dialog
+    pub fn hid_activation_title(&self) -> &str {
+        &self.inner.hid_activation_title
+    }
+    pub fn hid_activation_press_prompt(&self) -> &str {
+        &self.inner.hid_activation_press_prompt
+    }
+    pub fn hid_activation_release_prompt(&self) -> &str {
+        &self.inner.hid_activation_release_prompt
+    }
+    pub fn hid_activation_warning_title(&self) -> &str {
+        &self.inner.hid_activation_warning_title
+    }
+    pub fn hid_activation_warning_1(&self) -> &str {
+        &self.inner.hid_activation_warning_1
+    }
+    pub fn hid_activation_warning_2(&self) -> &str {
+        &self.inner.hid_activation_warning_2
+    }
+    pub fn hid_activation_warning_3(&self) -> &str {
+        &self.inner.hid_activation_warning_3
+    }
+    pub fn hid_activation_success_title(&self) -> &str {
+        &self.inner.hid_activation_success_title
+    }
+    pub fn hid_activation_success_message(&self) -> &str {
+        &self.inner.hid_activation_success_message
+    }
+    pub fn hid_activation_success_hint(&self) -> &str {
+        &self.inner.hid_activation_success_hint
+    }
+    pub fn hid_activation_auto_close(&self) -> &str {
+        &self.inner.hid_activation_auto_close
+    }
+    pub fn hid_activation_failed_title(&self) -> &str {
+        &self.inner.hid_activation_failed_title
+    }
+    pub fn hid_activation_error(&self) -> &str {
+        &self.inner.hid_activation_error
+    }
+    pub fn hid_activation_retry(&self) -> &str {
+        &self.inner.hid_activation_retry
+    }
+    pub fn hid_activation_cancel(&self) -> &str {
+        &self.inner.hid_activation_cancel
     }
 
     // Additional main window status card
@@ -544,7 +602,56 @@ impl TranslationCache {
             // Turbo toggle tooltips
             turbo_on_hover: get_raw_translation(lang, RawKey::TurboOnHover).to_string(),
             turbo_off_hover: get_raw_translation(lang, RawKey::TurboOffHover).to_string(),
-            hid_device_no_turbo: get_raw_translation(lang, RawKey::HidDeviceNoTurbo).to_string(),
+
+            // HID Activation Dialog
+            hid_activation_title: get_raw_translation(lang, RawKey::HidActivationTitle).to_string(),
+            hid_activation_press_prompt: get_raw_translation(
+                lang,
+                RawKey::HidActivationPressPrompt,
+            )
+            .to_string(),
+            hid_activation_release_prompt: get_raw_translation(
+                lang,
+                RawKey::HidActivationReleasePrompt,
+            )
+            .to_string(),
+            hid_activation_warning_title: get_raw_translation(
+                lang,
+                RawKey::HidActivationWarningTitle,
+            )
+            .to_string(),
+            hid_activation_warning_1: get_raw_translation(lang, RawKey::HidActivationWarning1)
+                .to_string(),
+            hid_activation_warning_2: get_raw_translation(lang, RawKey::HidActivationWarning2)
+                .to_string(),
+            hid_activation_warning_3: get_raw_translation(lang, RawKey::HidActivationWarning3)
+                .to_string(),
+            hid_activation_success_title: get_raw_translation(
+                lang,
+                RawKey::HidActivationSuccessTitle,
+            )
+            .to_string(),
+            hid_activation_success_message: get_raw_translation(
+                lang,
+                RawKey::HidActivationSuccessMessage,
+            )
+            .to_string(),
+            hid_activation_success_hint: get_raw_translation(
+                lang,
+                RawKey::HidActivationSuccessHint,
+            )
+            .to_string(),
+            hid_activation_auto_close: get_raw_translation(lang, RawKey::HidActivationAutoClose)
+                .to_string(),
+            hid_activation_failed_title: get_raw_translation(
+                lang,
+                RawKey::HidActivationFailedTitle,
+            )
+            .to_string(),
+            hid_activation_error: get_raw_translation(lang, RawKey::HidActivationError).to_string(),
+            hid_activation_retry: get_raw_translation(lang, RawKey::HidActivationRetry).to_string(),
+            hid_activation_cancel: get_raw_translation(lang, RawKey::HidActivationCancel)
+                .to_string(),
         }
     }
 }
@@ -627,7 +734,21 @@ enum RawKey {
     TurboOnHover,
     TurboOffHover,
     TurboHeader,
-    HidDeviceNoTurbo,
+    HidActivationTitle,
+    HidActivationPressPrompt,
+    HidActivationReleasePrompt,
+    HidActivationWarningTitle,
+    HidActivationWarning1,
+    HidActivationWarning2,
+    HidActivationWarning3,
+    HidActivationSuccessTitle,
+    HidActivationSuccessMessage,
+    HidActivationSuccessHint,
+    HidActivationAutoClose,
+    HidActivationFailedTitle,
+    HidActivationError,
+    HidActivationRetry,
+    HidActivationCancel,
 }
 
 /// Gets raw translation string without formatting.
@@ -1057,11 +1178,103 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::TraditionalChinese, RawKey::ToggleKeySection) => "⌨ 開關鍵",
         (Language::Japanese, RawKey::ToggleKeySection) => "⌨ 切替キー",
 
-        // HID Device No Turbo
-        (Language::English, RawKey::HidDeviceNoTurbo) => "Turbo not supported for this device",
-        (Language::SimplifiedChinese, RawKey::HidDeviceNoTurbo) => "此设备暂不支持连发",
-        (Language::TraditionalChinese, RawKey::HidDeviceNoTurbo) => "此裝置暫不支援連發",
-        (Language::Japanese, RawKey::HidDeviceNoTurbo) => "このデバイスは連打非対応",
+        // HID Activation Dialog
+        (Language::English, RawKey::HidActivationTitle) => "🎮 ✨ Device Activation ✨ 🎮",
+        (Language::SimplifiedChinese, RawKey::HidActivationTitle) => "🎮 ✨ 设备激活 ✨ 🎮",
+        (Language::TraditionalChinese, RawKey::HidActivationTitle) => "🎮 ✨ 裝置激活 ✨ 🎮",
+        (Language::Japanese, RawKey::HidActivationTitle) => "🎮 ✨ デバイス初期化 ✨ 🎮",
+
+        (Language::English, RawKey::HidActivationPressPrompt) => {
+            "Press a button, nya~ (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧"
+        }
+        (Language::SimplifiedChinese, RawKey::HidActivationPressPrompt) => {
+            "请按下一个按键喵~ (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧"
+        }
+        (Language::TraditionalChinese, RawKey::HidActivationPressPrompt) => {
+            "請按下一個按鍵喵~ (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧"
+        }
+        (Language::Japanese, RawKey::HidActivationPressPrompt) => "ボタンを押してね〜 (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧",
+
+        (Language::English, RawKey::HidActivationReleasePrompt) => "Good! Now release it~ ✧(｡•̀ᴗ-)✧",
+        (Language::SimplifiedChinese, RawKey::HidActivationReleasePrompt) => {
+            "很好！现在松开按键吧~ ✧(｡•̀ᴗ-)✧"
+        }
+        (Language::TraditionalChinese, RawKey::HidActivationReleasePrompt) => {
+            "很好！現在鬆開按鍵吧~ ✧(｡•̀ᴗ-)✧"
+        }
+        (Language::Japanese, RawKey::HidActivationReleasePrompt) => {
+            "いいね！今は離してね〜 ✧(｡•̀ᴗ-)✧"
+        }
+
+        (Language::English, RawKey::HidActivationWarningTitle) => "⚠️ Important ⚠️",
+        (Language::SimplifiedChinese, RawKey::HidActivationWarningTitle) => "⚠️ 注意事项 ⚠️",
+        (Language::TraditionalChinese, RawKey::HidActivationWarningTitle) => "⚠️ 注意事項 ⚠️",
+        (Language::Japanese, RawKey::HidActivationWarningTitle) => "⚠️ 注意事項 ⚠️",
+
+        (Language::English, RawKey::HidActivationWarning1) => "• Press only ONE button!",
+        (Language::SimplifiedChinese, RawKey::HidActivationWarning1) => "• 只能按一个键哦！",
+        (Language::TraditionalChinese, RawKey::HidActivationWarning1) => "• 只能按一個鍵哦！",
+        (Language::Japanese, RawKey::HidActivationWarning1) => "• ボタン1個だけ押してね！",
+
+        (Language::English, RawKey::HidActivationWarning2) => "• Don't press multiple buttons",
+        (Language::SimplifiedChinese, RawKey::HidActivationWarning2) => "• 不要同时按多个键",
+        (Language::TraditionalChinese, RawKey::HidActivationWarning2) => "• 不要同時按多個鍵",
+        (Language::Japanese, RawKey::HidActivationWarning2) => "• 複数ボタン押さないでね",
+
+        (Language::English, RawKey::HidActivationWarning3) => {
+            "• Remember to release after pressing~"
+        }
+        (Language::SimplifiedChinese, RawKey::HidActivationWarning3) => "• 按下后记得松开~",
+        (Language::TraditionalChinese, RawKey::HidActivationWarning3) => "• 按下後記得鬆開~",
+        (Language::Japanese, RawKey::HidActivationWarning3) => "• 押したら必ず離してね〜",
+
+        (Language::English, RawKey::HidActivationSuccessTitle) => "🎉 Success! 🎉",
+        (Language::SimplifiedChinese, RawKey::HidActivationSuccessTitle) => "🎉 激活成功！ 🎉",
+        (Language::TraditionalChinese, RawKey::HidActivationSuccessTitle) => "🎉 激活成功！ 🎉",
+        (Language::Japanese, RawKey::HidActivationSuccessTitle) => "🎉 成功！ 🎉",
+
+        (Language::English, RawKey::HidActivationSuccessMessage) => "Device activated!",
+        (Language::SimplifiedChinese, RawKey::HidActivationSuccessMessage) => "设备激活完成！",
+        (Language::TraditionalChinese, RawKey::HidActivationSuccessMessage) => "裝置激活完成！",
+        (Language::Japanese, RawKey::HidActivationSuccessMessage) => "デバイス初期化完了！",
+
+        (Language::English, RawKey::HidActivationSuccessHint) => {
+            "You can now use turbo-fire~ (｡♥‿♥｡)"
+        }
+        (Language::SimplifiedChinese, RawKey::HidActivationSuccessHint) => {
+            "现在可以使用连发功能啦~ (｡♥‿♥｡)"
+        }
+        (Language::TraditionalChinese, RawKey::HidActivationSuccessHint) => {
+            "現在可以使用連發功能啦~ (｡♥‿♥｡)"
+        }
+        (Language::Japanese, RawKey::HidActivationSuccessHint) => {
+            "連打機能が使えるようになったよ~ (｡♥‿♥｡)"
+        }
+
+        (Language::English, RawKey::HidActivationAutoClose) => "Closing automatically...",
+        (Language::SimplifiedChinese, RawKey::HidActivationAutoClose) => "窗口即将自动关闭...",
+        (Language::TraditionalChinese, RawKey::HidActivationAutoClose) => "視窗即將自動關閉...",
+        (Language::Japanese, RawKey::HidActivationAutoClose) => "自動的に閉じます...",
+
+        (Language::English, RawKey::HidActivationFailedTitle) => "❌ Activation Failed ❌",
+        (Language::SimplifiedChinese, RawKey::HidActivationFailedTitle) => "❌ 激活失败 ❌",
+        (Language::TraditionalChinese, RawKey::HidActivationFailedTitle) => "❌ 激活失敗 ❌",
+        (Language::Japanese, RawKey::HidActivationFailedTitle) => "❌ 初期化失敗 ❌",
+
+        (Language::English, RawKey::HidActivationError) => "Error",
+        (Language::SimplifiedChinese, RawKey::HidActivationError) => "错误",
+        (Language::TraditionalChinese, RawKey::HidActivationError) => "錯誤",
+        (Language::Japanese, RawKey::HidActivationError) => "エラー",
+
+        (Language::English, RawKey::HidActivationRetry) => "🔄 Retry",
+        (Language::SimplifiedChinese, RawKey::HidActivationRetry) => "🔄 重试",
+        (Language::TraditionalChinese, RawKey::HidActivationRetry) => "🔄 重試",
+        (Language::Japanese, RawKey::HidActivationRetry) => "🔄 再試行",
+
+        (Language::English, RawKey::HidActivationCancel) => "✖ Cancel",
+        (Language::SimplifiedChinese, RawKey::HidActivationCancel) => "✖ 取消",
+        (Language::TraditionalChinese, RawKey::HidActivationCancel) => "✖ 取消",
+        (Language::Japanese, RawKey::HidActivationCancel) => "✖ キャンセル",
     }
 }
 
