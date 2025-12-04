@@ -291,83 +291,82 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = si
 
 # Mouse movement examples
 [[mappings]]
-trigger_key = "W"            # Hold W to move cursor up
+trigger_key = "W"            # Trigger key
 target_key = "MOUSE_UP"      # Move cursor upward
-move_speed = 10              # Movement speed in pixels (1-100)
-interval = 5                 # Movement interval in milliseconds
-turbo_enabled = true         # Must be true for continuous movement
+move_speed = 10              # Speed in pixels (1-100)
+interval = 1                 # Update interval in ms
+turbo_enabled = true         # Required for continuous movement
 
 [[mappings]]
-trigger_key = "S"            # Hold S to move cursor down
-target_key = "MOUSE_DOWN"    # Move cursor downward
-move_speed = 10              # Movement speed in pixels
-turbo_enabled = true
-
-[[mappings]]
-trigger_key = "A"            # Hold A to move cursor left
-target_key = "MOUSE_LEFT"    # Move cursor leftward
+trigger_key = "S"
+target_key = "MOUSE_DOWN"
 move_speed = 10
+interval = 1
 turbo_enabled = true
 
 [[mappings]]
-trigger_key = "D"            # Hold D to move cursor right
-target_key = "MOUSE_RIGHT"   # Move cursor rightward
+trigger_key = "A"
+target_key = "MOUSE_LEFT"
 move_speed = 10
+interval = 1
 turbo_enabled = true
 
-# Diagonal movement examples
 [[mappings]]
-trigger_key = "Q"            # Hold Q for diagonal up-left
-target_key = "MOUSE_UP_LEFT" # Move cursor diagonally up-left
+trigger_key = "D"
+target_key = "MOUSE_RIGHT"
 move_speed = 10
+interval = 1
 turbo_enabled = true
 
-# HID device examples (gamepad/joystick buttons)
-# Button IDs are captured automatically through GUI
-# First-time device activation is required
+# Diagonal movement
 [[mappings]]
-trigger_key = "GAMEPAD_045E_028E_A"  # Example: Xbox controller A button
-target_key = "SPACE"                  # Press space when A is held
-turbo_enabled = true                  # Enable turbo mode
+trigger_key = "Q"
+target_key = "MOUSE_UP_LEFT"
+move_speed = 10
+interval = 1
+turbo_enabled = true
+
+# Mouse scroll examples
+[[mappings]]
+trigger_key = "PGUP"         # Trigger key
+target_key = "SCROLL_UP"     # Scroll wheel upward
+move_speed = 120             # Wheel delta (120 = standard notch)
+interval = 50                # Repeat interval in ms
+turbo_enabled = true         # true = continuous, false = Windows repeat
 
 [[mappings]]
-trigger_key = "GAMEPAD_045E_028E_B+X" # Example: Xbox controller B+X combo
-target_key = "LCTRL+C"                # Press Ctrl+C when combo is held
-turbo_enabled = true                  # Enable turbo mode
+trigger_key = "PGDN"
+target_key = "SCROLL_DOWN"
+move_speed = 240             # Wheel delta (240 = 2x)
+interval = 50
+turbo_enabled = true
 
 # Key combination examples
-# Use '+' to separate keys for combo triggers and outputs
 [[mappings]]
-trigger_key = "LALT+A"       # Press left ALT and A together
-target_key = "B"             # Auto-press B key
-turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
+trigger_key = "LALT+A"       # Trigger combo
+target_key = "B"             # Target key
+turbo_enabled = true
 
 [[mappings]]
-trigger_key = "LALT+1"       # Left ALT + 1
-target_key = "F1"            # Auto-press F1
-turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
+trigger_key = "LALT+1"
+target_key = "F1"
+turbo_enabled = true
 
 # HID device examples (gamepad/joystick buttons)
-# Device button IDs are captured automatically through the GUI
 [[mappings]]
-trigger_key = "GAMEPAD_045E_028E_A"  # Xbox controller A button (example)
-target_key = "SPACE"                  # Press space when A is pressed
-turbo_enabled = true                  # Enable turbo mode
+trigger_key = "GAMEPAD_045E_028E_A"  # Xbox controller A button
+target_key = "SPACE"
+turbo_enabled = true
 
 [[mappings]]
-trigger_key = "GAMEPAD_045E_028E_B+X" # Xbox controller B+X combo (example)
-target_key = "LCTRL+C"                # Press Ctrl+C when B+X is pressed
-turbo_enabled = true                  # Enable turbo mode
-
-[[mappings]]
-trigger_key = "LALT+1"       # Left ALT + 1 (continued from above)
-target_key = "F1"            # Auto-press F1
-turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press)
+trigger_key = "GAMEPAD_045E_028E_B+X" # Xbox controller B+X combo
+target_key = "LCTRL+C"
+turbo_enabled = true
 
 [[mappings]]
 trigger_key = "LCTRL+LSHIFT+F" # Multiple modifiers
-target_key = "LALT+F4"       # Output can also be combo
-turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = single press) (close window)
+target_key = "LALT+F4"
+turbo_enabled = true
 
 [[mappings]]
 trigger_key = "LSHIFT"       # Single modifier key as trigger
@@ -420,9 +419,15 @@ Input names support both keyboard keys and mouse buttons:
 **Mouse Movement:**
 - **Cardinal Directions**: `MOUSE_UP`, `MOUSE_DOWN`, `MOUSE_LEFT`, `MOUSE_RIGHT`
 - **Diagonal Directions**: `MOUSE_UP_LEFT`, `MOUSE_UP_RIGHT`, `MOUSE_DOWN_LEFT`, `MOUSE_DOWN_RIGHT`
-- **Configuration**: Requires `move_speed` parameter (1-100 pixels per movement)
-- **Usage**: Must enable `turbo_enabled = true` for continuous movement
-- **GUI Support**: Visual direction selector dialog in settings
+- **Configuration**: Requires `move_speed` (1-100 pixels) and `interval` (update frequency in ms)
+- **Usage**: Requires `turbo_enabled = true` for continuous movement
+- **GUI Support**: Visual direction selector in settings
+
+**Mouse Scroll:**
+- **Directions**: `SCROLL_UP`, `SCROLL_DOWN`
+- **Configuration**: Requires `move_speed` (wheel delta, 120 = standard notch) and `interval` (repeat frequency in ms)
+- **Usage**: Works with both turbo and non-turbo modes
+- **GUI Support**: Visual direction selector in settings
 
 **HID Devices (Gamepads/Joysticks):**
 - Button IDs are captured through GUI automatically
@@ -431,12 +436,13 @@ Input names support both keyboard keys and mouse buttons:
 - Example format: `GAMEPAD_045E_028E_A`, `JOYSTICK_046D_C21D_B1`
 
 **GUI Capture Notes:**
-- **Print Screen (SNAPSHOT)**: Requires two key presses to capture reliably due to Windows API timing constraints
-- **Windows Keys (LWIN/RWIN)**: Can be captured, but will trigger the Start menu; return to the application to verify capture success
-- **Mouse Movement**: Click the mouse direction button (⌖) to open direction selector dialog; choose from 8 directions
-- **HID Devices**: First-time use triggers activation dialog; press and release a single button to establish baseline
-- **HID Combo Keys**: Press all desired buttons, then release all to capture the combination
-- **Other Keys**: All other keys (including Pause, Scroll Lock) can be captured with a single press
+- **Print Screen (SNAPSHOT)**: Requires two key presses to capture due to Windows API timing
+- **Windows Keys (LWIN/RWIN)**: Will trigger Start menu during capture; return to application to verify
+- **Mouse Movement**: Click movement button (⌖) to open direction selector
+- **Mouse Scroll**: Click scroll button (🎡) to open direction selector
+- **HID Devices**: First-time use triggers activation dialog; press and release a button to establish baseline
+- **HID Combo Keys**: Press all buttons, then release all to capture
+- **Other Keys**: Single press to capture
 
 Full support for standard Windows virtual key codes, mouse buttons, and HID controllers is included.
 

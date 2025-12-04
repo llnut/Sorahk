@@ -15,10 +15,19 @@ Feature enhancements:
   - Press/release event detection based on HID data state changes
   - Always-on-top modal activation window
 - Add mouse movement functionality
-  - Eight-directional movement support (up, down, left, right, and diagonals)
-  - Configurable movement speed (1-100 pixels per interval)
+  - Eight-directional movement (up, down, left, right, diagonals)
+  - Configurable speed (1-100 pixels) and interval
   - Target keys: MOUSE_UP, MOUSE_DOWN, MOUSE_LEFT, MOUSE_RIGHT, MOUSE_UP_LEFT, MOUSE_UP_RIGHT, MOUSE_DOWN_LEFT, MOUSE_DOWN_RIGHT
-  - Works with turbo mode for continuous movement
+  - Turbo mode support for continuous movement
+  - Dedicated worker thread for movement processing
+  - Vector-based direction merging for multi-key input
+- Add mouse scroll functionality
+  - Bidirectional scroll (up and down)
+  - Direct wheel delta control (standard Windows units)
+  - Target keys: SCROLL_UP, SCROLL_DOWN
+  - Turbo mode support for continuous scrolling
+  - Non-turbo mode follows Windows repeat events
+  - Configurable scroll speed and interval
 - Add performance optimizations for input processing pipeline
   - Thread-local buffer pool for Raw Input data
   - Three-tier device information cache (thread-local, global, Windows API)
@@ -29,16 +38,19 @@ Feature enhancements:
 
 UI Improvements:
 
-- Add dedicated mouse direction selection dialog
-- Add mouse direction selector button in settings dialog
+- Add mouse direction selection dialog
+- Add mouse scroll direction selection dialog
+- Add target type selector buttons in settings (keyboard/mouse, movement, scroll)
 - Add HID device activation dialog with theme support
 - Add HID device button capture in settings dialog
-- Add configuration file examples for HID device and mouse movement mapping
+- Add interval configuration for mouse movement and scroll
 
 Configuration:
 
-- Add `hid_baselines` field for persisting device activation data
-- Add `move_speed` field to KeyMapping structure for mouse movement control
+- Add `hid_baselines` field for device activation data persistence
+- Add `move_speed` field to KeyMapping for movement and scroll speed control
+  - Mouse movement: 1-100 pixels per interval
+  - Mouse scroll: direct wheel delta value (120 = standard notch)
 
 0.3.0
 =====

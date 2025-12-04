@@ -98,37 +98,50 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = fo
 # turbo_enabled = true       # Enable turbo mode (true = auto-repeat, false = single press)
 
 # ─── Mouse Movement Examples ───
-# Move mouse cursor smoothly with configurable speed
 # [[mappings]]
-# trigger_key = "W"          # Hold W to move mouse up
+# trigger_key = "W"          # Trigger key
 # target_key = "MOUSE_UP"    # Move cursor upward
-# move_speed = 10            # Pixels per move (1-100)
-# interval = 5               # Movement interval in ms (faster = smoother)
-# turbo_enabled = true       # Must be true for continuous movement
+# move_speed = 10            # Speed in pixels (1-100)
+# interval = 5               # Update interval in ms
+# turbo_enabled = true       # Required for continuous movement
 
 # [[mappings]]
-# trigger_key = "S"          # Hold S to move mouse down
-# target_key = "MOUSE_DOWN"  # Move cursor downward
-# move_speed = 15            # Faster movement
+# trigger_key = "S"
+# target_key = "MOUSE_DOWN"
+# move_speed = 10
 # interval = 5
 # turbo_enabled = true
 
 # [[mappings]]
-# trigger_key = "A"          # Hold A to move mouse left
+# trigger_key = "A"
 # target_key = "MOUSE_LEFT"
 # move_speed = 10
 # interval = 5
 # turbo_enabled = true
 
 # [[mappings]]
-# trigger_key = "D"          # Hold D to move mouse right
+# trigger_key = "D"
 # target_key = "MOUSE_RIGHT"
 # move_speed = 10
 # interval = 5
 # turbo_enabled = true
 
-# Diagonal movement examples:
-# MOUSE_UP_LEFT, MOUSE_UP_RIGHT, MOUSE_DOWN_LEFT, MOUSE_DOWN_RIGHT
+# Diagonal: MOUSE_UP_LEFT, MOUSE_UP_RIGHT, MOUSE_DOWN_LEFT, MOUSE_DOWN_RIGHT
+
+# ─── Mouse Scroll Examples ───
+# [[mappings]]
+# trigger_key = "PAGEUP"       # Trigger key
+# target_key = "SCROLL_UP"     # Scroll wheel upward
+# move_speed = 120             # Wheel delta (120 = standard notch)
+# interval = 5                 # Repeat interval in ms
+# turbo_enabled = true         # true = continuous, false = Windows repeat
+
+# [[mappings]]
+# trigger_key = "PAGEDOWN"
+# target_key = "SCROLL_DOWN"
+# move_speed = 240             # Wheel delta (240 = 2x)
+# interval = 5
+# turbo_enabled = true
 
 # ─── HID Device Examples (Gamepads, Joysticks, Custom Controllers) ───
 # Automatic support for any HID device via GUI capture!

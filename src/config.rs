@@ -232,18 +232,32 @@ impl AppConfig {
              # trigger_key = \"XBUTTON1\"    # Side button 1 trigger\n\
              # target_key = \"F\"            # Auto-press F key\n\n\
              # ─── Mouse Movement Examples ───\n\
-             # Move mouse cursor smoothly with configurable speed\n\
              # [[mappings]]\n\
-             # trigger_key = \"W\"           # Hold W to move mouse up\n\
+             # trigger_key = \"W\"           # Trigger key\n\
              # target_key = \"MOUSE_UP\"     # Move cursor upward\n\
-             # move_speed = 10             # Pixels per move (1-100)\n\
-             # interval = 5                # Movement interval in ms\n\
-             # turbo_enabled = true        # Must be true for continuous movement\n\n\
+             # move_speed = 10             # Speed in pixels (1-100)\n\
+             # interval = 5                # Update interval in ms\n\
+             # turbo_enabled = true        # Required for continuous movement\n\n\
              # [[mappings]]\n\
-             # trigger_key = \"A\"           # Hold A to move left\n\
-             # target_key = \"MOUSE_LEFT\"\n\
-             # move_speed = 10\n\n\
+             # trigger_key = \"S\"\n\
+             # target_key = \"MOUSE_DOWN\"\n\
+             # move_speed = 10\n\
+             # interval = 5\n\
+             # turbo_enabled = true\n\n\
              # Diagonal: MOUSE_UP_LEFT, MOUSE_UP_RIGHT, MOUSE_DOWN_LEFT, MOUSE_DOWN_RIGHT\n\n\
+             # ─── Mouse Scroll Examples ───\n\
+             # [[mappings]]\n\
+             # trigger_key = \"PAGEUP\"       # Trigger key\n\
+             # target_key = \"SCROLL_UP\"     # Scroll wheel upward\n\
+             # move_speed = 120             # Wheel delta (120 = standard notch)\n\
+             # interval = 5                 # Repeat interval in ms\n\
+             # turbo_enabled = true         # true = continuous, false = Windows repeat\n\n\
+             # [[mappings]]\n\
+             # trigger_key = \"PAGEDOWN\"\n\
+             # target_key = \"SCROLL_DOWN\"\n\
+             # move_speed = 240             # Wheel delta (240 = 2x)\n\
+             # interval = 5\n\
+             # turbo_enabled = true\n\n\
              # ─── HID Device Examples (Gamepads, Joysticks, Custom Controllers) ───\n\
              # Automatic support for any HID device via GUI capture!\n\
              # Format: DEVICE_VID_PID_SERIAL_Bx.x (with serial) or DEVICE_VID_PID_DEVxxxxxxxx_Bx.x (without serial)\n\
@@ -321,7 +335,7 @@ impl AppConfig {
                     ));
                 }
                 result.push_str(&format!(
-                    "move_speed = {}              # Mouse move speed in pixels (1-100)\n",
+                    "move_speed = {}              # Speed (pixels for movement, wheel delta for scroll)\n",
                     mapping.move_speed
                 ));
                 result.push_str(&format!(

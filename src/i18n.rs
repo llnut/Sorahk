@@ -142,7 +142,6 @@ struct TranslationCache {
     hid_activation_error: String,
     hid_activation_retry: String,
     hid_activation_cancel: String,
-    mouse_move_speed_label: String,
     mouse_move_direction_label: String,
     mouse_move_up: String,
     mouse_move_down: String,
@@ -153,6 +152,13 @@ struct TranslationCache {
     mouse_move_down_left: String,
     mouse_move_down_right: String,
     set_mouse_direction_hover: String,
+    mouse_scroll_direction_label: String,
+    mouse_scroll_up: String,
+    mouse_scroll_down: String,
+    capture_key_or_mouse_hover: String,
+    edit_key_button_hover: String,
+    set_mouse_scroll_direction_hover: String,
+    speed_label: String,
 }
 
 impl CachedTranslations {
@@ -380,9 +386,6 @@ impl CachedTranslations {
     }
 
     // Mouse Movement
-    pub fn mouse_move_speed_label(&self) -> &str {
-        &self.inner.mouse_move_speed_label
-    }
     pub fn mouse_move_direction_label(&self) -> &str {
         &self.inner.mouse_move_direction_label
     }
@@ -412,6 +415,29 @@ impl CachedTranslations {
     }
     pub fn set_mouse_direction_hover(&self) -> &str {
         &self.inner.set_mouse_direction_hover
+    }
+
+    // Mouse Scroll
+    pub fn mouse_scroll_direction_label(&self) -> &str {
+        &self.inner.mouse_scroll_direction_label
+    }
+    pub fn mouse_scroll_up(&self) -> &str {
+        &self.inner.mouse_scroll_up
+    }
+    pub fn mouse_scroll_down(&self) -> &str {
+        &self.inner.mouse_scroll_down
+    }
+    pub fn capture_key_or_mouse_hover(&self) -> &str {
+        &self.inner.capture_key_or_mouse_hover
+    }
+    pub fn edit_key_button_hover(&self) -> &str {
+        &self.inner.edit_key_button_hover
+    }
+    pub fn set_mouse_scroll_direction_hover(&self) -> &str {
+        &self.inner.set_mouse_scroll_direction_hover
+    }
+    pub fn speed_label(&self) -> &str {
+        &self.inner.speed_label
     }
 
     // Additional main window status card
@@ -700,8 +726,6 @@ impl TranslationCache {
                 .to_string(),
 
             // Mouse Movement
-            mouse_move_speed_label: get_raw_translation(lang, RawKey::MouseMoveSpeedLabel)
-                .to_string(),
             mouse_move_direction_label: get_raw_translation(lang, RawKey::MouseMoveDirectionLabel)
                 .to_string(),
             mouse_move_up: get_raw_translation(lang, RawKey::MouseMoveUp).to_string(),
@@ -715,6 +739,27 @@ impl TranslationCache {
                 .to_string(),
             set_mouse_direction_hover: get_raw_translation(lang, RawKey::SetMouseDirectionHover)
                 .to_string(),
+
+            // Mouse Scroll
+            mouse_scroll_direction_label: get_raw_translation(
+                lang,
+                RawKey::MouseScrollDirectionLabel,
+            )
+            .to_string(),
+            mouse_scroll_up: get_raw_translation(lang, RawKey::MouseScrollUp).to_string(),
+            mouse_scroll_down: get_raw_translation(lang, RawKey::MouseScrollDown).to_string(),
+
+            // Hover hints
+            capture_key_or_mouse_hover: get_raw_translation(lang, RawKey::CaptureKeyOrMouseHover)
+                .to_string(),
+            edit_key_button_hover: get_raw_translation(lang, RawKey::EditKeyButtonHover)
+                .to_string(),
+            set_mouse_scroll_direction_hover: get_raw_translation(
+                lang,
+                RawKey::SetMouseScrollDirectionHover,
+            )
+            .to_string(),
+            speed_label: get_raw_translation(lang, RawKey::SpeedLabel).to_string(),
         }
     }
 }
@@ -812,7 +857,6 @@ enum RawKey {
     HidActivationError,
     HidActivationRetry,
     HidActivationCancel,
-    MouseMoveSpeedLabel,
     MouseMoveDirectionLabel,
     MouseMoveUp,
     MouseMoveDown,
@@ -823,6 +867,13 @@ enum RawKey {
     MouseMoveDownLeft,
     MouseMoveDownRight,
     SetMouseDirectionHover,
+    MouseScrollDirectionLabel,
+    MouseScrollUp,
+    MouseScrollDown,
+    CaptureKeyOrMouseHover,
+    EditKeyButtonHover,
+    SetMouseScrollDirectionHover,
+    SpeedLabel,
 }
 
 /// Gets raw translation string without formatting.
@@ -1109,10 +1160,10 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::BrowseBtn) => "🗂  参照",
 
         // Settings Dialog - Action Buttons
-        (Language::English, RawKey::CancelSettingsBtn) => "❌  Cancel",
-        (Language::SimplifiedChinese, RawKey::CancelSettingsBtn) => "❌  取消",
-        (Language::TraditionalChinese, RawKey::CancelSettingsBtn) => "❌  取消",
-        (Language::Japanese, RawKey::CancelSettingsBtn) => "❌  キャンセル",
+        (Language::English, RawKey::CancelSettingsBtn) => "↩  Cancel",
+        (Language::SimplifiedChinese, RawKey::CancelSettingsBtn) => "↩  取消",
+        (Language::TraditionalChinese, RawKey::CancelSettingsBtn) => "↩  取消",
+        (Language::Japanese, RawKey::CancelSettingsBtn) => "↩  キャンセル",
 
         // Close Dialog
         (Language::English, RawKey::CancelCloseBtn) => "↩  Cancel",
@@ -1351,11 +1402,6 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::HidActivationCancel) => "✖ キャンセル",
 
         // Mouse Movement
-        (Language::English, RawKey::MouseMoveSpeedLabel) => "Move Speed:",
-        (Language::SimplifiedChinese, RawKey::MouseMoveSpeedLabel) => "移动速度:",
-        (Language::TraditionalChinese, RawKey::MouseMoveSpeedLabel) => "移動速度:",
-        (Language::Japanese, RawKey::MouseMoveSpeedLabel) => "移動速度:",
-
         (Language::English, RawKey::MouseMoveDirectionLabel) => "Direction:",
         (Language::SimplifiedChinese, RawKey::MouseMoveDirectionLabel) => "移动方向:",
         (Language::TraditionalChinese, RawKey::MouseMoveDirectionLabel) => "移動方向:",
@@ -1401,10 +1447,49 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::TraditionalChinese, RawKey::MouseMoveDownRight) => "↘ 右下",
         (Language::Japanese, RawKey::MouseMoveDownRight) => "↘ 右下",
 
-        (Language::English, RawKey::SetMouseDirectionHover) => "Set Direction",
-        (Language::SimplifiedChinese, RawKey::SetMouseDirectionHover) => "设置方向",
-        (Language::TraditionalChinese, RawKey::SetMouseDirectionHover) => "設定方向",
-        (Language::Japanese, RawKey::SetMouseDirectionHover) => "方向を設定",
+        (Language::English, RawKey::SetMouseDirectionHover) => "Set mouse movement direction",
+        (Language::SimplifiedChinese, RawKey::SetMouseDirectionHover) => "设置鼠标移动方向",
+        (Language::TraditionalChinese, RawKey::SetMouseDirectionHover) => "設定滑鼠移動方向",
+        (Language::Japanese, RawKey::SetMouseDirectionHover) => "マウス移動方向を設定",
+
+        // Mouse Scroll
+        (Language::English, RawKey::MouseScrollDirectionLabel) => "Scroll Direction",
+        (Language::SimplifiedChinese, RawKey::MouseScrollDirectionLabel) => "滚动方向",
+        (Language::TraditionalChinese, RawKey::MouseScrollDirectionLabel) => "滾動方向",
+        (Language::Japanese, RawKey::MouseScrollDirectionLabel) => "スクロール方向",
+
+        (Language::English, RawKey::MouseScrollUp) => "Scroll Up",
+        (Language::SimplifiedChinese, RawKey::MouseScrollUp) => "向上滚动",
+        (Language::TraditionalChinese, RawKey::MouseScrollUp) => "向上滾動",
+        (Language::Japanese, RawKey::MouseScrollUp) => "上にスクロール",
+
+        (Language::English, RawKey::MouseScrollDown) => "Scroll Down",
+        (Language::SimplifiedChinese, RawKey::MouseScrollDown) => "向下滚动",
+        (Language::TraditionalChinese, RawKey::MouseScrollDown) => "向下滾動",
+        (Language::Japanese, RawKey::MouseScrollDown) => "下にスクロール",
+
+        // Hover hints
+        (Language::English, RawKey::CaptureKeyOrMouseHover) => "Capture key or mouse button",
+        (Language::SimplifiedChinese, RawKey::CaptureKeyOrMouseHover) => "捕获键盘或鼠标按键",
+        (Language::TraditionalChinese, RawKey::CaptureKeyOrMouseHover) => "捕獲鍵盤或滑鼠按鍵",
+        (Language::Japanese, RawKey::CaptureKeyOrMouseHover) => {
+            "キーまたはマウスボタンをキャプチャ"
+        }
+
+        (Language::English, RawKey::EditKeyButtonHover) => "Edit key/button",
+        (Language::SimplifiedChinese, RawKey::EditKeyButtonHover) => "编辑按键",
+        (Language::TraditionalChinese, RawKey::EditKeyButtonHover) => "編輯按鍵",
+        (Language::Japanese, RawKey::EditKeyButtonHover) => "キー/ボタンを編集",
+
+        (Language::English, RawKey::SetMouseScrollDirectionHover) => "Set mouse scroll direction",
+        (Language::SimplifiedChinese, RawKey::SetMouseScrollDirectionHover) => "设置鼠标滚动方向",
+        (Language::TraditionalChinese, RawKey::SetMouseScrollDirectionHover) => "設定滑鼠滾動方向",
+        (Language::Japanese, RawKey::SetMouseScrollDirectionHover) => "マウススクロール方向を設定",
+
+        (Language::English, RawKey::SpeedLabel) => "Speed:",
+        (Language::SimplifiedChinese, RawKey::SpeedLabel) => "速度:",
+        (Language::TraditionalChinese, RawKey::SpeedLabel) => "速度:",
+        (Language::Japanese, RawKey::SpeedLabel) => "速度:",
     }
 }
 
@@ -1506,7 +1591,7 @@ mod tests {
         assert_eq!(translations.start_button(), "▶  Start");
         assert_eq!(translations.exit_button(), "✕  Exit");
         assert_eq!(translations.save(), "💾  Save Settings");
-        assert_eq!(translations.cancel(), "❌  Cancel");
+        assert_eq!(translations.cancel(), "↩  Cancel");
     }
 
     #[test]

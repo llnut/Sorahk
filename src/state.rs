@@ -43,6 +43,8 @@ use crate::config::AppConfig;
 /// Trait for dispatching input events to worker threads.
 pub trait EventDispatcher: Send + Sync {
     fn dispatch(&self, event: InputEvent);
+    /// Clear internal caches (called when configuration is reloaded)
+    fn clear_cache(&self);
 }
 
 /// Marker value to identify simulated keyboard events.
@@ -224,6 +226,13 @@ pub enum MouseMoveDirection {
     DownRight,
 }
 
+/// Mouse scroll direction
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MouseScrollDirection {
+    Up,
+    Down,
+}
+
 /// Output action type for input mapping.
 #[derive(Debug, Clone)]
 pub enum OutputAction {
@@ -233,6 +242,8 @@ pub enum OutputAction {
     MouseButton(MouseButton),
     /// Mouse movement output (direction, speed in pixels per move)
     MouseMove(MouseMoveDirection, i32),
+    /// Mouse scroll output (direction, wheel delta)
+    MouseScroll(MouseScrollDirection, i32),
     /// Key combination output (modifier scancodes + main key scancode)
     /// Format: [modifier1_scancode, modifier2_scancode, ..., main_key_scancode]
     /// Using Arc to avoid cloning on every key repeat
@@ -490,6 +501,11 @@ impl AppState {
         // Clear pressed keys and active combos (lock-free concurrent structures)
         self.pressed_keys.clear_sync();
         self.active_combo_triggers.clear_sync();
+
+        // Clear worker pool caches (mouse action cache, etc.)
+        if let Some(pool) = self.worker_pool.get() {
+            pool.clear_cache();
+        }
 
         Ok(())
     }
@@ -991,6 +1007,31 @@ impl AppState {
 
                     SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
                 }
+                OutputAction::MouseScroll(direction, speed) => {
+                    use windows::Win32::UI::Input::KeyboardAndMouse::*;
+
+                    // Direct speed control without multiplier
+                    let wheel_delta = match direction {
+                        MouseScrollDirection::Up => speed,
+                        MouseScrollDirection::Down => -speed,
+                    };
+
+                    let input = INPUT {
+                        r#type: INPUT_MOUSE,
+                        Anonymous: INPUT_0 {
+                            mi: MOUSEINPUT {
+                                dx: 0,
+                                dy: 0,
+                                mouseData: wheel_delta as u32,
+                                dwFlags: MOUSEEVENTF_WHEEL,
+                                time: 0,
+                                dwExtraInfo: SIMULATED_EVENT_MARKER,
+                            },
+                        },
+                    };
+
+                    SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+                }
                 OutputAction::KeyCombo(scancodes) => {
                     // Press all keys in sequence (modifiers first, then main key)
                     for &scancode in scancodes.iter() {
@@ -1089,6 +1130,9 @@ impl AppState {
                 OutputAction::MouseMove(_, _) => {
                     // Mouse movement doesn't have press/release states
                 }
+                OutputAction::MouseScroll(_, _) => {
+                    // Mouse scroll doesn't have press/release states
+                }
                 OutputAction::KeyCombo(scancodes) => {
                     for &scancode in scancodes.iter() {
                         let input = INPUT {
@@ -1163,6 +1207,9 @@ impl AppState {
                 }
                 OutputAction::MouseMove(_, _) => {
                     // Mouse movement doesn't have press/release states
+                }
+                OutputAction::MouseScroll(_, _) => {
+                    // Mouse scroll doesn't have press/release states
                 }
                 OutputAction::KeyCombo(scancodes) => {
                     for &scancode in scancodes.iter().rev() {
@@ -1505,10 +1552,13 @@ impl AppState {
                 .max(2);
             let move_speed = mapping.move_speed.max(1);
 
-            // Update MouseMove action with configured speed
+            // Update MouseMove and MouseScroll actions with configured speed
             let target_action = match target_action {
                 OutputAction::MouseMove(direction, _) => {
                     OutputAction::MouseMove(direction, move_speed)
+                }
+                OutputAction::MouseScroll(direction, _) => {
+                    OutputAction::MouseScroll(direction, move_speed)
                 }
                 other => other,
             };
@@ -1797,6 +1847,11 @@ impl AppState {
     fn input_name_to_output(name: &str) -> Option<OutputAction> {
         let name_upper = name.to_uppercase();
 
+        // Try mouse scroll
+        if let Some(direction) = Self::mouse_scroll_name_to_direction(&name_upper) {
+            return Some(OutputAction::MouseScroll(direction, 1)); // Default speed, will be overridden by move_speed
+        }
+
         // Try mouse movement
         if let Some(direction) = Self::mouse_move_name_to_direction(&name_upper) {
             return Some(OutputAction::MouseMove(direction, 10)); // Default speed, will be overridden by move_speed
@@ -1847,6 +1902,17 @@ impl AppState {
         }
 
         None
+    }
+
+    /// Parse mouse scroll name to MouseScrollDirection
+    fn mouse_scroll_name_to_direction(name: &str) -> Option<MouseScrollDirection> {
+        match name {
+            "SCROLL_UP" | "SCROLLUP" | "WHEEL_UP" | "WHEELUP" => Some(MouseScrollDirection::Up),
+            "SCROLL_DOWN" | "SCROLLDOWN" | "WHEEL_DOWN" | "WHEELDOWN" => {
+                Some(MouseScrollDirection::Down)
+            }
+            _ => None,
+        }
     }
 
     /// Parse mouse movement name to MouseMoveDirection

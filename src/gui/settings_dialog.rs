@@ -55,6 +55,22 @@ fn is_mouse_move_target(target: &str) -> bool {
     )
 }
 
+/// Check if target key is a mouse scroll action.
+fn is_mouse_scroll_target(target: &str) -> bool {
+    let upper = target.to_uppercase();
+    matches!(
+        upper.as_str(),
+        "SCROLL_UP"
+            | "SCROLLUP"
+            | "WHEEL_UP"
+            | "WHEELUP"
+            | "SCROLL_DOWN"
+            | "SCROLLDOWN"
+            | "WHEEL_DOWN"
+            | "WHEELDOWN"
+    )
+}
+
 impl SorahkGui {
     /// Renders the settings dialog for configuration management.
     pub(super) fn render_settings_dialog(&mut self, ctx: &egui::Context) {
@@ -642,12 +658,38 @@ impl SorahkGui {
                                                             Self::poll_all_pressed_keys();
                                                     }
 
-                                                    // Check if this mapping is for mouse movement
+                                                    // Check if this mapping is for mouse movement or scroll
                                                     let is_mouse_move_mapping = is_mouse_move_target(&mapping.target_key);
+                                                    let is_mouse_scroll_mapping = is_mouse_scroll_target(&mapping.target_key);
 
-                                                    if is_mouse_move_mapping {
-                                                        // Show move speed for mouse movement
-                                                        ui.label(t.mouse_move_speed_label());
+                                                    if is_mouse_move_mapping || is_mouse_scroll_mapping {
+                                                        // Show interval and speed for mouse movement/scroll
+                                                        ui.label(t.interval_short());
+                                                        let mut interval_str = mapping
+                                                            .interval
+                                                            .unwrap_or(temp_config.interval)
+                                                            .to_string();
+
+                                                        let interval_edit = egui::TextEdit::singleline(
+                                                            &mut interval_str,
+                                                        )
+                                                        .background_color(if self.dark_mode {
+                                                            egui::Color32::from_rgb(50, 50, 50)
+                                                        } else {
+                                                            egui::Color32::from_rgb(220, 220, 220)
+                                                        })
+                                                        .desired_width(45.0)
+                                                        .font(egui::TextStyle::Button);
+
+                                                        if ui
+                                                            .add_sized([45.0, 24.0], interval_edit)
+                                                            .changed()
+                                                            && let Ok(val) = interval_str.parse::<u64>()
+                                                        {
+                                                            mapping.interval = Some(val.max(5));
+                                                        }
+
+                                                        ui.label(t.speed_label());
                                                         let mut speed_str = mapping
                                                             .move_speed
                                                             .to_string();
@@ -663,12 +705,13 @@ impl SorahkGui {
                                                         .desired_width(45.0)
                                                         .font(egui::TextStyle::Button);
 
+                                                        let max_val = if is_mouse_scroll_mapping { 1200 } else { 100 };
                                                         if ui
-                                                            .add_sized([75.0, 24.0], speed_edit)
+                                                            .add_sized([45.0, 24.0], speed_edit)
                                                             .changed()
                                                             && let Ok(val) = speed_str.parse::<i32>()
                                                         {
-                                                            mapping.move_speed = val.clamp(1, 100);
+                                                            mapping.move_speed = val.clamp(1, max_val);
                                                         }
                                                     } else {
                                                         // Show interval and duration for regular keys
@@ -723,9 +766,36 @@ impl SorahkGui {
                                                         }
                                                     }
 
-                                                    // Mouse direction selector button
-                                                    let mouse_btn = egui::Button::new(
-                                                        egui::RichText::new("🖱")
+                                                    // Target type selector buttons
+                                                    let button_height = 24.0;
+                                                    let button_width = 32.0;
+
+                                                    // Button 1: Edit with capture
+                                                    let edit_btn = egui::Button::new(
+                                                        egui::RichText::new("✏")
+                                                            .color(egui::Color32::WHITE)
+                                                            .size(16.0),
+                                                    )
+                                                    .fill(if self.dark_mode {
+                                                        egui::Color32::from_rgb(147, 197, 253) // Sky blue
+                                                    } else {
+                                                        egui::Color32::from_rgb(96, 165, 250)
+                                                    })
+                                                    .corner_radius(12.0);
+
+                                                    if ui
+                                                        .add_sized([button_width, button_height], edit_btn)
+                                                        .on_hover_text(t.edit_key_button_hover())
+                                                        .clicked()
+                                                    {
+                                                        self.key_capture_mode = KeyCaptureMode::MappingTarget(idx);
+                                                        self.capture_pressed_keys.clear();
+                                                        self.capture_initial_pressed = Self::poll_all_pressed_keys();
+                                                    }
+
+                                                    // Button 2: Mouse movement direction
+                                                    let move_btn = egui::Button::new(
+                                                        egui::RichText::new("⌖")
                                                             .color(egui::Color32::WHITE)
                                                             .size(16.0),
                                                     )
@@ -737,7 +807,7 @@ impl SorahkGui {
                                                     .corner_radius(12.0);
 
                                                     if ui
-                                                        .add_sized([32.0, 24.0], mouse_btn)
+                                                        .add_sized([button_width, button_height], move_btn)
                                                         .on_hover_text(t.set_mouse_direction_hover())
                                                         .clicked()
                                                     {
@@ -745,6 +815,26 @@ impl SorahkGui {
                                                             crate::gui::mouse_direction_dialog::MouseDirectionDialog::new(),
                                                         );
                                                         self.mouse_direction_mapping_idx = Some(idx);
+                                                    }
+
+                                                    // Button 3: Mouse scroll direction
+                                                    let scroll_btn = egui::Button::new(
+                                                        egui::RichText::new("🎡")
+                                                            .color(egui::Color32::WHITE)
+                                                            .size(16.0),
+                                                    )
+                                    .fill(egui::Color32::from_rgb(134, 239, 172)) // Soft mint
+                                                    .corner_radius(12.0);
+
+                                                    if ui
+                                                        .add_sized([button_width, button_height], scroll_btn)
+                                                        .on_hover_text(t.set_mouse_scroll_direction_hover())
+                                                        .clicked()
+                                                    {
+                                                        self.mouse_scroll_dialog = Some(
+                                                            crate::gui::mouse_scroll_dialog::MouseScrollDialog::new(),
+                                                        );
+                                                        self.mouse_scroll_mapping_idx = Some(idx);
                                                     }
 
                                                     // Turbo toggle
@@ -791,8 +881,8 @@ impl SorahkGui {
                                                         egui::RichText::new("🗑")
                                                             .color(egui::Color32::WHITE),
                                                     )
-                                                    .fill(egui::Color32::from_rgb(255, 182, 193)) // Soft pink (anime style)
-                                                    .corner_radius(10.0); // Larger rounding for anime style
+                                                    .fill(egui::Color32::from_rgb(255, 182, 193)) // Soft pink
+                                                    .corner_radius(10.0);
 
                                                     if ui
                                                         .add_sized([32.0, 24.0], delete_btn)
@@ -941,12 +1031,28 @@ impl SorahkGui {
                                                         Self::poll_all_pressed_keys();
                                                 }
 
-                                                // Check if target is mouse movement
+                                                // Check if target is mouse movement or scroll
                                                 let is_mouse_move = is_mouse_move_target(&self.new_mapping_target);
+                                                let is_mouse_scroll = is_mouse_scroll_target(&self.new_mapping_target);
 
-                                                if is_mouse_move {
-                                                    // Show move speed for mouse movement
-                                                    ui.label(t.mouse_move_speed_label());
+                                                if is_mouse_move || is_mouse_scroll {
+                                                    // Show interval and speed for mouse movement/scroll
+                                                    ui.label(t.interval_short());
+                                                    let interval_edit = egui::TextEdit::singleline(
+                                                        &mut self.new_mapping_interval,
+                                                    )
+                                                    .background_color(if self.dark_mode {
+                                                        egui::Color32::from_rgb(50, 50, 50)
+                                                    } else {
+                                                        egui::Color32::from_rgb(220, 220, 220)
+                                                    })
+                                                    .hint_text("5")
+                                                    .desired_width(45.0)
+                                                    .font(egui::TextStyle::Button);
+                                                    ui.add_sized([45.0, 24.0], interval_edit);
+
+                                                    ui.label(t.speed_label());
+                                                    let hint = if is_mouse_scroll { "120" } else { "10" };
                                                     let speed_edit = egui::TextEdit::singleline(
                                                         &mut self.new_mapping_move_speed,
                                                     )
@@ -955,7 +1061,7 @@ impl SorahkGui {
                                                     } else {
                                                         egui::Color32::from_rgb(220, 220, 220)
                                                     })
-                                                    .hint_text("10")
+                                                    .hint_text(hint)
                                                     .desired_width(45.0)
                                                     .font(egui::TextStyle::Button);
                                                     ui.add_sized([45.0, 24.0], speed_edit);
@@ -990,9 +1096,37 @@ impl SorahkGui {
                                                     ui.add_sized([45.0, 24.0], duration_edit);
                                                 }
 
-                                                // Mouse direction selector button for new mapping
-                                                let new_mouse_btn = egui::Button::new(
-                                                    egui::RichText::new("🖱")
+                                                // Target type selector buttons
+                                                let button_height = 24.0;
+                                                let button_width = 32.0;
+
+                                                // Button 1: Keyboard/Mouse button capture
+                                                let key_btn = egui::Button::new(
+                                                    egui::RichText::new("⌨")
+                                                        .color(egui::Color32::WHITE)
+                                                        .size(16.0),
+                                                )
+                                                .fill(if self.dark_mode {
+                                                    egui::Color32::from_rgb(147, 197, 253) // Sky blue
+                                                } else {
+                                                    egui::Color32::from_rgb(96, 165, 250)
+                                                })
+                                                .corner_radius(12.0);
+
+                                                if ui
+                                                    .add_sized([button_width, button_height], key_btn)
+                                                    .on_hover_text(t.capture_key_or_mouse_hover())
+                                                    .clicked()
+                                                {
+                                                    self.key_capture_mode = KeyCaptureMode::NewMappingTarget;
+                                                    self.capture_pressed_keys.clear();
+                                                    self.capture_initial_pressed = Self::poll_all_pressed_keys();
+                                                    self.just_captured_input = true;
+                                                }
+
+                                                // Button 2: Mouse movement direction
+                                                let move_btn = egui::Button::new(
+                                                    egui::RichText::new("⌖")
                                                         .color(egui::Color32::WHITE)
                                                         .size(16.0),
                                                 )
@@ -1004,7 +1138,7 @@ impl SorahkGui {
                                                 .corner_radius(12.0);
 
                                                 if ui
-                                                    .add_sized([32.0, 24.0], new_mouse_btn)
+                                                    .add_sized([button_width, button_height], move_btn)
                                                     .on_hover_text(t.set_mouse_direction_hover())
                                                     .clicked()
                                                 {
@@ -1012,6 +1146,26 @@ impl SorahkGui {
                                                         crate::gui::mouse_direction_dialog::MouseDirectionDialog::new(),
                                                     );
                                                     self.mouse_direction_mapping_idx = None;
+                                                }
+
+                                                // Button 3: Mouse scroll direction
+                                                let scroll_btn = egui::Button::new(
+                                                    egui::RichText::new("🎡")
+                                                        .color(egui::Color32::WHITE)
+                                                        .size(16.0),
+                                                )
+                                    .fill(egui::Color32::from_rgb(134, 239, 172)) // Soft mint
+                                                .corner_radius(12.0);
+
+                                                if ui
+                                                    .add_sized([button_width, button_height], scroll_btn)
+                                                    .on_hover_text(t.set_mouse_scroll_direction_hover())
+                                                    .clicked()
+                                                {
+                                                    self.mouse_scroll_dialog = Some(
+                                                        crate::gui::mouse_scroll_dialog::MouseScrollDialog::new(),
+                                                    );
+                                                    self.mouse_scroll_mapping_idx = None;
                                                 }
 
                                                 // Turbo toggle for new mapping
@@ -1060,8 +1214,8 @@ impl SorahkGui {
                                                         .color(egui::Color32::WHITE)
                                                         .strong(),
                                                 )
-                                                .fill(egui::Color32::from_rgb(144, 238, 144)) // Soft green (anime style)
-                                                .corner_radius(10.0); // Larger rounding for anime style
+                                                .fill(egui::Color32::from_rgb(144, 238, 144)) // Soft green
+                                                .corner_radius(10.0);
 
                                                 if ui.add_sized([70.0, 24.0], add_btn).clicked()
                                                     && !self.new_mapping_trigger.is_empty()
@@ -1356,8 +1510,8 @@ impl SorahkGui {
                                     .color(egui::Color32::WHITE)
                                     .strong(),
                             )
-                            .fill(egui::Color32::from_rgb(144, 238, 144)) // Soft green (anime style)
-                            .corner_radius(15.0); // Larger rounding for anime style
+                            .fill(egui::Color32::from_rgb(144, 238, 144)) // Soft green
+                            .corner_radius(15.0);
 
                             if ui.add_sized([button_width, 32.0], save_btn).clicked() {
                                 should_save = true;
@@ -1371,8 +1525,8 @@ impl SorahkGui {
                                     .color(egui::Color32::WHITE)
                                     .strong(),
                             )
-                            .fill(egui::Color32::from_rgb(255, 182, 193)) // Soft pink (anime style)
-                            .corner_radius(15.0); // Larger rounding for anime style
+                            .fill(egui::Color32::from_rgb(255, 182, 193)) // Soft pink
+                            .corner_radius(15.0);
 
                             if ui.add_sized([button_width, 32.0], cancel_btn).clicked() {
                                 should_cancel = true;

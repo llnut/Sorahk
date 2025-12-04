@@ -243,7 +243,7 @@ impl MouseDirectionDialog {
                         .add_sized(
                             [180.0, 32.0],
                             egui::Button::new(
-                                egui::RichText::new(t.error_close_button())
+                                egui::RichText::new(t.cancel_close_button())
                                     .size(14.0)
                                     .color(egui::Color32::WHITE),
                             )
@@ -264,6 +264,7 @@ impl MouseDirectionDialog {
 }
 
 /// Renders a direction button with consistent styling
+#[allow(clippy::too_many_arguments)]
 fn render_direction_button(
     ui: &mut egui::Ui,
     icon: &str,

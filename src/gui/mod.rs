@@ -9,6 +9,7 @@ mod fonts;
 mod hid_activation_dialog;
 mod main_window;
 mod mouse_direction_dialog;
+mod mouse_scroll_dialog;
 mod settings_dialog;
 mod types;
 mod utils;
@@ -44,8 +45,12 @@ pub struct SorahkGui {
     hid_activation_creation_time: Option<std::time::Instant>,
     /// Mouse direction selection dialog
     mouse_direction_dialog: Option<mouse_direction_dialog::MouseDirectionDialog>,
+    /// Mouse scroll selection dialog
+    mouse_scroll_dialog: Option<mouse_scroll_dialog::MouseScrollDialog>,
     /// Index of mapping being edited for mouse direction (None for new mapping)
     mouse_direction_mapping_idx: Option<usize>,
+    /// Index of mapping being edited for mouse scroll (None for new mapping)
+    mouse_scroll_mapping_idx: Option<usize>,
     /// Whether to minimize to tray on close
     minimize_on_close: bool,
     /// Current theme mode
@@ -106,7 +111,9 @@ impl SorahkGui {
             hid_activation_dialog: None,
             hid_activation_creation_time: None,
             mouse_direction_dialog: None,
+            mouse_scroll_dialog: None,
             mouse_direction_mapping_idx: None,
+            mouse_scroll_mapping_idx: None,
             minimize_on_close: true,
             dialog_highlight_until: None,
             dark_mode,

@@ -67,7 +67,7 @@ tests/
 | Module | Primary Focus |
 |--------|---------------|
 | **config.rs** | Configuration loading, saving, validation, error handling, TOML serialization |
-| **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings (keyboard, mouse, HID devices), combo key parsing (including numpad and OEM keys), device type parsing (gamepad, joystick), state management, thread safety, atomic operations, lock-free concurrent data structures |
+| **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings (keyboard, mouse, HID devices), combo key parsing (including numpad and OEM keys), device type parsing (gamepad, joystick), mouse scroll direction parsing, output action handling (keyboard, mouse buttons, mouse movement, mouse scroll), state management, thread safety, atomic operations, lock-free concurrent data structures |
 | **i18n.rs** | Multi-language translations, formatting functions, translation completeness |
 | **keyboard.rs** | Worker pool creation, worker distribution stability, mapping cache retrieval |
 | **mouse.rs** | Mouse button handling, message parsing, event processing |
