@@ -9,6 +9,8 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
+use smallvec::SmallVec;
+
 /// Branch prediction hints
 #[inline(always)]
 #[cold]
@@ -196,6 +198,67 @@ pub enum DeviceType {
     HidDevice { usage_page: u16, usage: u16 },
 }
 
+/// HID input capture mode strategy.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
+)]
+pub enum CaptureMode {
+    /// Captures the most sustained input pattern (default)
+    #[default]
+    MostSustained,
+    /// Adaptive scoring based on encoding type detection
+    AdaptiveIntelligent,
+    /// Selects pattern with most changed bits
+    MaxChangedBits,
+    /// Selects pattern with most set bits
+    MaxSetBits,
+    /// Selects the last stable frame
+    LastStable,
+    /// For Hat Switch devices (prioritizes numeric value)
+    HatSwitchOptimized,
+    /// For analog devices (prioritizes deviation magnitude)
+    AnalogOptimized,
+}
+
+impl CaptureMode {
+    pub fn all_modes() -> &'static [CaptureMode] {
+        &[
+            CaptureMode::MostSustained,
+            CaptureMode::AdaptiveIntelligent,
+            CaptureMode::MaxChangedBits,
+            CaptureMode::MaxSetBits,
+            CaptureMode::LastStable,
+            CaptureMode::HatSwitchOptimized,
+            CaptureMode::AnalogOptimized,
+        ]
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "MostSustained" => Self::MostSustained,
+            "AdaptiveIntelligent" => Self::AdaptiveIntelligent,
+            "MaxChangedBits" => Self::MaxChangedBits,
+            "MaxSetBits" => Self::MaxSetBits,
+            "LastStable" => Self::LastStable,
+            "HatSwitchOptimized" => Self::HatSwitchOptimized,
+            "AnalogOptimized" => Self::AnalogOptimized,
+            _ => Self::default(),
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::MostSustained => "MostSustained",
+            Self::AdaptiveIntelligent => "AdaptiveIntelligent",
+            Self::MaxChangedBits => "MaxChangedBits",
+            Self::MaxSetBits => "MaxSetBits",
+            Self::LastStable => "LastStable",
+            Self::HatSwitchOptimized => "HatSwitchOptimized",
+            Self::AnalogOptimized => "AnalogOptimized",
+        }
+    }
+}
+
 /// Mouse button types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MouseButton {
@@ -248,6 +311,9 @@ pub enum OutputAction {
     /// Format: [modifier1_scancode, modifier2_scancode, ..., main_key_scancode]
     /// Using Arc to avoid cloning on every key repeat
     KeyCombo(Arc<[u16]>),
+    /// Multiple simultaneous actions for handling combined inputs
+    /// Uses SmallVec with inline capacity of 4 to reduce allocations
+    MultipleActions(Arc<SmallVec<[OutputAction; 4]>>),
 }
 
 /// Configuration for a single input mapping.
@@ -316,6 +382,8 @@ pub struct AppState {
     raw_input_capture_receiver: Mutex<Receiver<InputDevice>>,
     /// Flag indicating GUI is in capture mode for Raw Input
     is_capturing_raw_input: AtomicBool,
+    /// HID input capture mode strategy
+    capture_mode: RwLock<CaptureMode>,
     /// HID device activation request sender
     hid_activation_sender: Sender<(isize, String)>,
     /// HID device activation request receiver
@@ -410,6 +478,7 @@ impl AppState {
             raw_input_capture_sender,
             raw_input_capture_receiver: Mutex::new(raw_input_capture_receiver),
             is_capturing_raw_input: AtomicBool::new(false),
+            capture_mode: RwLock::new(CaptureMode::from_str(&config.capture_mode)),
             hid_activation_sender,
             hid_activation_receiver: Mutex::new(hid_activation_receiver),
             hid_activation_data_sender,
@@ -439,6 +508,9 @@ impl AppState {
         // Update input timeout
         self.input_timeout
             .store(config.input_timeout, Ordering::Relaxed);
+
+        // Update capture mode
+        *self.capture_mode.write().unwrap() = CaptureMode::from_str(&config.capture_mode);
 
         // Update mappings (lock-free concurrent HashMap)
         let new_input_mappings = Self::create_input_mappings(&config)?;
@@ -525,6 +597,16 @@ impl AppState {
         &self.raw_input_capture_sender
     }
 
+    /// Gets the current HID input capture mode.
+    pub fn get_capture_mode(&self) -> CaptureMode {
+        *self.capture_mode.read().unwrap()
+    }
+
+    /// Sets the HID input capture mode.
+    pub fn set_capture_mode(&self, mode: CaptureMode) {
+        *self.capture_mode.write().unwrap() = mode;
+    }
+
     /// Tries to receive a captured Raw Input event (non-blocking).
     pub fn try_recv_raw_input_capture(&self) -> Option<InputDevice> {
         if let Ok(receiver) = self.raw_input_capture_receiver.lock() {
@@ -569,9 +651,9 @@ impl AppState {
             .send((device_handle, device_name));
     }
 
-    /// Polls for HID device activation requests (non-blocking).
-    pub fn poll_hid_activation_requests(&self) -> Vec<(isize, String)> {
-        let mut requests = Vec::new();
+    /// Polls for HID device activation requests
+    pub fn poll_hid_activation_requests(&self) -> SmallVec<[(isize, String); 2]> {
+        let mut requests = SmallVec::new();
         if let Ok(receiver) = self.hid_activation_receiver.lock() {
             while let Ok(req) = receiver.try_recv() {
                 requests.push(req);
@@ -850,31 +932,26 @@ impl AppState {
 
     /// Remove combos that no longer have all their keys pressed
     /// Returns vec of combos that were removed
-    fn cleanup_released_combos(&self) -> Vec<InputDevice> {
-        // Create snapshot of currently pressed keys
-        let mut pressed_snapshot: std::collections::HashSet<u32> =
-            std::collections::HashSet::with_capacity(16);
-        self.pressed_keys.iter_sync(|key| {
-            pressed_snapshot.insert(*key);
+    fn cleanup_released_combos(&self) -> SmallVec<[InputDevice; 4]> {
+        let mut pressed: SmallVec<[u32; 8]> = SmallVec::new();
+        self.pressed_keys.iter_sync(|&k| {
+            pressed.push(k);
             true
         });
 
-        let mut removed = Vec::new();
+        let mut to_remove: SmallVec<[InputDevice; 4]> = SmallVec::new();
 
-        // Collect combos to remove
-        let mut to_remove = Vec::new();
-        self.active_combo_triggers
-            .iter_sync(|combo_device, _modifiers| {
-                if let InputDevice::KeyCombo(keys) = combo_device {
-                    let all_pressed = keys.iter().all(|&k| pressed_snapshot.contains(&k));
-                    if !all_pressed {
-                        to_remove.push(combo_device.clone());
-                    }
+        self.active_combo_triggers.iter_sync(|combo_device, _| {
+            if let InputDevice::KeyCombo(keys) = combo_device {
+                // Fast linear scan — optimal for small N
+                if !keys.iter().all(|&k| pressed.contains(&k)) {
+                    to_remove.push(combo_device.clone());
                 }
-                true
-            });
+            }
+            true
+        });
 
-        // Remove them and collect to return
+        let mut removed = SmallVec::new();
         for combo in to_remove {
             if self.active_combo_triggers.remove_sync(&combo).is_some() {
                 removed.push(combo);
@@ -1073,6 +1150,24 @@ impl AppState {
                         std::thread::sleep(std::time::Duration::from_millis(1));
                     }
                 }
+                OutputAction::MultipleActions(actions) => {
+                    // Collect press events for batch processing
+                    let mut press_inputs: SmallVec<[INPUT; 8]> = SmallVec::new();
+                    self.collect_press_inputs(&actions, &mut press_inputs);
+                    if !press_inputs.is_empty() {
+                        SendInput(&press_inputs, std::mem::size_of::<INPUT>() as i32);
+                    }
+
+                    // Hold duration
+                    std::thread::sleep(std::time::Duration::from_millis(duration));
+
+                    // Collect release events for batch processing
+                    let mut release_inputs: SmallVec<[INPUT; 8]> = SmallVec::new();
+                    self.collect_release_inputs(&actions, &mut release_inputs);
+                    if !release_inputs.is_empty() {
+                        SendInput(&release_inputs, std::mem::size_of::<INPUT>() as i32);
+                    }
+                }
             }
         }
     }
@@ -1149,6 +1244,14 @@ impl AppState {
                         };
                         SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
                         std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                }
+                OutputAction::MultipleActions(actions) => {
+                    // Collect and send all press events in a single call
+                    let mut inputs: SmallVec<[INPUT; 8]> = SmallVec::new();
+                    self.collect_press_inputs(actions, &mut inputs);
+                    if !inputs.is_empty() {
+                        SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
                     }
                 }
             }
@@ -1228,6 +1331,172 @@ impl AppState {
                         SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
                         std::thread::sleep(std::time::Duration::from_millis(1));
                     }
+                }
+                OutputAction::MultipleActions(actions) => {
+                    // Collect and send all release events in a single call
+                    let mut inputs: SmallVec<[INPUT; 8]> = SmallVec::new();
+                    self.collect_release_inputs(actions, &mut inputs);
+                    if !inputs.is_empty() {
+                        SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Collects press INPUT events from actions into a buffer
+    fn collect_press_inputs(
+        &self,
+        actions: &SmallVec<[OutputAction; 4]>,
+        inputs: &mut SmallVec<[INPUT; 8]>,
+    ) {
+        for action in actions.iter() {
+            match action {
+                OutputAction::KeyboardKey(scancode) => {
+                    inputs.push(INPUT {
+                        r#type: INPUT_KEYBOARD,
+                        Anonymous: INPUT_0 {
+                            ki: KEYBDINPUT {
+                                wVk: VIRTUAL_KEY(0),
+                                wScan: *scancode,
+                                dwFlags: KEYEVENTF_SCANCODE,
+                                time: 0,
+                                dwExtraInfo: SIMULATED_EVENT_MARKER,
+                            },
+                        },
+                    });
+                }
+                OutputAction::MouseButton(button) => {
+                    use windows::Win32::UI::Input::KeyboardAndMouse::*;
+
+                    let down_flag = match button {
+                        MouseButton::Left => MOUSEEVENTF_LEFTDOWN,
+                        MouseButton::Right => MOUSEEVENTF_RIGHTDOWN,
+                        MouseButton::Middle => MOUSEEVENTF_MIDDLEDOWN,
+                        MouseButton::X1 | MouseButton::X2 => MOUSEEVENTF_XDOWN,
+                    };
+
+                    let mouse_data = match button {
+                        MouseButton::X1 => 1,
+                        MouseButton::X2 => 2,
+                        _ => 0,
+                    };
+
+                    inputs.push(INPUT {
+                        r#type: INPUT_MOUSE,
+                        Anonymous: INPUT_0 {
+                            mi: MOUSEINPUT {
+                                dx: 0,
+                                dy: 0,
+                                mouseData: mouse_data,
+                                dwFlags: down_flag,
+                                time: 0,
+                                dwExtraInfo: SIMULATED_EVENT_MARKER,
+                            },
+                        },
+                    });
+                }
+                OutputAction::KeyCombo(scancodes) => {
+                    for &scancode in scancodes.iter() {
+                        inputs.push(INPUT {
+                            r#type: INPUT_KEYBOARD,
+                            Anonymous: INPUT_0 {
+                                ki: KEYBDINPUT {
+                                    wVk: VIRTUAL_KEY(0),
+                                    wScan: scancode,
+                                    dwFlags: KEYEVENTF_SCANCODE,
+                                    time: 0,
+                                    dwExtraInfo: SIMULATED_EVENT_MARKER,
+                                },
+                            },
+                        });
+                    }
+                }
+                OutputAction::MultipleActions(nested_actions) => {
+                    // Recursively collect nested actions
+                    self.collect_press_inputs(nested_actions, inputs);
+                }
+                OutputAction::MouseMove(_, _) | OutputAction::MouseScroll(_, _) => {
+                    // Skip actions without press state
+                }
+            }
+        }
+    }
+
+    /// Collects release INPUT events from actions into a buffer
+    fn collect_release_inputs(
+        &self,
+        actions: &SmallVec<[OutputAction; 4]>,
+        inputs: &mut SmallVec<[INPUT; 8]>,
+    ) {
+        for action in actions.iter() {
+            match action {
+                OutputAction::KeyboardKey(scancode) => {
+                    inputs.push(INPUT {
+                        r#type: INPUT_KEYBOARD,
+                        Anonymous: INPUT_0 {
+                            ki: KEYBDINPUT {
+                                wVk: VIRTUAL_KEY(0),
+                                wScan: *scancode,
+                                dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                                time: 0,
+                                dwExtraInfo: SIMULATED_EVENT_MARKER,
+                            },
+                        },
+                    });
+                }
+                OutputAction::MouseButton(button) => {
+                    use windows::Win32::UI::Input::KeyboardAndMouse::*;
+
+                    let up_flag = match button {
+                        MouseButton::Left => MOUSEEVENTF_LEFTUP,
+                        MouseButton::Right => MOUSEEVENTF_RIGHTUP,
+                        MouseButton::Middle => MOUSEEVENTF_MIDDLEUP,
+                        MouseButton::X1 | MouseButton::X2 => MOUSEEVENTF_XUP,
+                    };
+
+                    let mouse_data = match button {
+                        MouseButton::X1 => 1,
+                        MouseButton::X2 => 2,
+                        _ => 0,
+                    };
+
+                    inputs.push(INPUT {
+                        r#type: INPUT_MOUSE,
+                        Anonymous: INPUT_0 {
+                            mi: MOUSEINPUT {
+                                dx: 0,
+                                dy: 0,
+                                mouseData: mouse_data,
+                                dwFlags: up_flag,
+                                time: 0,
+                                dwExtraInfo: SIMULATED_EVENT_MARKER,
+                            },
+                        },
+                    });
+                }
+                OutputAction::KeyCombo(scancodes) => {
+                    for &scancode in scancodes.iter().rev() {
+                        inputs.push(INPUT {
+                            r#type: INPUT_KEYBOARD,
+                            Anonymous: INPUT_0 {
+                                ki: KEYBDINPUT {
+                                    wVk: VIRTUAL_KEY(0),
+                                    wScan: scancode,
+                                    dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                                    time: 0,
+                                    dwExtraInfo: SIMULATED_EVENT_MARKER,
+                                },
+                            },
+                        });
+                    }
+                }
+                OutputAction::MultipleActions(nested_actions) => {
+                    // Recursively collect nested actions
+                    self.collect_release_inputs(nested_actions, inputs);
+                }
+                OutputAction::MouseMove(_, _) | OutputAction::MouseScroll(_, _) => {
+                    // Skip actions without release state
                 }
             }
         }
@@ -1542,8 +1811,10 @@ impl AppState {
             let trigger_device = Self::input_name_to_device(&mapping.trigger_key)
                 .ok_or_else(|| anyhow::anyhow!("Invalid trigger input: {}", mapping.trigger_key))?;
 
-            let target_action = Self::input_name_to_output(&mapping.target_key)
-                .ok_or_else(|| anyhow::anyhow!("Invalid target input: {}", mapping.target_key))?;
+            let target_keys = mapping.get_target_keys();
+            if target_keys.is_empty() {
+                continue; // Skip mappings without target keys
+            }
 
             let interval = mapping.interval.unwrap_or(config.interval).max(5);
             let event_duration = mapping
@@ -1552,15 +1823,35 @@ impl AppState {
                 .max(2);
             let move_speed = mapping.move_speed.max(1);
 
-            // Update MouseMove and MouseScroll actions with configured speed
-            let target_action = match target_action {
-                OutputAction::MouseMove(direction, _) => {
-                    OutputAction::MouseMove(direction, move_speed)
+            // Parse target keys into output actions
+            let mut actions: SmallVec<[OutputAction; 4]> = SmallVec::new();
+            for target_key in target_keys {
+                if let Some(action) = Self::input_name_to_output(target_key) {
+                    // Update MouseMove and MouseScroll actions with configured speed
+                    let action = match action {
+                        OutputAction::MouseMove(direction, _) => {
+                            OutputAction::MouseMove(direction, move_speed)
+                        }
+                        OutputAction::MouseScroll(direction, _) => {
+                            OutputAction::MouseScroll(direction, move_speed)
+                        }
+                        other => other,
+                    };
+                    actions.push(action);
+                } else {
+                    return Err(anyhow::anyhow!("Invalid target input: {}", target_key));
                 }
-                OutputAction::MouseScroll(direction, _) => {
-                    OutputAction::MouseScroll(direction, move_speed)
-                }
-                other => other,
+            }
+
+            if actions.is_empty() {
+                continue; // Skip if no valid actions
+            }
+
+            // Create the final target action
+            let target_action = if actions.len() == 1 {
+                actions.into_iter().next().unwrap()
+            } else {
+                OutputAction::MultipleActions(Arc::new(actions))
             };
 
             // Create input mapping
@@ -1709,7 +2000,7 @@ impl AppState {
             }
 
             // Try to parse each part as a device
-            let mut devices = Vec::new();
+            let mut devices: SmallVec<[InputDevice; 4]> = SmallVec::new();
             for part in &parts {
                 if let Some(device) = Self::input_name_to_device(part) {
                     devices.push(device);
@@ -1728,7 +2019,7 @@ impl AppState {
                 .iter()
                 .all(|d| matches!(d, InputDevice::Keyboard(_)));
             if all_keyboard {
-                let vk_codes: Vec<u32> = devices
+                let vk_codes: SmallVec<[u32; 4]> = devices
                     .into_iter()
                     .filter_map(|d| match d {
                         InputDevice::Keyboard(vk) => Some(vk),
@@ -1736,7 +2027,7 @@ impl AppState {
                     })
                     .collect();
                 if vk_codes.len() >= 2 {
-                    return Some(InputDevice::KeyCombo(vk_codes));
+                    return Some(InputDevice::KeyCombo(vk_codes.into_vec()));
                 }
             }
         }
@@ -2197,7 +2488,7 @@ mod tests {
         config.mappings = vec![
             KeyMapping {
                 trigger_key: "A".to_string(),
-                target_key: "B".to_string(),
+                target_keys: SmallVec::from_vec(vec!["B".to_string()]),
                 interval: Some(10),
                 event_duration: Some(5),
                 turbo_enabled: true,
@@ -2205,7 +2496,7 @@ mod tests {
             },
             KeyMapping {
                 trigger_key: "F1".to_string(),
-                target_key: "SPACE".to_string(),
+                target_keys: SmallVec::from_vec(vec!["SPACE".to_string()]),
                 interval: None,
                 event_duration: None,
                 turbo_enabled: true,
@@ -2235,7 +2526,7 @@ mod tests {
         let mut config = AppConfig::default();
         config.mappings = vec![KeyMapping {
             trigger_key: "INVALID_KEY".to_string(),
-            target_key: "A".to_string(),
+            target_keys: SmallVec::from_vec(vec!["A".to_string()]),
             interval: None,
             event_duration: None,
             turbo_enabled: true,
@@ -2251,7 +2542,7 @@ mod tests {
         let mut config = AppConfig::default();
         config.mappings = vec![KeyMapping {
             trigger_key: "A".to_string(),
-            target_key: "INVALID_KEY".to_string(),
+            target_keys: SmallVec::from_vec(vec!["INVALID_KEY".to_string()]),
             interval: None,
             event_duration: None,
             turbo_enabled: true,
@@ -2268,7 +2559,7 @@ mod tests {
         config.interval = 3; // Below minimum
         config.mappings = vec![KeyMapping {
             trigger_key: "A".to_string(),
-            target_key: "B".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string()]),
             interval: Some(3), // Below minimum
             event_duration: None,
             turbo_enabled: true,
@@ -2293,7 +2584,7 @@ mod tests {
         config.event_duration = 2; // Below minimum
         config.mappings = vec![KeyMapping {
             trigger_key: "A".to_string(),
-            target_key: "B".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string()]),
             interval: None,
             event_duration: Some(3), // Below minimum
             turbo_enabled: true,
@@ -2338,7 +2629,7 @@ mod tests {
         config.mappings = vec![
             KeyMapping {
                 trigger_key: "A".to_string(),
-                target_key: "1".to_string(),
+                target_keys: SmallVec::from_vec(vec!["1".to_string()]),
                 interval: Some(10),
                 event_duration: Some(5),
                 turbo_enabled: true,
@@ -2346,7 +2637,7 @@ mod tests {
             },
             KeyMapping {
                 trigger_key: "B".to_string(),
-                target_key: "2".to_string(),
+                target_keys: SmallVec::from_vec(vec!["2".to_string()]),
                 interval: Some(15),
                 event_duration: Some(8),
                 turbo_enabled: true,
@@ -2354,7 +2645,7 @@ mod tests {
             },
             KeyMapping {
                 trigger_key: "C".to_string(),
-                target_key: "3".to_string(),
+                target_keys: SmallVec::from_vec(vec!["3".to_string()]),
                 interval: Some(20),
                 event_duration: Some(10),
                 turbo_enabled: true,
@@ -2405,7 +2696,7 @@ mod tests {
         // Test with minimum interval
         config.mappings = vec![KeyMapping {
             trigger_key: "A".to_string(),
-            target_key: "B".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string()]),
             interval: Some(5), // Minimum valid value
             event_duration: Some(2),
             turbo_enabled: true,
@@ -2423,7 +2714,7 @@ mod tests {
         // Test with zero interval (should be auto-adjusted to minimum)
         config.mappings = vec![KeyMapping {
             trigger_key: "A".to_string(),
-            target_key: "B".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string()]),
             interval: Some(0),
             event_duration: Some(0),
             turbo_enabled: true,
@@ -2761,7 +3052,7 @@ mod tests {
         config.mappings = vec![
             KeyMapping {
                 trigger_key: "ALT+A".to_string(),
-                target_key: "B".to_string(),
+                target_keys: SmallVec::from_vec(vec!["B".to_string()]),
                 interval: Some(10),
                 event_duration: Some(5),
                 turbo_enabled: true,
@@ -2769,7 +3060,7 @@ mod tests {
             },
             KeyMapping {
                 trigger_key: "CTRL+SHIFT+F".to_string(),
-                target_key: "ALT+F4".to_string(),
+                target_keys: SmallVec::from_vec(vec!["ALT+F4".to_string()]),
                 interval: None,
                 event_duration: None,
                 turbo_enabled: true,
@@ -2954,5 +3245,188 @@ mod tests {
         // Final state should be consistent
         assert!(!state.check_and_clear_show_window_request());
         assert!(!state.check_and_clear_show_about_request());
+    }
+
+    #[test]
+    fn test_create_multiple_target_keys_mapping() {
+        let mut config = AppConfig::default();
+        config.mappings = vec![KeyMapping {
+            trigger_key: "Q".to_string(),
+            target_keys: SmallVec::from_vec(vec!["MOUSE_UP".to_string(), "MOUSE_LEFT".to_string()]),
+            interval: Some(5),
+            event_duration: Some(5),
+            turbo_enabled: true,
+            move_speed: 10,
+        }];
+
+        let result = AppState::create_input_mappings(&config);
+        assert!(result.is_ok());
+
+        let input_mappings = result.unwrap();
+        assert_eq!(input_mappings.len(), 1);
+
+        let device_q = InputDevice::Keyboard(0x51); // 'Q' key
+        let q_mapping = input_mappings.get(&device_q).unwrap();
+
+        // Should create MultipleActions
+        assert!(matches!(
+            &q_mapping.target_action,
+            OutputAction::MultipleActions(_)
+        ));
+    }
+
+    #[test]
+    fn test_multiple_target_keys_creates_multiple_actions() {
+        let mut config = AppConfig::default();
+        config.mappings = vec![KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::from_vec(vec![
+                "1".to_string(),
+                "2".to_string(),
+                "3".to_string(),
+            ]),
+            interval: Some(10),
+            event_duration: Some(5),
+            turbo_enabled: true,
+            move_speed: 10,
+        }];
+
+        let result = AppState::create_input_mappings(&config);
+        assert!(result.is_ok());
+
+        let input_mappings = result.unwrap();
+        let device_a = InputDevice::Keyboard(0x41);
+        let a_mapping = input_mappings.get(&device_a).unwrap();
+
+        if let OutputAction::MultipleActions(actions) = &a_mapping.target_action {
+            assert_eq!(actions.len(), 3);
+        } else {
+            panic!("Expected MultipleActions variant");
+        }
+    }
+
+    #[test]
+    fn test_single_target_key_not_wrapped_in_multiple_actions() {
+        let mut config = AppConfig::default();
+        config.mappings = vec![KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string()]),
+            interval: Some(10),
+            event_duration: Some(5),
+            turbo_enabled: true,
+            move_speed: 10,
+        }];
+
+        let result = AppState::create_input_mappings(&config);
+        assert!(result.is_ok());
+
+        let input_mappings = result.unwrap();
+        let device_a = InputDevice::Keyboard(0x41);
+        let a_mapping = input_mappings.get(&device_a).unwrap();
+
+        // Single target should NOT be wrapped in MultipleActions
+        assert!(matches!(
+            &a_mapping.target_action,
+            OutputAction::KeyboardKey(_)
+        ));
+    }
+
+    #[test]
+    fn test_empty_target_keys_skipped() {
+        let mut config = AppConfig::default();
+        config.mappings = vec![KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::new(),
+            interval: Some(10),
+            event_duration: Some(5),
+            turbo_enabled: true,
+            move_speed: 10,
+        }];
+
+        let result = AppState::create_input_mappings(&config);
+        assert!(result.is_ok());
+
+        let input_mappings = result.unwrap();
+        // Empty target keys should be skipped
+        assert_eq!(input_mappings.len(), 0);
+    }
+
+    #[test]
+    fn test_multiple_target_keys_with_mixed_types() {
+        let mut config = AppConfig::default();
+        config.mappings = vec![KeyMapping {
+            trigger_key: "Q".to_string(),
+            target_keys: SmallVec::from_vec(vec![
+                "A".to_string(),
+                "B".to_string(),
+                "C".to_string(),
+            ]),
+            interval: Some(10),
+            event_duration: Some(5),
+            turbo_enabled: true,
+            move_speed: 10,
+        }];
+
+        let result = AppState::create_input_mappings(&config);
+        assert!(result.is_ok());
+
+        let input_mappings = result.unwrap();
+        let device_q = InputDevice::Keyboard(0x51);
+        let q_mapping = input_mappings.get(&device_q).unwrap();
+
+        if let OutputAction::MultipleActions(actions) = &q_mapping.target_action {
+            assert_eq!(actions.len(), 3);
+            // All should be KeyboardKey actions
+            for action in actions.iter() {
+                assert!(matches!(action, OutputAction::KeyboardKey(_)));
+            }
+        } else {
+            panic!("Expected MultipleActions variant");
+        }
+    }
+
+    #[test]
+    fn test_multiple_target_keys_validation() {
+        let mut config = AppConfig::default();
+        config.mappings = vec![KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string(), "INVALID_KEY".to_string()]),
+            interval: None,
+            event_duration: None,
+            turbo_enabled: true,
+            move_speed: 10,
+        }];
+
+        let result = AppState::create_input_mappings(&config);
+        // Should fail due to invalid target key
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_smallvec_optimization_in_multiple_actions() {
+        let mut config = AppConfig::default();
+        config.mappings = vec![KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::from_vec(vec!["1".to_string(), "2".to_string()]),
+            interval: Some(10),
+            event_duration: Some(5),
+            turbo_enabled: true,
+            move_speed: 10,
+        }];
+
+        let result = AppState::create_input_mappings(&config);
+        assert!(result.is_ok());
+
+        let input_mappings = result.unwrap();
+        let device_a = InputDevice::Keyboard(0x41);
+        let a_mapping = input_mappings.get(&device_a).unwrap();
+
+        // Verify SmallVec is used (inline storage for small collections)
+        if let OutputAction::MultipleActions(actions) = &a_mapping.target_action {
+            assert_eq!(actions.len(), 2);
+            assert!(!actions.spilled()); // Should use inline storage
+        } else {
+            panic!("Expected MultipleActions variant");
+        }
     }
 }

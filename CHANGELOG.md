@@ -2,6 +2,7 @@
 =====
 Feature enhancements:
 
+- Add multiple target keys support for simultaneous key presses
 - Add Raw Input API integration for HID device support
   - Support for gamepads, joysticks, and other HID controllers
   - Combo key support: capture multiple buttons pressed simultaneously
@@ -44,13 +45,16 @@ UI Improvements:
 - Add HID device activation dialog with theme support
 - Add HID device button capture in settings dialog
 - Add interval configuration for mouse movement and scroll
+- Increase main window and settings dialog size for better layout
 
 Configuration:
 
+- Change `target_key` field to `target_keys` array in KeyMapping
 - Add `hid_baselines` field for device activation data persistence
 - Add `move_speed` field to KeyMapping for movement and scroll speed control
   - Mouse movement: 1-100 pixels per interval
   - Mouse scroll: direct wheel delta value (120 = standard notch)
+- Add `capture_mode` field for HID input capture strategy selection
 
 0.3.0
 =====

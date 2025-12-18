@@ -166,6 +166,7 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
 
 ### ⚙️ **Core Functionality**
 - **Flexible Input Mapping** – Map any trigger input (keyboard, mouse, or HID device) to auto-repeat any target action
+- **Multiple Target Keys** – Support for simultaneous key presses (e.g., diagonal movement with `MOUSE_UP` + `MOUSE_LEFT`)
 - **Advanced Combo Key Support** – Full combo key triggers and outputs with:
   - Single or multiple modifier keys (e.g., `LALT+A`, `LCTRL+LSHIFT+F`)
   - Left/right modifier distinction (e.g., `LSHIFT+A` and `RSHIFT+A` are treated as different triggers)

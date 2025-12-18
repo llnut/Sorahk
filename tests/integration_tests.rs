@@ -3,6 +3,7 @@
 //! Tests verify interactions between different modules
 //! and check that application components work together as expected.
 
+use smallvec::SmallVec;
 use sorahk::config::{AppConfig, KeyMapping};
 use sorahk::i18n::Language;
 use std::fs;
@@ -53,7 +54,7 @@ fn test_config_with_complex_mappings() {
     config.mappings = vec![
         KeyMapping {
             trigger_key: "A".to_string(),
-            target_key: "1".to_string(),
+            target_keys: SmallVec::from_vec(vec!["1".to_string()]),
             interval: Some(10),
             event_duration: Some(5),
             turbo_enabled: true,
@@ -61,7 +62,7 @@ fn test_config_with_complex_mappings() {
         },
         KeyMapping {
             trigger_key: "B".to_string(),
-            target_key: "2".to_string(),
+            target_keys: SmallVec::from_vec(vec!["2".to_string()]),
             interval: None,
             event_duration: None,
             turbo_enabled: true,
@@ -69,7 +70,7 @@ fn test_config_with_complex_mappings() {
         },
         KeyMapping {
             trigger_key: "F1".to_string(),
-            target_key: "SPACE".to_string(),
+            target_keys: SmallVec::from_vec(vec!["SPACE".to_string()]),
             interval: Some(20),
             event_duration: Some(10),
             turbo_enabled: true,
@@ -77,7 +78,7 @@ fn test_config_with_complex_mappings() {
         },
         KeyMapping {
             trigger_key: "LSHIFT".to_string(),
-            target_key: "ENTER".to_string(),
+            target_keys: SmallVec::from_vec(vec!["ENTER".to_string()]),
             interval: Some(15),
             event_duration: Some(8),
             turbo_enabled: true,
@@ -91,7 +92,10 @@ fn test_config_with_complex_mappings() {
     assert_eq!(loaded_config.mappings.len(), 4);
 
     assert_eq!(loaded_config.mappings[0].trigger_key, "A");
-    assert_eq!(loaded_config.mappings[0].target_key, "1");
+    assert_eq!(
+        loaded_config.mappings[0].target_keys.as_slice(),
+        &["1".to_string()]
+    );
     assert_eq!(loaded_config.mappings[0].interval, Some(10));
     assert_eq!(loaded_config.mappings[0].event_duration, Some(5));
 
@@ -178,7 +182,7 @@ fn test_config_validation_on_load() {
         
         [[mappings]]
         trigger_key = "Q"
-        target_key = "W"
+        target_keys = ["W"]
     "#;
 
     fs::write(&path, content).expect("Failed to write test config");
@@ -211,7 +215,7 @@ fn test_config_default_values() {
         
         [[mappings]]
         trigger_key = "A"
-        target_key = "B"
+        target_keys = ["B"]
     "#;
 
     fs::write(&path, content).expect("Failed to write test config");
@@ -267,7 +271,7 @@ fn test_config_maximum_mappings() {
     config.mappings = (0..50)
         .map(|i| KeyMapping {
             trigger_key: format!("F{}", (i % 12) + 1),
-            target_key: format!("{}", i % 10),
+            target_keys: SmallVec::from_vec(vec![format!("{}", i % 10)]),
             interval: Some((i as u64 + 1) * 5),
             event_duration: Some(5),
             turbo_enabled: true,
@@ -303,7 +307,7 @@ fn test_config_all_settings_combined() {
     config.mappings = vec![
         KeyMapping {
             trigger_key: "A".to_string(),
-            target_key: "B".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string()]),
             interval: Some(10),
             event_duration: Some(5),
             turbo_enabled: true,
@@ -311,7 +315,7 @@ fn test_config_all_settings_combined() {
         },
         KeyMapping {
             trigger_key: "C".to_string(),
-            target_key: "D".to_string(),
+            target_keys: SmallVec::from_vec(vec!["D".to_string()]),
             interval: None,
             event_duration: None,
             turbo_enabled: true,
@@ -390,4 +394,141 @@ fn test_concurrent_config_operations() {
     for handle in handles {
         handle.join().expect("Thread panicked");
     }
+}
+
+/// Tests multiple target keys in configuration.
+#[test]
+fn test_config_multiple_target_keys() {
+    let path = get_test_file_path("multiple_target_keys");
+
+    let mut config = AppConfig::default();
+    config.mappings = vec![
+        KeyMapping {
+            trigger_key: "Q".to_string(),
+            target_keys: SmallVec::from_vec(vec!["MOUSE_UP".to_string(), "MOUSE_LEFT".to_string()]),
+            interval: Some(5),
+            event_duration: Some(5),
+            turbo_enabled: true,
+            move_speed: 10,
+        },
+        KeyMapping {
+            trigger_key: "E".to_string(),
+            target_keys: SmallVec::from_vec(vec![
+                "MOUSE_UP".to_string(),
+                "MOUSE_RIGHT".to_string(),
+            ]),
+            interval: Some(5),
+            event_duration: Some(5),
+            turbo_enabled: true,
+            move_speed: 10,
+        },
+    ];
+
+    config.save_to_file(&path).expect("Failed to save config");
+    let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
+
+    assert_eq!(loaded_config.mappings.len(), 2);
+    assert_eq!(loaded_config.mappings[0].target_keys.len(), 2);
+    assert_eq!(loaded_config.mappings[0].target_keys[0], "MOUSE_UP");
+    assert_eq!(loaded_config.mappings[0].target_keys[1], "MOUSE_LEFT");
+    assert_eq!(loaded_config.mappings[1].target_keys.len(), 2);
+    assert_eq!(loaded_config.mappings[1].target_keys[0], "MOUSE_UP");
+    assert_eq!(loaded_config.mappings[1].target_keys[1], "MOUSE_RIGHT");
+
+    cleanup_test_file(&path);
+}
+
+/// Tests empty target keys list in configuration.
+#[test]
+fn test_config_empty_target_keys() {
+    let path = get_test_file_path("empty_target_keys");
+
+    let mut config = AppConfig::default();
+    config.mappings = vec![KeyMapping {
+        trigger_key: "A".to_string(),
+        target_keys: SmallVec::new(),
+        interval: Some(10),
+        event_duration: Some(5),
+        turbo_enabled: true,
+        move_speed: 10,
+    }];
+
+    config.save_to_file(&path).expect("Failed to save config");
+    let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
+
+    assert_eq!(loaded_config.mappings.len(), 1);
+    assert_eq!(loaded_config.mappings[0].target_keys.len(), 0);
+
+    cleanup_test_file(&path);
+}
+
+/// Tests many target keys in a single mapping.
+#[test]
+fn test_config_many_target_keys() {
+    let path = get_test_file_path("many_target_keys");
+
+    let mut config = AppConfig::default();
+    config.mappings = vec![KeyMapping {
+        trigger_key: "A".to_string(),
+        target_keys: SmallVec::from_vec(vec![
+            "1".to_string(),
+            "2".to_string(),
+            "3".to_string(),
+            "4".to_string(),
+            "5".to_string(),
+        ]),
+        interval: Some(10),
+        event_duration: Some(5),
+        turbo_enabled: true,
+        move_speed: 10,
+    }];
+
+    config.save_to_file(&path).expect("Failed to save config");
+    let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
+
+    assert_eq!(loaded_config.mappings.len(), 1);
+    assert_eq!(loaded_config.mappings[0].target_keys.len(), 5);
+    assert_eq!(loaded_config.mappings[0].target_keys[0], "1");
+    assert_eq!(loaded_config.mappings[0].target_keys[4], "5");
+
+    cleanup_test_file(&path);
+}
+
+/// Tests target_keys field backward compatibility with TOML.
+#[test]
+fn test_config_target_keys_toml_format() {
+    let path = get_test_file_path("target_keys_toml");
+
+    let content = r#"
+        show_tray_icon = true
+        show_notifications = true
+        switch_key = "DELETE"
+        input_timeout = 5
+        interval = 5
+        event_duration = 5
+        worker_count = 0
+        process_whitelist = []
+        
+        [[mappings]]
+        trigger_key = "Q"
+        target_keys = ["MOUSE_UP", "MOUSE_LEFT"]
+        turbo_enabled = true
+        
+        [[mappings]]
+        trigger_key = "E"
+        target_keys = ["A"]
+        turbo_enabled = true
+    "#;
+
+    fs::write(&path, content).expect("Failed to write test config");
+    let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
+
+    assert_eq!(loaded_config.mappings.len(), 2);
+    assert_eq!(loaded_config.mappings[0].target_keys.len(), 2);
+    assert_eq!(loaded_config.mappings[0].target_keys[0], "MOUSE_UP");
+    assert_eq!(loaded_config.mappings[0].target_keys[1], "MOUSE_LEFT");
+    assert_eq!(loaded_config.mappings[1].target_keys.len(), 1);
+    assert_eq!(loaded_config.mappings[1].target_keys[0], "A");
+
+    cleanup_test_file(&path);
 }

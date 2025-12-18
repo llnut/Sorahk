@@ -66,8 +66,8 @@ tests/
 
 | Module | Primary Focus |
 |--------|---------------|
-| **config.rs** | Configuration loading, saving, validation, error handling, TOML serialization |
-| **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings (keyboard, mouse, HID devices), combo key parsing (including numpad and OEM keys), device type parsing (gamepad, joystick), mouse scroll direction parsing, output action handling (keyboard, mouse buttons, mouse movement, mouse scroll), state management, thread safety, atomic operations, lock-free concurrent data structures |
+| **config.rs** | Configuration loading, saving, validation, error handling, TOML serialization, multiple target keys management (add, remove, clear, set operations) |
+| **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings (keyboard, mouse, HID devices), combo key parsing (including numpad and OEM keys), device type parsing (gamepad, joystick), mouse scroll direction parsing, output action handling (keyboard, mouse buttons, mouse movement, mouse scroll, multiple actions), state management, thread safety, atomic operations, lock-free concurrent data structures, batch INPUT event processing |
 | **i18n.rs** | Multi-language translations, formatting functions, translation completeness |
 | **keyboard.rs** | Worker pool creation, worker distribution stability, mapping cache retrieval |
 | **mouse.rs** | Mouse button handling, message parsing, event processing |
@@ -83,11 +83,13 @@ Run `cargo test -- --list` to see all available test functions.
 ## What is Tested
 
 - Configuration management and validation
+- Multiple target keys functionality (add, remove, clear, display)
 - Key name to VK code conversion
 - VK code to scancode mapping
 - Combo key parsing and validation
 - Mouse button name parsing and event handling
 - Mouse movement target validation and direction parsing
+- Multiple simultaneous actions
 - HID device input parsing and device type identification
 - Device ID generation and vendor/product ID handling
 - FNV-1a hash algorithm correctness

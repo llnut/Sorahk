@@ -59,8 +59,10 @@ pub struct SorahkGui {
     temp_config: Option<AppConfig>,
     /// New mapping trigger key input
     new_mapping_trigger: String,
-    /// New mapping target key input
+    /// New mapping target key input (single key for capture)
     new_mapping_target: String,
+    /// New mapping target keys (multiple keys)
+    new_mapping_target_keys: Vec<String>,
     /// New mapping interval input
     new_mapping_interval: String,
     /// New mapping duration input
@@ -120,6 +122,7 @@ impl SorahkGui {
             temp_config: None,
             new_mapping_trigger: String::new(),
             new_mapping_target: String::new(),
+            new_mapping_target_keys: Vec::new(),
             new_mapping_interval: String::new(),
             new_mapping_duration: String::new(),
             new_mapping_turbo: true,
@@ -233,8 +236,8 @@ impl SorahkGui {
         let icon = crate::gui::utils::create_icon();
 
         let mut viewport = egui::ViewportBuilder::default()
-            .with_inner_size([720.0, 530.0])
-            .with_min_inner_size([720.0, 530.0])
+            .with_inner_size([820.0, 600.0])
+            .with_min_inner_size([820.0, 600.0])
             .with_resizable(true)
             .with_title("Sorahk - Auto Key Press Tool")
             .with_icon(icon)

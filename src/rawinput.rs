@@ -28,6 +28,7 @@
 //! when devices are disconnected, ensuring stale data is not reused if a device
 //! reconnects with the same handle.
 
+use smallvec::SmallVec;
 use std::cell::UnsafeCell;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
@@ -78,6 +79,12 @@ const HID_USAGE_MULTI_AXIS: u16 = 0x08;
 
 /// Minimum valid HID report size in bytes.
 const MIN_HID_DATA_SIZE: usize = 10;
+
+/// Skip HID report bytes
+const SKIP_BYTES: usize = 5;
+
+const DEVICE_CAPTURE_FRAMES: usize = 32;
+const FRAME_BUFFER_SIZE: usize = 256;
 
 thread_local! {
     /// Thread-local buffer pool for Raw Input data.
@@ -177,99 +184,411 @@ struct CachedDeviceInfo {
 }
 
 /// Capture state for a single device during GUI button capture.
-/// Optimized with inline storage to avoid heap allocations for typical cases.
-#[derive(Debug, Clone)]
+/// Tracks frame timestamps to calculate true sustained duration.
+#[derive(Debug, Clone, Copy)]
 struct DeviceCaptureState {
     /// Pre-allocated inline storage for captured frames (32 frames × 256 bytes)
-    inline_frames: [[u8; 256]; 32],
-    /// Actual data length for each frame
-    frame_lengths: [u16; 32],
+    frames: [FrameRecord; DEVICE_CAPTURE_FRAMES],
     /// Number of frames currently stored
     frame_count: u8,
-    /// Busiest frame index (cached)
-    busiest_idx: u8,
-    /// Maximum button count seen (cached)
-    max_button_count: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FrameRecord {
+    /// Frame data buffer
+    data: [u8; FRAME_BUFFER_SIZE],
+    /// Actual frame length
+    len: u16,
+    /// Timestamp when each frame was received (in milliseconds since epoch)
+    timestamp: u64,
+}
+
+impl FrameRecord {
+    #[inline(always)]
+    fn new() -> Self {
+        Self {
+            data: [0; FRAME_BUFFER_SIZE],
+            len: 0,
+            timestamp: 0,
+        }
+    }
 }
 
 impl DeviceCaptureState {
     #[inline(always)]
     fn new() -> Self {
         Self {
-            inline_frames: [[0u8; 256]; 32],
-            frame_lengths: [0u16; 32],
+            frames: [FrameRecord::new(); DEVICE_CAPTURE_FRAMES],
             frame_count: 0,
-            busiest_idx: 0,
-            max_button_count: 0,
         }
     }
 
-    /// Add a captured frame with cache update
     #[inline(always)]
-    fn add_frame(&mut self, data: &[u8]) {
-        if unlikely(self.frame_count >= 32) {
-            return; // Already at capacity
+    fn with_frame(data: &[u8], timestamp_ms: u64) -> Self {
+        let mut state = Self::new();
+        let len = data.len().min(FRAME_BUFFER_SIZE);
+        let idx = 0;
+
+        let frame_record = &mut state.frames[idx];
+        frame_record.data[..len].copy_from_slice(&data[..len]);
+        frame_record.len = len as u16;
+        frame_record.timestamp = timestamp_ms;
+        state.frame_count = 1;
+        state
+    }
+
+    /// Adds a captured frame with timestamp.
+    #[inline(always)]
+    fn add_frame(&mut self, data: &[u8], timestamp_ms: u64) {
+        if unlikely(self.frame_count >= DEVICE_CAPTURE_FRAMES as u8) {
+            return;
         }
 
+        let len = data.len().min(FRAME_BUFFER_SIZE);
         let idx = self.frame_count as usize;
-        let len = data.len().min(256);
-        self.inline_frames[idx][..len].copy_from_slice(&data[..len]);
-        self.frame_lengths[idx] = len as u16;
+        let data = &data[..len];
 
-        // Calculate button count and update busiest cache
-        const SKIP_BYTES: usize = 5;
-        let button_count = if len > SKIP_BYTES {
-            Self::count_buttons_fast(&data[SKIP_BYTES..len])
-        } else {
-            0
-        };
-
-        if likely(button_count > self.max_button_count) {
-            self.max_button_count = button_count;
-            self.busiest_idx = self.frame_count;
+        if idx > 0 {
+            let last_idx = idx - 1;
+            let last_frame_record = &mut self.frames[last_idx];
+            let last_frame = &last_frame_record.data[..last_frame_record.len as usize];
+            if Self::is_equal_fast(last_frame, data) {
+                last_frame_record.timestamp = timestamp_ms;
+                return;
+            }
         }
 
+        let frame_record = &mut self.frames[idx];
+        frame_record.data[..len].copy_from_slice(data);
+        frame_record.len = len as u16;
+        frame_record.timestamp = timestamp_ms;
         self.frame_count += 1;
     }
 
-    /// Get the "busiest" frame (cached result)
+    /// Returns the frame with the longest sustained duration.
+    ///
+    /// `now`: current timestamp in milliseconds.
+    /// Duration of a stable segment is measured from its first frame's timestamp to:
+    ///   - the timestamp of the first different frame that follows, OR
+    ///   - `now` if it is the final segment.
     #[inline(always)]
-    fn get_busiest_frame(&self) -> Option<&[u8]> {
+    fn get_most_sustained_frame(&self, now: u64) -> Option<&[u8]> {
         if unlikely(self.frame_count == 0) {
             return None;
         }
-        let idx = self.busiest_idx as usize;
-        let len = self.frame_lengths[idx] as usize;
-        Some(&self.inline_frames[idx][..len])
+
+        if self.frame_count == 1 {
+            let len = self.frames[0].len as usize;
+            return Some(&self.frames[0].data[..len]);
+        }
+
+        let mut best_idx = 0usize;
+        let mut max_duration = 0u64;
+
+        let mut i = 0;
+        while i < self.frame_count as usize {
+            let seg_start_time = self.frames[i].timestamp;
+            let seg_frame = &self.frames[i].data[..self.frames[i].len as usize];
+
+            // Extend segment as far as frames are equal
+            let mut j = i;
+            while j + 1 < self.frame_count as usize {
+                let next_frame = &self.frames[j + 1].data[..self.frames[j + 1].len as usize];
+                if Self::is_equal_fast(seg_frame, next_frame) {
+                    j += 1;
+                } else {
+                    break;
+                }
+            }
+
+            // Compute segment duration
+            let seg_end_time = if j + 1 < self.frame_count as usize {
+                // Next different frame exists → segment ends at its timestamp
+                self.frames[j + 1].timestamp
+            } else {
+                // Last segment → ends at current time
+                now
+            };
+
+            let duration = seg_end_time.saturating_sub(seg_start_time);
+            if duration > max_duration {
+                max_duration = duration;
+                best_idx = i; // representative: first frame of the longest segment
+            }
+
+            // Jump to next distinct segment
+            i = j + 1;
+        }
+
+        let len = self.frames[best_idx].len as usize;
+        Some(&self.frames[best_idx].data[..len])
     }
 
-    /// Counts buttons using POPCNT instruction when available
+    /// Fast equality check for byte slices with AVX2 optimization.
     #[inline(always)]
-    fn count_buttons_fast(data: &[u8]) -> u32 {
+    fn is_equal_fast(a: &[u8], b: &[u8]) -> bool {
+        if unlikely(a.len() != b.len()) {
+            return false;
+        }
+
         #[cfg(target_arch = "x86_64")]
         {
-            if is_x86_feature_detected!("popcnt") {
-                return Self::count_buttons_popcnt(data);
+            if is_x86_feature_detected!("avx2") {
+                return Self::is_equal_avx2(a, b);
             }
         }
-        data.iter().map(|b| b.count_ones()).sum()
+
+        a == b
     }
 
     #[cfg(target_arch = "x86_64")]
     #[inline(always)]
-    fn count_buttons_popcnt(data: &[u8]) -> u32 {
-        let mut count = 0u32;
-        let chunks = data.chunks_exact(8);
-        let remainder = chunks.remainder();
+    fn is_equal_avx2(a: &[u8], b: &[u8]) -> bool {
+        use std::arch::x86_64::*;
 
-        for chunk in chunks {
-            let val = u64::from_le_bytes([
-                chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
-            ]);
-            count += val.count_ones();
+        let len = a.len();
+        let mut offset = 0;
+
+        unsafe {
+            // Process 32-byte chunks with AVX2
+            while offset + 32 <= len {
+                let va = _mm256_loadu_si256(a.as_ptr().add(offset) as *const __m256i);
+                let vb = _mm256_loadu_si256(b.as_ptr().add(offset) as *const __m256i);
+                let cmp = _mm256_cmpeq_epi8(va, vb);
+                let mask = _mm256_movemask_epi8(cmp);
+
+                if mask != -1 {
+                    return false;
+                }
+                offset += 32;
+            }
         }
 
-        count + remainder.iter().map(|b| b.count_ones()).sum::<u32>()
+        // Process remaining bytes
+        a[offset..].iter().zip(&b[offset..]).all(|(x, y)| x == y)
+    }
+
+    /// Selects the best frame based on the specified capture mode.
+    fn get_best_frame(&self, baseline: &[u8], mode: crate::state::CaptureMode) -> Option<&[u8]> {
+        use crate::state::CaptureMode;
+
+        if unlikely(self.frame_count == 0) {
+            return None;
+        }
+
+        match mode {
+            CaptureMode::MostSustained => self.get_most_sustained_frame(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64,
+            ),
+            CaptureMode::AdaptiveIntelligent => self.get_adaptive_intelligent_frame(baseline),
+            CaptureMode::MaxChangedBits => self.get_max_changed_bits_frame(baseline),
+            CaptureMode::MaxSetBits => self.get_max_set_bits_frame(),
+            CaptureMode::LastStable => self.get_last_stable_frame(baseline),
+            CaptureMode::HatSwitchOptimized => self.get_hat_switch_optimized_frame(baseline),
+            CaptureMode::AnalogOptimized => self.get_analog_optimized_frame(baseline),
+        }
+    }
+
+    /// Max Changed Bits: Selects frame with most bits changed from baseline.
+    #[inline(always)]
+    fn get_max_changed_bits_frame(&self, baseline: &[u8]) -> Option<&[u8]> {
+        if self.frame_count == 0 {
+            return None;
+        }
+
+        let mut max_changed = 0u32;
+        let mut best_idx = 0usize;
+
+        for i in 0..self.frame_count as usize {
+            let frame_record = &self.frames[i];
+            let len = frame_record.len as usize;
+            let frame = &frame_record.data[..len];
+
+            let changed = Self::count_changed_bits(frame, baseline);
+            if changed > max_changed {
+                max_changed = changed;
+                best_idx = i;
+            }
+        }
+
+        let len = self.frames[best_idx].len as usize;
+        Some(&self.frames[best_idx].data[..len])
+    }
+
+    /// Max Set Bits: Selects frame with most bits set to 1.
+    #[inline(always)]
+    fn get_max_set_bits_frame(&self) -> Option<&[u8]> {
+        if self.frame_count == 0 {
+            return None;
+        }
+
+        let mut max_set = 0u32;
+        let mut best_idx = 0usize;
+
+        for i in 0..self.frame_count as usize {
+            let frame_record = &self.frames[i];
+            let len = frame_record.len as usize;
+            let frame = &frame_record.data[..len];
+
+            let set_count: u32 = frame[SKIP_BYTES..].iter().map(|b| b.count_ones()).sum();
+
+            if set_count > max_set {
+                max_set = set_count;
+                best_idx = i;
+            }
+        }
+
+        let len = self.frames[best_idx].len as usize;
+        Some(&self.frames[best_idx].data[..len])
+    }
+
+    /// Last Stable: Finds last frame that's significantly different from baseline.
+    #[inline(always)]
+    fn get_last_stable_frame(&self, baseline: &[u8]) -> Option<&[u8]> {
+        if self.frame_count == 0 {
+            return None;
+        }
+
+        for i in (0..self.frame_count as usize).rev() {
+            let frame_record = &self.frames[i];
+            let len = frame_record.len as usize;
+            let frame = &frame_record.data[..len];
+
+            let changed = Self::count_changed_bits(frame, baseline);
+            if changed > 0 {
+                return Some(frame);
+            }
+        }
+
+        let idx = (self.frame_count - 1) as usize;
+        let len = self.frames[idx].len as usize;
+        Some(&self.frames[idx].data[..len])
+    }
+
+    /// Hat Switch Optimized: Prioritizes numeric deviation over bit count.
+    #[inline(always)]
+    fn get_hat_switch_optimized_frame(&self, baseline: &[u8]) -> Option<&[u8]> {
+        if self.frame_count == 0 {
+            return None;
+        }
+
+        let mut max_score = 0u32;
+        let mut best_idx = 0usize;
+
+        for i in 0..self.frame_count as usize {
+            let frame_record = &self.frames[i];
+            let len = frame_record.len as usize;
+            let frame = &frame_record.data[..len];
+
+            let mut score = 0u32;
+            for byte_idx in SKIP_BYTES..len.min(baseline.len()) {
+                let val = frame[byte_idx];
+                let base = baseline[byte_idx];
+                if val != base {
+                    let numeric_diff = val.abs_diff(base) as u32;
+                    score += numeric_diff * 100;
+                }
+            }
+
+            if score > max_score {
+                max_score = score;
+                best_idx = i;
+            }
+        }
+
+        let len = self.frames[best_idx].len as usize;
+        Some(&self.frames[best_idx].data[..len])
+    }
+
+    /// Analog Optimized: Prioritizes magnitude of deviation.
+    #[inline(always)]
+    fn get_analog_optimized_frame(&self, baseline: &[u8]) -> Option<&[u8]> {
+        if self.frame_count == 0 {
+            return None;
+        }
+
+        let mut max_deviation = 0u32;
+        let mut best_idx = 0usize;
+
+        for i in 0..self.frame_count as usize {
+            let frame_record = &self.frames[i];
+            let len = frame_record.len as usize;
+            let frame = &frame_record.data[..len];
+
+            let mut deviation = 0u32;
+            for byte_idx in SKIP_BYTES..len.min(baseline.len()) {
+                let val = frame[byte_idx];
+                let base = baseline[byte_idx];
+                deviation += val.abs_diff(base) as u32;
+            }
+
+            if deviation > max_deviation {
+                max_deviation = deviation;
+                best_idx = i;
+            }
+        }
+
+        let len = self.frames[best_idx].len as usize;
+        Some(&self.frames[best_idx].data[..len])
+    }
+
+    /// Adaptive Intelligent: Uses smart scoring based on encoding detection.
+    #[inline(always)]
+    fn get_adaptive_intelligent_frame(&self, baseline: &[u8]) -> Option<&[u8]> {
+        if self.frame_count == 0 {
+            return None;
+        }
+        let mut max_score = 0u32;
+        let mut best_idx = 0usize;
+
+        for i in 0..self.frame_count as usize {
+            let frame_record = &self.frames[i];
+            let len = frame_record.len as usize;
+            let frame = &frame_record.data[..len];
+
+            let mut score = 0u32;
+            for byte_idx in SKIP_BYTES..len.min(baseline.len()) {
+                let val = frame[byte_idx];
+                let base = baseline[byte_idx];
+                if val != base {
+                    let numeric_diff = val.abs_diff(base) as u32;
+                    let hamming_dist = (val ^ base).count_ones();
+
+                    // Adaptive weighting based on change pattern
+                    if numeric_diff <= 16 && hamming_dist >= 2 {
+                        // Likely bitmask: prioritize Hamming distance
+                        score += hamming_dist * 150;
+                    } else if numeric_diff > 32 {
+                        // Likely analog: prioritize numeric diff
+                        score += numeric_diff * 100;
+                    } else {
+                        // Mixed: use both
+                        score += numeric_diff * 80 + hamming_dist * 80;
+                    }
+                }
+            }
+
+            if score > max_score {
+                max_score = score;
+                best_idx = i;
+            }
+        }
+
+        let len = self.frames[best_idx].len as usize;
+        Some(&self.frames[best_idx].data[..len])
+    }
+
+    /// Helper: count changed bits between data and baseline.
+    #[inline(always)]
+    fn count_changed_bits(data: &[u8], baseline: &[u8]) -> u32 {
+        data[SKIP_BYTES..]
+            .iter()
+            .zip(&baseline[SKIP_BYTES..])
+            .map(|(d, b)| (d ^ b).count_ones())
+            .sum()
     }
 }
 
@@ -284,6 +603,8 @@ struct DeviceHidState {
     last_data: Vec<u8>,
     /// Last update timestamp
     last_update: Instant,
+    /// Last generated button_id (for proper release tracking)
+    last_button_id: Option<u64>,
 }
 
 impl DeviceHidState {
@@ -294,6 +615,7 @@ impl DeviceHidState {
             baseline_data: baseline.clone(),
             last_data: baseline,
             last_update: Instant::now(),
+            last_button_id: None,
         }
     }
 }
@@ -474,6 +796,7 @@ impl RawInputHandler {
     }
 
     /// Window procedure for Raw Input messages
+    #[allow(non_snake_case)]
     unsafe extern "system" fn window_proc(
         hwnd: HWND,
         msg: u32,
@@ -746,8 +1069,12 @@ impl RawInputHandler {
             }
 
             // Detect button changes using baseline comparison
-            let changes =
-                self.detect_hid_changes(handle_key, data_slice, stable_device_id, &device_info);
+            let changes = self.detect_hid_changes(
+                handle_key,
+                data_slice,
+                stable_device_id,
+                device_info.device_type,
+            );
 
             // Dispatch events for each button change
             if likely(!changes.is_empty())
@@ -776,8 +1103,9 @@ impl RawInputHandler {
         }
     }
 
-    /// Captures HID button input supporting combo keys.
-    #[inline]
+    /// Captures HID button input at bit level.
+    /// Finds the first changed bit in the busiest frame and returns its button_id.
+    #[inline(always)]
     fn handle_capture_mode(
         &self,
         handle_key: isize,
@@ -803,7 +1131,7 @@ impl RawInputHandler {
             .device_states
             .read_sync(&handle_key, |_, state| state.baseline_data.clone())
         {
-            Self::is_equal_fast(current_data, &baseline)
+            DeviceCaptureState::is_equal_fast(current_data, &baseline)
         } else {
             false
         };
@@ -816,17 +1144,29 @@ impl RawInputHandler {
                 .unwrap_or(false);
 
             if likely(has_frames) {
-                // Get cached busiest frame
-                if let Some(busiest_data) = self
-                    .capture_states
-                    .read_sync(&handle_key, |_, state| {
-                        state.get_busiest_frame().map(|slice| slice.to_vec())
+                // Get best frame based on capture mode
+                let capture_mode = self.state.get_capture_mode();
+
+                if let Some((best_data, baseline_data)) = self
+                    .device_states
+                    .read_sync(&handle_key, |_, state| state.baseline_data.clone())
+                    .and_then(|baseline| {
+                        self.capture_states
+                            .read_sync(&handle_key, |_, state| {
+                                state
+                                    .get_best_frame(&baseline, capture_mode)
+                                    .map(|slice| slice.to_vec())
+                            })
+                            .flatten()
+                            .map(|best| (best, baseline))
                     })
-                    .flatten()
                 {
-                    // Generate button_id using FNV-1a hash
-                    let data_hash = Self::hash_hid_data_fast(&busiest_data);
-                    let button_id = (stable_device_id << 32) | (data_hash as u64);
+                    // Hash all changed bit positions to uniquely identify this input pattern
+                    let button_id = Self::hash_changed_bit_pattern(
+                        &best_data,
+                        &baseline_data,
+                        stable_device_id,
+                    );
 
                     let device = InputDevice::GenericDevice {
                         device_type: device_info.device_type,
@@ -842,22 +1182,67 @@ impl RawInputHandler {
             return false;
         }
 
-        // Not baseline - add frame with inline storage optimization
+        // Not baseline - add frame with timestamp
+        let timestamp_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
         let updated = self
             .capture_states
             .update_sync(&handle_key, |_, capture_state| {
-                capture_state.add_frame(current_data);
+                capture_state.add_frame(current_data, timestamp_ms);
             })
             .is_some();
 
         if unlikely(!updated) {
             // Create new state with first frame
-            let mut new_state = DeviceCaptureState::new();
-            new_state.add_frame(current_data);
-            let _ = self.capture_states.insert_sync(handle_key, new_state);
+            let _ = self.capture_states.insert_sync(
+                handle_key,
+                DeviceCaptureState::with_frame(current_data, timestamp_ms),
+            );
         }
 
         false
+    }
+
+    /// Hashes all changed bit positions to create a unique button_id for this input pattern.
+    /// Returns button_id in format: (device_id << 32) | hash(changed_bit_positions)
+    ///
+    /// Uses FNV-1a to hash the positions of all changed bits. This ensures:
+    /// - Different input patterns get unique IDs (e.g., joystick UP vs RIGHT vs UP+RIGHT)
+    /// - Same input pattern always gets the same ID (deterministic)
+    /// - Extremely fast with minimal collisions
+    #[inline(always)]
+    fn hash_changed_bit_pattern(data: &[u8], baseline: &[u8], stable_device_id: u64) -> u64 {
+        const FNV_OFFSET_BASIS: u32 = 0x811c9dc5;
+        const FNV_PRIME: u32 = 0x01000193;
+
+        let min_len = data.len().min(baseline.len());
+        let mut hash = FNV_OFFSET_BASIS;
+
+        // Hash each changed bit position
+        for byte_idx in SKIP_BYTES..min_len {
+            let data_byte = data[byte_idx];
+            let baseline_byte = baseline[byte_idx];
+            let mut diff = data_byte ^ baseline_byte;
+
+            if diff != 0 {
+                // Process each changed bit in this byte
+                while diff != 0 {
+                    let bit_idx = diff.trailing_zeros();
+
+                    // Hash the position (byte_idx, bit_idx) using FNV-1a
+                    hash = (hash ^ (byte_idx as u32)).wrapping_mul(FNV_PRIME);
+                    hash = (hash ^ bit_idx).wrapping_mul(FNV_PRIME);
+
+                    // Clear the lowest set bit (BLSR instruction)
+                    diff &= diff - 1;
+                }
+            }
+        }
+
+        (stable_device_id << 32) | (hash as u64)
     }
 
     /// Extract serial number from device path
@@ -971,7 +1356,7 @@ impl RawInputHandler {
     }
 
     /// Generate stable device ID for consistent identification
-    #[inline]
+    #[inline(always)]
     fn generate_stable_device_id(handle_key: isize, device_info: &CachedDeviceInfo) -> u64 {
         if let Some(ref serial) = device_info.serial_number {
             Self::hash_vid_pid_serial(device_info.vendor_id, device_info.product_id, serial)
@@ -991,35 +1376,6 @@ impl RawInputHandler {
         product_id.hash(&mut hasher);
         serial.hash(&mut hasher);
         hasher.finish()
-    }
-
-    /// Computes FNV-1a hash of HID data with loop unrolling.
-    #[inline(always)]
-    fn hash_hid_data_fast(data: &[u8]) -> u32 {
-        const FNV_OFFSET_BASIS: u32 = 0x811c9dc5;
-        const FNV_PRIME: u32 = 0x01000193;
-
-        let mut hash = FNV_OFFSET_BASIS;
-
-        let chunks = data.chunks_exact(8);
-        let remainder = chunks.remainder();
-
-        for chunk in chunks {
-            hash = (hash ^ chunk[0] as u32).wrapping_mul(FNV_PRIME);
-            hash = (hash ^ chunk[1] as u32).wrapping_mul(FNV_PRIME);
-            hash = (hash ^ chunk[2] as u32).wrapping_mul(FNV_PRIME);
-            hash = (hash ^ chunk[3] as u32).wrapping_mul(FNV_PRIME);
-            hash = (hash ^ chunk[4] as u32).wrapping_mul(FNV_PRIME);
-            hash = (hash ^ chunk[5] as u32).wrapping_mul(FNV_PRIME);
-            hash = (hash ^ chunk[6] as u32).wrapping_mul(FNV_PRIME);
-            hash = (hash ^ chunk[7] as u32).wrapping_mul(FNV_PRIME);
-        }
-
-        for &byte in remainder {
-            hash = (hash ^ byte as u32).wrapping_mul(FNV_PRIME);
-        }
-
-        hash
     }
 
     /// Parses device_id string (format: "VID:PID" or "VID:PID:Serial") into components.
@@ -1042,7 +1398,8 @@ impl RawInputHandler {
     }
 
     /// Request device activation from GUI.
-    #[inline]
+    #[inline(never)]
+    #[cold]
     fn request_device_activation(&self, handle_key: isize, device_info: &CachedDeviceInfo) {
         let device_name = format!(
             "{} ({:04X}:{:04X})",
@@ -1059,59 +1416,89 @@ impl RawInputHandler {
         self.state.request_hid_activation(handle_key, device_name);
     }
 
-    /// Detect button changes by comparing with baseline and last HID data.
-    /// Returns list of (button_id, is_pressed).
-    /// Detects HID button state changes by comparing with baseline and previous data.
+    /// Detects HID button state changes at bit level using optimized bit operations.
+    /// Returns list of (button_id, is_pressed) for detected changes.
+    ///
+    /// Strategy:
+    /// 1. Collect all currently active bits (relative to baseline)
+    /// 2. Compare with previously active bits to find press/release events
+    /// 3. For each event, generate both combo and individual button_ids
+    ///    - Combo: for multi-button combos or unique patterns
+    ///    - Individual: for simultaneous independent keys
     #[inline]
     fn detect_hid_changes(
         &self,
         handle_key: isize,
         current_data: &[u8],
         stable_device_id: u64,
-        _device_info: &CachedDeviceInfo,
-    ) -> Vec<(u64, bool)> {
-        const SKIP_BYTES: usize = 5;
-
-        // Pre-allocate for typical case (1-2 events)
-        let mut changes = Vec::with_capacity(2);
+        _device_type: crate::state::DeviceType,
+    ) -> SmallVec<[(u64, bool); 8]> {
+        let mut changes = SmallVec::new();
 
         if let Some(result_changes) = self.device_states.update_sync(&handle_key, |_, state| {
-            let mut temp_changes = Vec::with_capacity(2);
+            let mut temp_changes: SmallVec<[(u64, bool); 8]> = SmallVec::new();
 
-            // Check for button state changes
-            let has_change =
-                if likely(current_data.len() > SKIP_BYTES && state.last_data.len() > SKIP_BYTES) {
-                    Self::has_data_changed_fast(
-                        &current_data[SKIP_BYTES..],
-                        &state.last_data[SKIP_BYTES..],
-                    )
+            if unlikely(current_data.len() <= SKIP_BYTES) {
+                return temp_changes;
+            }
+
+            let min_len = current_data
+                .len()
+                .min(state.last_data.len())
+                .min(state.baseline_data.len());
+
+            // Collect all currently active bit positions (relative to baseline)
+            let mut curr_active: SmallVec<[(usize, u32); 8]> = SmallVec::new();
+            let mut prev_active: SmallVec<[(usize, u32); 8]> = SmallVec::new();
+
+            #[allow(clippy::needless_range_loop)]
+            for byte_idx in SKIP_BYTES..min_len {
+                let curr_byte = current_data[byte_idx];
+                let prev_byte = state.last_data[byte_idx];
+                let baseline_byte = state.baseline_data[byte_idx];
+
+                // Collect currently active bits
+                let mut curr_diff = curr_byte ^ baseline_byte;
+                while curr_diff != 0 {
+                    let bit_idx = curr_diff.trailing_zeros();
+                    curr_active.push((byte_idx, bit_idx));
+                    curr_diff &= curr_diff - 1;
+                }
+
+                // Collect previously active bits
+                let mut prev_diff = prev_byte ^ baseline_byte;
+                while prev_diff != 0 {
+                    let bit_idx = prev_diff.trailing_zeros();
+                    prev_active.push((byte_idx, bit_idx));
+                    prev_diff &= prev_diff - 1;
+                }
+            }
+
+            // Detect changes in active button combination
+            if curr_active != prev_active {
+                // If previous combination existed and is different, release it
+                if !prev_active.is_empty()
+                    && let Some(last_id) = state.last_button_id
+                {
+                    temp_changes.push((last_id, false));
+                }
+
+                // If new combination exists, press it
+                if !curr_active.is_empty() {
+                    Self::generate_button_events(
+                        &curr_active,
+                        stable_device_id,
+                        true,
+                        &mut temp_changes,
+                    );
+
+                    // Save the new button_id for next release
+                    if let Some(&(new_button_id, _)) = temp_changes.last() {
+                        state.last_button_id = Some(new_button_id);
+                    }
                 } else {
-                    false
-                };
-
-            if likely(has_change) {
-                // Compare with baseline state
-                let is_baseline = Self::is_equal_fast(current_data, &state.baseline_data);
-                let was_baseline = Self::is_equal_fast(&state.last_data, &state.baseline_data);
-
-                if unlikely(is_baseline) {
-                    // Released - send previous state's button_id with release event
-                    let prev_hash = Self::hash_hid_data_fast(&state.last_data);
-                    let prev_button_id = (stable_device_id << 32) | (prev_hash as u64);
-                    temp_changes.push((prev_button_id, false));
-                } else if likely(!was_baseline) {
-                    // State change during hold - release old, press new
-                    let prev_hash = Self::hash_hid_data_fast(&state.last_data);
-                    let prev_button_id = (stable_device_id << 32) | (prev_hash as u64);
-                    let curr_hash = Self::hash_hid_data_fast(current_data);
-                    let curr_button_id = (stable_device_id << 32) | (curr_hash as u64);
-                    temp_changes.push((prev_button_id, false));
-                    temp_changes.push((curr_button_id, true));
-                } else {
-                    // New press from baseline
-                    let curr_hash = Self::hash_hid_data_fast(current_data);
-                    let curr_button_id = (stable_device_id << 32) | (curr_hash as u64);
-                    temp_changes.push((curr_button_id, true));
+                    // All released
+                    state.last_button_id = None;
                 }
             }
 
@@ -1127,110 +1514,38 @@ impl RawInputHandler {
         changes
     }
 
-    /// Checks if two byte arrays differ.
+    /// Generates button events for a set of bit positions.
+    /// Only creates a single combo button_id from all positions together.
     #[inline(always)]
-    fn has_data_changed_fast(current: &[u8], previous: &[u8]) -> bool {
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-        {
-            return unsafe { Self::has_data_changed_avx2(current, previous) };
-        }
-
-        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
-        {
-            current.iter().zip(previous.iter()).any(|(a, b)| a != b)
-        }
+    fn generate_button_events(
+        positions: &[(usize, u32)],
+        stable_device_id: u64,
+        is_pressed: bool,
+        events: &mut SmallVec<[(u64, bool); 8]>,
+    ) {
+        // Generate single combo button_id (hash all positions together)
+        let combo_id = Self::hash_bit_positions(positions, stable_device_id);
+        events.push((combo_id, is_pressed));
     }
 
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    #[target_feature(enable = "avx2")]
-    #[inline]
-    unsafe fn has_data_changed_avx2(current: &[u8], previous: &[u8]) -> bool {
-        use std::arch::x86_64::*;
-
-        let len = current.len().min(previous.len());
-        let mut i = 0;
-
-        // Process 32 bytes at a time
-        while i + 32 <= len {
-            // SAFETY: Bounds checked by while condition
-            unsafe {
-                let curr_vec = _mm256_loadu_si256(current.as_ptr().add(i) as *const __m256i);
-                let prev_vec = _mm256_loadu_si256(previous.as_ptr().add(i) as *const __m256i);
-                let cmp = _mm256_cmpeq_epi8(curr_vec, prev_vec);
-                let mask = _mm256_movemask_epi8(cmp);
-
-                if mask != -1 {
-                    return true;
-                }
-            }
-            i += 32;
-        }
-
-        // Process remaining bytes
-        for idx in i..len {
-            if current[idx] != previous[idx] {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    /// Checks if two byte arrays are equal.
+    /// Hashes a set of bit positions using FNV-1a for consistent button_id generation.
+    /// Extremely fast with minimal collisions.
     #[inline(always)]
-    fn is_equal_fast(a: &[u8], b: &[u8]) -> bool {
-        if unlikely(a.len() != b.len()) {
-            return false;
+    fn hash_bit_positions(positions: &[(usize, u32)], stable_device_id: u64) -> u64 {
+        const FNV_OFFSET_BASIS: u32 = 0x811c9dc5;
+        const FNV_PRIME: u32 = 0x01000193;
+
+        let mut hash = FNV_OFFSET_BASIS;
+        for &(byte_idx, bit_idx) in positions {
+            hash = (hash ^ (byte_idx as u32)).wrapping_mul(FNV_PRIME);
+            hash = (hash ^ bit_idx).wrapping_mul(FNV_PRIME);
         }
 
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-        {
-            return unsafe { Self::is_equal_avx2(a, b) };
-        }
-
-        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
-        {
-            a == b
-        }
-    }
-
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-    #[target_feature(enable = "avx2")]
-    #[inline]
-    unsafe fn is_equal_avx2(a: &[u8], b: &[u8]) -> bool {
-        use std::arch::x86_64::*;
-
-        let len = a.len();
-        let mut i = 0;
-
-        // Process 32 bytes at a time
-        while i + 32 <= len {
-            // SAFETY: Bounds checked by while condition
-            unsafe {
-                let a_vec = _mm256_loadu_si256(a.as_ptr().add(i) as *const __m256i);
-                let b_vec = _mm256_loadu_si256(b.as_ptr().add(i) as *const __m256i);
-                let cmp = _mm256_cmpeq_epi8(a_vec, b_vec);
-                let mask = _mm256_movemask_epi8(cmp);
-
-                if mask != -1 {
-                    return false;
-                }
-            }
-            i += 32;
-        }
-
-        // Process remaining bytes
-        for idx in i..len {
-            if a[idx] != b[idx] {
-                return false;
-            }
-        }
-
-        true
+        (stable_device_id << 32) | (hash as u64)
     }
 
     /// Updates the global device display information cache.
-    #[inline]
+    #[inline(always)]
     fn update_device_display_info(stable_device_id: u64, device_info: &CachedDeviceInfo) {
         let display_info = DeviceDisplayInfo {
             vendor_id: device_info.vendor_id,
@@ -1300,39 +1615,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fnv_hash_consistency() {
-        let data = b"test_hid_data_12345";
-        let hash1 = RawInputHandler::hash_hid_data_fast(data);
-        let hash2 = RawInputHandler::hash_hid_data_fast(data);
-        assert_eq!(hash1, hash2);
-    }
-
-    #[test]
-    fn test_fnv_hash_different_data() {
-        let data1 = b"test_data_1";
-        let data2 = b"test_data_2";
-        let hash1 = RawInputHandler::hash_hid_data_fast(data1);
-        let hash2 = RawInputHandler::hash_hid_data_fast(data2);
-        assert_ne!(hash1, hash2);
-    }
-
-    #[test]
-    fn test_fnv_hash_empty_data() {
-        let data = b"";
-        let hash = RawInputHandler::hash_hid_data_fast(data);
-        assert_eq!(hash, 0x811c9dc5);
-    }
-
-    #[test]
-    fn test_fnv_hash_unrolled_vs_remainder() {
-        let data_8 = b"12345678";
-        let data_9 = b"123456789";
-        let hash_8 = RawInputHandler::hash_hid_data_fast(data_8);
-        let hash_9 = RawInputHandler::hash_hid_data_fast(data_9);
-        assert_ne!(hash_8, hash_9);
-    }
-
-    #[test]
     fn test_vid_pid_serial_hash() {
         let vendor_id: u16 = 0x045E;
         let product_id: u16 = 0x0B05;
@@ -1357,8 +1639,6 @@ mod tests {
     fn test_device_capture_state_initialization() {
         let state = DeviceCaptureState::new();
         assert_eq!(state.frame_count, 0);
-        assert_eq!(state.busiest_idx, 0);
-        assert_eq!(state.max_button_count, 0);
     }
 
     #[test]
@@ -1366,33 +1646,45 @@ mod tests {
         let mut state = DeviceCaptureState::new();
         let data = vec![0, 0, 0, 0, 0, 0x01, 0x02, 0x03];
 
-        state.add_frame(&data);
+        state.add_frame(&data, 1000);
         assert_eq!(state.frame_count, 1);
-        assert!(state.get_busiest_frame().is_some());
+        assert!(state.get_most_sustained_frame(1000).is_some());
     }
 
     #[test]
-    fn test_device_capture_state_busiest_frame() {
+    fn test_device_capture_state_sustained_duration() {
         let mut state = DeviceCaptureState::new();
+        let mut time = 1000u64;
 
-        // Frame 1: 1 button (0x01 = 1 bit set)
-        let frame1 = vec![0, 0, 0, 0, 0, 0x01, 0x00];
-        state.add_frame(&frame1);
+        // Pattern A: 100ms duration (3 frames, 50ms apart)
+        let pattern_a = vec![0, 0, 0, 0, 0, 0x01, 0x00];
+        state.add_frame(&pattern_a, time);
+        time += 50;
+        state.add_frame(&pattern_a, time);
+        time += 50;
+        state.add_frame(&pattern_a, time);
+        time += 50;
 
-        // Frame 2: 2 buttons (0x03 = 2 bits set)
-        let frame2 = vec![0, 0, 0, 0, 0, 0x03, 0x00];
-        state.add_frame(&frame2);
+        // Pattern B: 200ms duration (3 frames, 100ms apart) - longest
+        let pattern_b = vec![0, 0, 0, 0, 0, 0x03, 0x00];
+        state.add_frame(&pattern_b, time);
+        time += 100;
+        state.add_frame(&pattern_b, time);
+        time += 100;
+        state.add_frame(&pattern_b, time);
+        time += 100;
 
-        // Frame 3: 1 button (0x02 = 1 bit set)
-        let frame3 = vec![0, 0, 0, 0, 0, 0x02, 0x00];
-        state.add_frame(&frame3);
+        // Pattern C: 30ms duration (2 frames, 30ms apart)
+        let pattern_c = vec![0, 0, 0, 0, 0, 0x02, 0x00];
+        state.add_frame(&pattern_c, time);
+        time += 30;
+        state.add_frame(&pattern_c, time);
 
+        // Total unique patterns: pattern_a, pattern_b, pattern_c = 3 patterns
         assert_eq!(state.frame_count, 3);
-        assert_eq!(state.busiest_idx, 1); // Frame 2 has most buttons
-        assert_eq!(state.max_button_count, 2);
 
-        let busiest = state.get_busiest_frame().unwrap();
-        assert_eq!(&busiest[5], &0x03);
+        let sustained = state.get_most_sustained_frame(time).unwrap();
+        assert_eq!(&sustained[5], &0x03); // Pattern B has longest duration
     }
 
     #[test]
@@ -1401,14 +1693,48 @@ mod tests {
         let data = vec![0, 0, 0, 0, 0, 0x01];
 
         // Add 32 frames
-        for _ in 0..32 {
-            state.add_frame(&data);
+        for i in 0..32u8 {
+            let mut pattern = data.clone();
+            pattern[5] = i;
+            state.add_frame(&pattern, i as u64 * 10);
         }
         assert_eq!(state.frame_count, 32);
 
         // Try to add 33rd frame - should be ignored
-        state.add_frame(&data);
+        let mut new_pattern = data.clone();
+        new_pattern[5] = 0xFF;
+        state.add_frame(&new_pattern, 1000);
         assert_eq!(state.frame_count, 32);
+    }
+
+    #[test]
+    fn test_device_capture_state_joystick_scenario() {
+        let mut state = DeviceCaptureState::new();
+        let mut time = 1000u64;
+
+        // Simulate joystick: Right (0x0C) for 50ms, then Right-Up (0x08) for 150ms
+
+        // Right for 50ms (2 frames)
+        let right = vec![0, 0, 0, 0, 0, 0x0C, 0x00];
+        state.add_frame(&right, time);
+        time += 25;
+        state.add_frame(&right, time);
+        time += 25;
+
+        // Right-Up for 150ms (3 frames) - should be selected
+        let right_up = vec![0, 0, 0, 0, 0, 0x08, 0x00];
+        state.add_frame(&right_up, time);
+        time += 50;
+        state.add_frame(&right_up, time);
+        time += 50;
+        state.add_frame(&right_up, time);
+        time += 50;
+
+        // Total unique patterns: right and right_up = 2 patterns
+        assert_eq!(state.frame_count, 2);
+
+        let sustained = state.get_most_sustained_frame(time).unwrap();
+        assert_eq!(&sustained[5], &0x08); // Right-Up is selected
     }
 
     #[test]
@@ -1450,28 +1776,5 @@ mod tests {
         assert!(RawInputHandler::parse_device_id("invalid").is_none());
         assert!(RawInputHandler::parse_device_id("").is_none());
         assert!(RawInputHandler::parse_device_id("ZZZZ:0B05").is_none());
-    }
-
-    #[test]
-    fn test_count_buttons_fast() {
-        // 0x03 = 0b00000011 (2 buttons)
-        // 0x0F = 0b00001111 (4 buttons)
-        let data = vec![0x03, 0x0F, 0x00];
-        let count = DeviceCaptureState::count_buttons_fast(&data);
-        assert_eq!(count, 6);
-    }
-
-    #[test]
-    fn test_count_buttons_empty() {
-        let data = vec![0x00, 0x00, 0x00];
-        let count = DeviceCaptureState::count_buttons_fast(&data);
-        assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn test_count_buttons_all_set() {
-        let data = vec![0xFF, 0xFF];
-        let count = DeviceCaptureState::count_buttons_fast(&data);
-        assert_eq!(count, 16);
     }
 }

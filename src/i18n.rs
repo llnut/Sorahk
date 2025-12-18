@@ -155,10 +155,21 @@ struct TranslationCache {
     mouse_scroll_direction_label: String,
     mouse_scroll_up: String,
     mouse_scroll_down: String,
-    capture_key_or_mouse_hover: String,
-    edit_key_button_hover: String,
     set_mouse_scroll_direction_hover: String,
     speed_label: String,
+    capture_mode_label: String,
+    capture_mode_most_sustained: String,
+    capture_mode_adaptive_intelligent: String,
+    capture_mode_max_changed_bits: String,
+    capture_mode_max_set_bits: String,
+    capture_mode_last_stable: String,
+    capture_mode_hat_switch_optimized: String,
+    capture_mode_analog_optimized: String,
+    add_target_key_hover: String,
+    clear_all_target_keys_hover: String,
+    remove_target_key_prefix: String,
+    diagonal_hint_prefix: String,
+    diagonal_hint_suffix: String,
 }
 
 impl CachedTranslations {
@@ -427,17 +438,54 @@ impl CachedTranslations {
     pub fn mouse_scroll_down(&self) -> &str {
         &self.inner.mouse_scroll_down
     }
-    pub fn capture_key_or_mouse_hover(&self) -> &str {
-        &self.inner.capture_key_or_mouse_hover
-    }
-    pub fn edit_key_button_hover(&self) -> &str {
-        &self.inner.edit_key_button_hover
-    }
     pub fn set_mouse_scroll_direction_hover(&self) -> &str {
         &self.inner.set_mouse_scroll_direction_hover
     }
     pub fn speed_label(&self) -> &str {
         &self.inner.speed_label
+    }
+
+    // Capture Mode
+    pub fn capture_mode_label(&self) -> &str {
+        &self.inner.capture_mode_label
+    }
+    pub fn capture_mode_most_sustained(&self) -> &str {
+        &self.inner.capture_mode_most_sustained
+    }
+    pub fn capture_mode_adaptive_intelligent(&self) -> &str {
+        &self.inner.capture_mode_adaptive_intelligent
+    }
+    pub fn capture_mode_max_changed_bits(&self) -> &str {
+        &self.inner.capture_mode_max_changed_bits
+    }
+    pub fn capture_mode_max_set_bits(&self) -> &str {
+        &self.inner.capture_mode_max_set_bits
+    }
+    pub fn capture_mode_last_stable(&self) -> &str {
+        &self.inner.capture_mode_last_stable
+    }
+    pub fn capture_mode_hat_switch_optimized(&self) -> &str {
+        &self.inner.capture_mode_hat_switch_optimized
+    }
+    pub fn capture_mode_analog_optimized(&self) -> &str {
+        &self.inner.capture_mode_analog_optimized
+    }
+
+    // Multi-target key support
+    pub fn add_target_key_hover(&self) -> &str {
+        &self.inner.add_target_key_hover
+    }
+    pub fn clear_all_target_keys_hover(&self) -> &str {
+        &self.inner.clear_all_target_keys_hover
+    }
+    pub fn format_remove_target_key_hover(&self, key: &str) -> String {
+        format!("{} {}", self.inner.remove_target_key_prefix, key)
+    }
+    pub fn format_diagonal_hint(&self, direction: &str) -> String {
+        format!(
+            "{}{}{}",
+            self.inner.diagonal_hint_prefix, direction, self.inner.diagonal_hint_suffix
+        )
     }
 
     // Additional main window status card
@@ -750,16 +798,49 @@ impl TranslationCache {
             mouse_scroll_down: get_raw_translation(lang, RawKey::MouseScrollDown).to_string(),
 
             // Hover hints
-            capture_key_or_mouse_hover: get_raw_translation(lang, RawKey::CaptureKeyOrMouseHover)
-                .to_string(),
-            edit_key_button_hover: get_raw_translation(lang, RawKey::EditKeyButtonHover)
-                .to_string(),
             set_mouse_scroll_direction_hover: get_raw_translation(
                 lang,
                 RawKey::SetMouseScrollDirectionHover,
             )
             .to_string(),
             speed_label: get_raw_translation(lang, RawKey::SpeedLabel).to_string(),
+            capture_mode_label: get_raw_translation(lang, RawKey::CaptureModeLabel).to_string(),
+            capture_mode_most_sustained: get_raw_translation(
+                lang,
+                RawKey::CaptureModeMostSustained,
+            )
+            .to_string(),
+            capture_mode_adaptive_intelligent: get_raw_translation(
+                lang,
+                RawKey::CaptureModeAdaptiveIntelligent,
+            )
+            .to_string(),
+            capture_mode_max_changed_bits: get_raw_translation(
+                lang,
+                RawKey::CaptureModeMaxChangedBits,
+            )
+            .to_string(),
+            capture_mode_max_set_bits: get_raw_translation(lang, RawKey::CaptureModeMaxSetBits)
+                .to_string(),
+            capture_mode_last_stable: get_raw_translation(lang, RawKey::CaptureModeLastStable)
+                .to_string(),
+            capture_mode_hat_switch_optimized: get_raw_translation(
+                lang,
+                RawKey::CaptureModeHatSwitchOptimized,
+            )
+            .to_string(),
+            capture_mode_analog_optimized: get_raw_translation(
+                lang,
+                RawKey::CaptureModeAnalogOptimized,
+            )
+            .to_string(),
+            add_target_key_hover: get_raw_translation(lang, RawKey::AddTargetKeyHover).to_string(),
+            clear_all_target_keys_hover: get_raw_translation(lang, RawKey::ClearAllTargetKeysHover)
+                .to_string(),
+            remove_target_key_prefix: get_raw_translation(lang, RawKey::RemoveTargetKeyPrefix)
+                .to_string(),
+            diagonal_hint_prefix: get_raw_translation(lang, RawKey::DiagonalHintPrefix).to_string(),
+            diagonal_hint_suffix: get_raw_translation(lang, RawKey::DiagonalHintSuffix).to_string(),
         }
     }
 }
@@ -870,10 +951,21 @@ enum RawKey {
     MouseScrollDirectionLabel,
     MouseScrollUp,
     MouseScrollDown,
-    CaptureKeyOrMouseHover,
-    EditKeyButtonHover,
     SetMouseScrollDirectionHover,
     SpeedLabel,
+    CaptureModeLabel,
+    CaptureModeMostSustained,
+    CaptureModeAdaptiveIntelligent,
+    CaptureModeMaxChangedBits,
+    CaptureModeMaxSetBits,
+    CaptureModeLastStable,
+    CaptureModeHatSwitchOptimized,
+    CaptureModeAnalogOptimized,
+    AddTargetKeyHover,
+    ClearAllTargetKeysHover,
+    RemoveTargetKeyPrefix,
+    DiagonalHintPrefix,
+    DiagonalHintSuffix,
 }
 
 /// Gets raw translation string without formatting.
@@ -1469,18 +1561,6 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::MouseScrollDown) => "下にスクロール",
 
         // Hover hints
-        (Language::English, RawKey::CaptureKeyOrMouseHover) => "Capture key or mouse button",
-        (Language::SimplifiedChinese, RawKey::CaptureKeyOrMouseHover) => "捕获键盘或鼠标按键",
-        (Language::TraditionalChinese, RawKey::CaptureKeyOrMouseHover) => "捕獲鍵盤或滑鼠按鍵",
-        (Language::Japanese, RawKey::CaptureKeyOrMouseHover) => {
-            "キーまたはマウスボタンをキャプチャ"
-        }
-
-        (Language::English, RawKey::EditKeyButtonHover) => "Edit key/button",
-        (Language::SimplifiedChinese, RawKey::EditKeyButtonHover) => "编辑按键",
-        (Language::TraditionalChinese, RawKey::EditKeyButtonHover) => "編輯按鍵",
-        (Language::Japanese, RawKey::EditKeyButtonHover) => "キー/ボタンを編集",
-
         (Language::English, RawKey::SetMouseScrollDirectionHover) => "Set mouse scroll direction",
         (Language::SimplifiedChinese, RawKey::SetMouseScrollDirectionHover) => "设置鼠标滚动方向",
         (Language::TraditionalChinese, RawKey::SetMouseScrollDirectionHover) => "設定滑鼠滾動方向",
@@ -1490,6 +1570,78 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::SimplifiedChinese, RawKey::SpeedLabel) => "速度:",
         (Language::TraditionalChinese, RawKey::SpeedLabel) => "速度:",
         (Language::Japanese, RawKey::SpeedLabel) => "速度:",
+
+        // Capture Mode
+        (Language::English, RawKey::CaptureModeLabel) => "HID Capture Mode:",
+        (Language::SimplifiedChinese, RawKey::CaptureModeLabel) => "按键捕获模式:",
+        (Language::TraditionalChinese, RawKey::CaptureModeLabel) => "按鍵捕獲模式:",
+        (Language::Japanese, RawKey::CaptureModeLabel) => "入力検出モード:",
+
+        (Language::English, RawKey::CaptureModeMostSustained) => "Most Sustained",
+        (Language::SimplifiedChinese, RawKey::CaptureModeMostSustained) => "持续时间最长",
+        (Language::TraditionalChinese, RawKey::CaptureModeMostSustained) => "持續時間最長",
+        (Language::Japanese, RawKey::CaptureModeMostSustained) => "継続時間優先",
+
+        (Language::English, RawKey::CaptureModeAdaptiveIntelligent) => "Adaptive Intelligent",
+        (Language::SimplifiedChinese, RawKey::CaptureModeAdaptiveIntelligent) => "智能自适应",
+        (Language::TraditionalChinese, RawKey::CaptureModeAdaptiveIntelligent) => "智能自適應",
+        (Language::Japanese, RawKey::CaptureModeAdaptiveIntelligent) => "自動判別",
+
+        (Language::English, RawKey::CaptureModeMaxChangedBits) => "Max Changed Bits",
+        (Language::SimplifiedChinese, RawKey::CaptureModeMaxChangedBits) => "最大变化量",
+        (Language::TraditionalChinese, RawKey::CaptureModeMaxChangedBits) => "最大變化量",
+        (Language::Japanese, RawKey::CaptureModeMaxChangedBits) => "最大変化量",
+
+        (Language::English, RawKey::CaptureModeMaxSetBits) => "Max Set Bits",
+        (Language::SimplifiedChinese, RawKey::CaptureModeMaxSetBits) => "最大激活量",
+        (Language::TraditionalChinese, RawKey::CaptureModeMaxSetBits) => "最大激活量",
+        (Language::Japanese, RawKey::CaptureModeMaxSetBits) => "最大アクティブ量",
+
+        (Language::English, RawKey::CaptureModeLastStable) => "Last Stable",
+        (Language::SimplifiedChinese, RawKey::CaptureModeLastStable) => "最终稳定状态",
+        (Language::TraditionalChinese, RawKey::CaptureModeLastStable) => "最終穩定狀態",
+        (Language::Japanese, RawKey::CaptureModeLastStable) => "最終安定状態",
+
+        (Language::English, RawKey::CaptureModeHatSwitchOptimized) => "Hat Switch Optimized",
+        (Language::SimplifiedChinese, RawKey::CaptureModeHatSwitchOptimized) => "摇杆方向优化",
+        (Language::TraditionalChinese, RawKey::CaptureModeHatSwitchOptimized) => "搖桿方向優化",
+        (Language::Japanese, RawKey::CaptureModeHatSwitchOptimized) => "十字キー特化",
+
+        (Language::English, RawKey::CaptureModeAnalogOptimized) => "Analog Optimized",
+        (Language::SimplifiedChinese, RawKey::CaptureModeAnalogOptimized) => "模拟摇杆优化",
+        (Language::TraditionalChinese, RawKey::CaptureModeAnalogOptimized) => "類比搖桿優化",
+        (Language::Japanese, RawKey::CaptureModeAnalogOptimized) => "アナログスティック特化",
+
+        (Language::English, RawKey::AddTargetKeyHover) => "➕ Add target key",
+        (Language::SimplifiedChinese, RawKey::AddTargetKeyHover) => "➕ 添加目标键",
+        (Language::TraditionalChinese, RawKey::AddTargetKeyHover) => "➕ 添加目標鍵",
+        (Language::Japanese, RawKey::AddTargetKeyHover) => "➕ ターゲットキー追加",
+
+        (Language::English, RawKey::ClearAllTargetKeysHover) => "🗑 Clear all target keys",
+        (Language::SimplifiedChinese, RawKey::ClearAllTargetKeysHover) => "🗑 清除所有目标键",
+        (Language::TraditionalChinese, RawKey::ClearAllTargetKeysHover) => "🗑 清除所有目標鍵",
+        (Language::Japanese, RawKey::ClearAllTargetKeysHover) => "🗑 すべてのターゲットキーをクリア",
+
+        (Language::English, RawKey::RemoveTargetKeyPrefix) => "🗑 Click to remove",
+        (Language::SimplifiedChinese, RawKey::RemoveTargetKeyPrefix) => "🗑 点击移除",
+        (Language::TraditionalChinese, RawKey::RemoveTargetKeyPrefix) => "🗑 點擊移除",
+        (Language::Japanese, RawKey::RemoveTargetKeyPrefix) => "🗑 クリックで削除",
+
+        (Language::English, RawKey::DiagonalHintPrefix) => {
+            "💡 Hint: Adjacent directions detected, diagonal direction "
+        }
+        (Language::SimplifiedChinese, RawKey::DiagonalHintPrefix) => {
+            "💡 提示：检测到相邻方向，斜方向 "
+        }
+        (Language::TraditionalChinese, RawKey::DiagonalHintPrefix) => {
+            "💡 提示：檢測到相鄰方向，斜方向 "
+        }
+        (Language::Japanese, RawKey::DiagonalHintPrefix) => "💡 ヒント：隣接方向を検出、斜め方向 ",
+
+        (Language::English, RawKey::DiagonalHintSuffix) => " has no effect by default",
+        (Language::SimplifiedChinese, RawKey::DiagonalHintSuffix) => " 默认无效果",
+        (Language::TraditionalChinese, RawKey::DiagonalHintSuffix) => " 預設無效果",
+        (Language::Japanese, RawKey::DiagonalHintSuffix) => " はデフォルトで無効",
     }
 }
 

@@ -3,19 +3,42 @@
 use crate::config::KeyMapping;
 use crate::gui::SorahkGui;
 use crate::gui::types::KeyCaptureMode;
+use crate::i18n::CachedTranslations;
+use crate::state::CaptureMode;
 use eframe::egui;
+use smallvec::SmallVec;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
 const TEXT_TRUNCATE_LEN: usize = 9;
 
+/// Gets localized display name for a capture mode.
+fn get_capture_mode_display_name(t: &CachedTranslations, mode: CaptureMode) -> &str {
+    match mode {
+        CaptureMode::MostSustained => t.capture_mode_most_sustained(),
+        CaptureMode::AdaptiveIntelligent => t.capture_mode_adaptive_intelligent(),
+        CaptureMode::MaxChangedBits => t.capture_mode_max_changed_bits(),
+        CaptureMode::MaxSetBits => t.capture_mode_max_set_bits(),
+        CaptureMode::LastStable => t.capture_mode_last_stable(),
+        CaptureMode::HatSwitchOptimized => t.capture_mode_hat_switch_optimized(),
+        CaptureMode::AnalogOptimized => t.capture_mode_analog_optimized(),
+    }
+}
+
 /// Safely truncate a string by character count (not byte count) to avoid UTF-8 boundary issues.
 fn truncate_text_safe(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
     let char_count = text.chars().count();
-    if char_count > max_chars {
-        let truncated: String = text.chars().take(max_chars - 3).collect();
-        format!("{}...", truncated)
+    if char_count <= max_chars {
+        return text.to_string();
+    }
+    let take_count = max_chars.saturating_sub(3);
+    let truncated: String = text.chars().take(take_count).collect();
+    if take_count == 0 {
+        "...".chars().take(max_chars).collect()
     } else {
-        text.to_string()
+        format!("{}...", truncated)
     }
 }
 
@@ -71,6 +94,50 @@ fn is_mouse_scroll_target(target: &str) -> bool {
     )
 }
 
+/// Check if a mapping has adjacent orthogonal directions that could form a diagonal
+fn check_diagonal_opportunity(target_keys: &[String]) -> Option<(&'static str, Vec<String>)> {
+    let mut has_up = false;
+    let mut has_down = false;
+    let mut has_left = false;
+    let mut has_right = false;
+
+    for key in target_keys {
+        let upper = key.to_uppercase();
+        match upper.as_str() {
+            "MOUSE_UP" => has_up = true,
+            "MOUSE_DOWN" => has_down = true,
+            "MOUSE_LEFT" => has_left = true,
+            "MOUSE_RIGHT" => has_right = true,
+            _ => {}
+        }
+    }
+
+    // Check for diagonal opportunities
+    if has_up && has_right {
+        Some((
+            "MOUSE_UP_RIGHT",
+            vec!["MOUSE_UP".to_string(), "MOUSE_RIGHT".to_string()],
+        ))
+    } else if has_up && has_left {
+        Some((
+            "MOUSE_UP_LEFT",
+            vec!["MOUSE_UP".to_string(), "MOUSE_LEFT".to_string()],
+        ))
+    } else if has_down && has_right {
+        Some((
+            "MOUSE_DOWN_RIGHT",
+            vec!["MOUSE_DOWN".to_string(), "MOUSE_RIGHT".to_string()],
+        ))
+    } else if has_down && has_left {
+        Some((
+            "MOUSE_DOWN_LEFT",
+            vec!["MOUSE_DOWN".to_string(), "MOUSE_LEFT".to_string()],
+        ))
+    } else {
+        None
+    }
+}
+
 impl SorahkGui {
     /// Renders the settings dialog for configuration management.
     pub(super) fn render_settings_dialog(&mut self, ctx: &egui::Context) {
@@ -88,15 +155,13 @@ impl SorahkGui {
             let current_pressed = Self::poll_all_pressed_keys();
 
             // Filter out keys that were already pressed when capture started (noise baseline)
-            let new_pressed: std::collections::HashSet<u32> = current_pressed
-                .difference(&self.capture_initial_pressed)
-                .copied()
-                .collect();
-
-            // Update tracking set with newly pressed keys only
-            for vk in &new_pressed {
-                self.capture_pressed_keys.insert(*vk);
-            }
+            current_pressed
+                .iter()
+                .filter(|&vk| !self.capture_initial_pressed.contains(vk))
+                .for_each(|&vk| {
+                    // Update tracking set with newly pressed keys only
+                    self.capture_pressed_keys.insert(vk);
+                });
 
             // Check if any tracked key has been released
             let any_released = self
@@ -104,7 +169,7 @@ impl SorahkGui {
                 .iter()
                 .any(|vk| !current_pressed.contains(vk));
 
-            if any_released && !self.capture_pressed_keys.is_empty() {
+            if any_released {
                 // Capture complete: format the result
                 captured_input = Self::format_captured_keys(&self.capture_pressed_keys);
             }
@@ -158,7 +223,7 @@ impl SorahkGui {
                         }
                         KeyCaptureMode::MappingTarget(idx) => {
                             if let Some(mapping) = temp_config.mappings.get_mut(idx) {
-                                mapping.target_key = input_name.clone();
+                                mapping.add_target_key(input_name.clone());
                             }
                         }
                         KeyCaptureMode::NewMappingTrigger => {
@@ -166,6 +231,9 @@ impl SorahkGui {
                         }
                         KeyCaptureMode::NewMappingTarget => {
                             self.new_mapping_target = input_name.clone();
+                            if !self.new_mapping_target_keys.contains(&input_name) {
+                                self.new_mapping_target_keys.push(input_name);
+                            }
                         }
                         KeyCaptureMode::None => {}
                     }
@@ -198,13 +266,13 @@ impl SorahkGui {
         };
 
         egui::Window::new("")
-            .title_bar(false) // Remove default title bar
+            .title_bar(false)
             .collapsible(false)
             .resizable(true)
-            .default_size([600.0, 530.0])
-            .min_size([600.0, 530.0])
+            .default_size([750.0, 530.0])
+            .min_size([750.0, 530.0])
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .id(egui::Id::new("settings_dialog_window")) // Unique ID to avoid conflicts
+            .id(egui::Id::new("settings_dialog_window"))
             .frame(
                 egui::Frame::window(&ctx.style())
                     .fill(dialog_bg)
@@ -262,10 +330,10 @@ impl SorahkGui {
                     // Wrap ScrollArea in a frame with padding (like main window)
                     let temp_config = self.temp_config.as_mut().unwrap();
                     egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(8, 0)) // Left and right padding
+                        .inner_margin(egui::Margin::symmetric(12, 0))
                         .show(ui, |ui| {
                             egui::ScrollArea::vertical()
-                                .max_height(400.0) // Adjusted for new layout
+                                .max_height(500.0)
                                 .show(ui, |ui| {
                                     // Toggle Key Section
                                     let card_bg = if self.dark_mode {
@@ -393,6 +461,28 @@ impl SorahkGui {
                                                             );
                                                         }
                                                     });
+                                                    ui.end_row();
+
+                                                    // HID Capture Mode selector
+                                                    ui.label(t.capture_mode_label());
+                                                    let current_mode = self.app_state.get_capture_mode();
+                                                    let current_mode_name = get_capture_mode_display_name(t, current_mode);
+                                                    let mode_names: SmallVec<[(&str, CaptureMode); 8]> = CaptureMode::all_modes()
+                                                        .iter()
+                                                        .map(|&mode| (get_capture_mode_display_name(t, mode), mode))
+                                                        .collect();
+                                                    egui::ComboBox::from_id_salt("hid_capture_mode")
+                                                        .selected_text(current_mode_name)
+                                                        .width(180.0)
+                                                        .show_ui(ui, |ui| {
+                                                            for (mode_name, mode) in &mode_names {
+                                                                let is_selected = temp_config.capture_mode == mode.as_str();
+                                                                if ui.selectable_label(is_selected, *mode_name).clicked() {
+                                                                    temp_config.capture_mode = mode.as_str().to_string();
+                                                                    self.app_state.set_capture_mode(*mode);
+                                                                }
+                                                            }
+                                                        });
                                                     ui.end_row();
 
                                                     ui.label(t.input_timeout_label());
@@ -608,10 +698,13 @@ impl SorahkGui {
                                                     ui.label(t.target_short());
                                                     let is_capturing_target = self.key_capture_mode
                                                         == KeyCaptureMode::MappingTarget(idx);
+                                                    let target_display = mapping.target_keys_display();
                                                     let target_text = if is_capturing_target {
                                                         "⌨..."
+                                                    } else if target_display.is_empty() {
+                                                        ""
                                                     } else {
-                                                        &mapping.target_key
+                                                        &target_display
                                                     };
                                                     let display_target_text = if is_capturing_target {
                                                         target_text.to_string()
@@ -641,7 +734,7 @@ impl SorahkGui {
                                                     })
                                                     .corner_radius(4.0);
                                                     let mut target_response = ui
-                                                        .add_sized([80.0, 24.0], target_btn);
+                                                        .add_sized([100.0, 24.0], target_btn);
                                                     if !is_capturing_target
                                                         && target_text.len() > TEXT_TRUNCATE_LEN
                                                     {
@@ -658,9 +751,10 @@ impl SorahkGui {
                                                             Self::poll_all_pressed_keys();
                                                     }
 
-                                                    // Check if this mapping is for mouse movement or scroll
-                                                    let is_mouse_move_mapping = is_mouse_move_target(&mapping.target_key);
-                                                    let is_mouse_scroll_mapping = is_mouse_scroll_target(&mapping.target_key);
+                                                    // Check if this mapping is for mouse movement or scroll (check first target key)
+                                                    let first_target = mapping.get_target_keys().first().map(|s| s.as_str()).unwrap_or("");
+                                                    let is_mouse_move_mapping = is_mouse_move_target(first_target);
+                                                    let is_mouse_scroll_mapping = is_mouse_scroll_target(first_target);
 
                                                     if is_mouse_move_mapping || is_mouse_scroll_mapping {
                                                         // Show interval and speed for mouse movement/scroll
@@ -770,27 +864,43 @@ impl SorahkGui {
                                                     let button_height = 24.0;
                                                     let button_width = 32.0;
 
-                                                    // Button 1: Edit with capture
-                                                    let edit_btn = egui::Button::new(
-                                                        egui::RichText::new("✏")
+                                                    // Button 1: Add target key with capture
+                                                    let add_target_btn = egui::Button::new(
+                                                        egui::RichText::new("+")
                                                             .color(egui::Color32::WHITE)
-                                                            .size(16.0),
+                                                            .size(18.0),
                                                     )
                                                     .fill(if self.dark_mode {
-                                                        egui::Color32::from_rgb(147, 197, 253) // Sky blue
+                                                        egui::Color32::from_rgb(147, 197, 253)
                                                     } else {
                                                         egui::Color32::from_rgb(96, 165, 250)
                                                     })
                                                     .corner_radius(12.0);
 
-                                                    if ui
-                                                        .add_sized([button_width, button_height], edit_btn)
-                                                        .on_hover_text(t.edit_key_button_hover())
-                                                        .clicked()
+                                            if ui
+                                                .add_sized([button_width, button_height], add_target_btn)
+                                                .on_hover_text(t.add_target_key_hover())
+                                                .clicked()
                                                     {
                                                         self.key_capture_mode = KeyCaptureMode::MappingTarget(idx);
                                                         self.capture_pressed_keys.clear();
                                                         self.capture_initial_pressed = Self::poll_all_pressed_keys();
+                                                    }
+                                                    // Button 1.5: Clear all target keys
+                                                    let clear_btn = egui::Button::new(
+                                                        egui::RichText::new("✖")
+                                                            .color(egui::Color32::WHITE)
+                                                            .size(14.0),
+                                                    )
+                                                    .fill(egui::Color32::from_rgb(255, 140, 140))
+                                                    .corner_radius(12.0);
+
+                                            if ui
+                                                .add_sized([button_width, button_height], clear_btn)
+                                                .on_hover_text(t.clear_all_target_keys_hover())
+                                                .clicked()
+                                                    {
+                                                        mapping.clear_target_keys();
                                                     }
 
                                                     // Button 2: Mouse movement direction
@@ -891,6 +1001,90 @@ impl SorahkGui {
                                                         to_remove = Some(idx);
                                                     }
                                                 });
+                                                // Display target keys list with remove buttons
+                                                if mapping.get_target_keys().len() > 1 {
+                                                    ui.add_space(2.0);
+                                                    ui.horizontal(|ui| {
+                                                        ui.add_space(30.0);
+                                                        ui.label(
+                                                            egui::RichText::new("🎯")
+                                                                .size(12.0)
+                                                                .color(if self.dark_mode {
+                                                                    egui::Color32::from_rgb(180, 180, 180)
+                                                                } else {
+                                                                    egui::Color32::from_rgb(100, 100, 100)
+                                                                })
+                                                        );
+                                                        let mut key_to_remove: Option<String> = None;
+                                                        for (i, target_key) in mapping.get_target_keys().iter().enumerate() {
+                                                            if i > 0 {
+                                                                ui.label(
+                                                                    egui::RichText::new("·")
+                                                                        .size(12.0)
+                                                                        .color(egui::Color32::from_rgb(150, 150, 150))
+                                                                );
+                                                            }
+                                                            let key_chip = egui::Button::new(
+                                                                egui::RichText::new(format!("{} ✕", target_key))
+                                                                    .size(11.0)
+                                                                    .color(if self.dark_mode {
+                                                                        egui::Color32::from_rgb(255, 200, 220)
+                                                                    } else {
+                                                                        egui::Color32::from_rgb(220, 60, 100)
+                                                                    })
+                                                            )
+                                                            .fill(if self.dark_mode {
+                                                                egui::Color32::from_rgb(60, 50, 70)
+                                                            } else {
+                                                                egui::Color32::from_rgb(255, 230, 240)
+                                                            })
+                                                            .corner_radius(8.0)
+                                                            .frame(true);
+                                                    if ui.add(key_chip)
+                                                        .on_hover_text(t.format_remove_target_key_hover(target_key))
+                                                        .clicked()
+                                                            {
+                                                                key_to_remove = Some(target_key.clone());
+                                                            }
+                                                        }
+                                                        if let Some(key) = key_to_remove {
+                                                            mapping.remove_target_key(&key);
+                                                        }
+                                                    });
+                                                }
+                                                // Check for diagonal direction opportunity
+                                                if let Some((diagonal_name, _keys)) = check_diagonal_opportunity(mapping.get_target_keys()) {
+                                                    ui.add_space(3.0);
+                                                    ui.horizontal(|ui| {
+                                                        ui.add_space(30.0);
+                                                        let hint_bg = if self.dark_mode {
+                                                            egui::Color32::from_rgba_premultiplied(255, 200, 150, 25)
+                                                        } else {
+                                                            egui::Color32::from_rgba_premultiplied(255, 240, 200, 180)
+                                                        };
+                                                        egui::Frame::NONE
+                                                            .fill(hint_bg)
+                                                            .corner_radius(egui::CornerRadius::same(10))
+                                                            .inner_margin(egui::Margin::symmetric(8, 4))
+                                                            .show(ui, |ui| {
+                                                                ui.horizontal(|ui| {
+                                                                    ui.label(
+                                                                        egui::RichText::new("💡")
+                                                                            .size(14.0)
+                                                                    );
+                                                                ui.label(
+                                                                    egui::RichText::new(t.format_diagonal_hint(diagonal_name))
+                                                                    .size(11.0)
+                                                                        .color(if self.dark_mode {
+                                                                            egui::Color32::from_rgb(255, 220, 150)
+                                                                        } else {
+                                                                            egui::Color32::from_rgb(180, 100, 50)
+                                                                        })
+                                                                    );
+                                                                });
+                                                            });
+                                                    });
+                                                }
                                                 ui.add_space(4.0);
                                             }
 
@@ -1100,28 +1294,45 @@ impl SorahkGui {
                                                 let button_height = 24.0;
                                                 let button_width = 32.0;
 
-                                                // Button 1: Keyboard/Mouse button capture
-                                                let key_btn = egui::Button::new(
-                                                    egui::RichText::new("⌨")
+                                                // Button 1: Add target key
+                                                let add_target_btn = egui::Button::new(
+                                                    egui::RichText::new("+")
                                                         .color(egui::Color32::WHITE)
-                                                        .size(16.0),
+                                                        .size(18.0),
                                                 )
                                                 .fill(if self.dark_mode {
-                                                    egui::Color32::from_rgb(147, 197, 253) // Sky blue
+                                                    egui::Color32::from_rgb(147, 197, 253)
                                                 } else {
                                                     egui::Color32::from_rgb(96, 165, 250)
                                                 })
                                                 .corner_radius(12.0);
 
                                                 if ui
-                                                    .add_sized([button_width, button_height], key_btn)
-                                                    .on_hover_text(t.capture_key_or_mouse_hover())
+                                                    .add_sized([button_width, button_height], add_target_btn)
+                                                    .on_hover_text(t.add_target_key_hover())
                                                     .clicked()
                                                 {
                                                     self.key_capture_mode = KeyCaptureMode::NewMappingTarget;
                                                     self.capture_pressed_keys.clear();
                                                     self.capture_initial_pressed = Self::poll_all_pressed_keys();
                                                     self.just_captured_input = true;
+                                                }
+                                                // Button 1.5: Clear all target keys
+                                                let clear_btn = egui::Button::new(
+                                                    egui::RichText::new("✖")
+                                                        .color(egui::Color32::WHITE)
+                                                        .size(14.0),
+                                                )
+                                                .fill(egui::Color32::from_rgb(255, 140, 140))
+                                                .corner_radius(12.0);
+
+                                                if ui
+                                                    .add_sized([button_width, button_height], clear_btn)
+                                                    .on_hover_text(t.clear_all_target_keys_hover())
+                                                    .clicked()
+                                                {
+                                                    self.new_mapping_target_keys.clear();
+                                                    self.new_mapping_target.clear();
                                                 }
 
                                                 // Button 2: Mouse movement direction
@@ -1214,12 +1425,12 @@ impl SorahkGui {
                                                         .color(egui::Color32::WHITE)
                                                         .strong(),
                                                 )
-                                                .fill(egui::Color32::from_rgb(144, 238, 144)) // Soft green
+                                                .fill(egui::Color32::from_rgb(144, 238, 144))
                                                 .corner_radius(10.0);
 
                                                 if ui.add_sized([70.0, 24.0], add_btn).clicked()
                                                     && !self.new_mapping_trigger.is_empty()
-                                                    && !self.new_mapping_target.is_empty()
+                                                    && !self.new_mapping_target_keys.is_empty()
                                                 {
                                                     let trigger_upper =
                                                         self.new_mapping_trigger.to_uppercase();
@@ -1258,9 +1469,9 @@ impl SorahkGui {
 
                                                         temp_config.mappings.push(KeyMapping {
                                                             trigger_key: trigger_upper,
-                                                            target_key: self
-                                                                .new_mapping_target
-                                                                .to_uppercase(),
+                                                            target_keys: self.new_mapping_target_keys.iter()
+                                                                .map(|k| k.to_uppercase())
+                                                                .collect(),
                                                             interval,
                                                             event_duration: duration,
                                                             turbo_enabled,
@@ -1270,6 +1481,7 @@ impl SorahkGui {
                                                         // Clear input fields
                                                         self.new_mapping_trigger.clear();
                                                         self.new_mapping_target.clear();
+                                                        self.new_mapping_target_keys.clear();
                                                         self.new_mapping_interval.clear();
                                                         self.new_mapping_duration.clear();
                                                         self.new_mapping_move_speed = "10".to_string();
@@ -1277,6 +1489,60 @@ impl SorahkGui {
                                                     }
                                                 }
                                             });
+                                            // Display new mapping target keys list
+                                            if self.new_mapping_target_keys.len() > 1 {
+                                                ui.add_space(6.0);
+                                                ui.horizontal(|ui| {
+                                                    ui.add_space(10.0);
+                                                    ui.label(
+                                                        egui::RichText::new("🎯")
+                                                            .size(12.0)
+                                                            .color(if self.dark_mode {
+                                                                egui::Color32::from_rgb(180, 180, 180)
+                                                            } else {
+                                                                egui::Color32::from_rgb(100, 100, 100)
+                                                            })
+                                                    );
+                                                    let mut key_to_remove: Option<String> = None;
+                                                    for (i, target_key) in self.new_mapping_target_keys.iter().enumerate() {
+                                                        if i > 0 {
+                                                            ui.label(
+                                                                egui::RichText::new("·")
+                                                                    .size(12.0)
+                                                                    .color(egui::Color32::from_rgb(150, 150, 150))
+                                                            );
+                                                        }
+                                                        let key_chip = egui::Button::new(
+                                                            egui::RichText::new(format!("{} ✕", target_key))
+                                                                .size(11.0)
+                                                                .color(if self.dark_mode {
+                                                                    egui::Color32::from_rgb(255, 200, 220)
+                                                                } else {
+                                                                    egui::Color32::from_rgb(220, 60, 100)
+                                                                })
+                                                        )
+                                                        .fill(if self.dark_mode {
+                                                            egui::Color32::from_rgb(60, 50, 70)
+                                                        } else {
+                                                            egui::Color32::from_rgb(255, 230, 240)
+                                                        })
+                                                        .corner_radius(8.0)
+                                                        .frame(true);
+                                                        if ui.add(key_chip)
+                                                            .on_hover_text(t.format_remove_target_key_hover(target_key))
+                                                            .clicked()
+                                                        {
+                                                            key_to_remove = Some(target_key.clone());
+                                                        }
+                                                    }
+                                                    if let Some(key) = key_to_remove {
+                                                        self.new_mapping_target_keys.retain(|k| k != &key);
+                                                        if self.new_mapping_target == key {
+                                                            self.new_mapping_target.clear();
+                                                        }
+                                                    }
+                                                });
+                                            }
 
                                             // Display duplicate trigger error if exists
                                             if let Some(ref error_msg) =
@@ -1617,6 +1883,7 @@ impl SorahkGui {
             // Clear input fields
             self.new_mapping_trigger.clear();
             self.new_mapping_target.clear();
+            self.new_mapping_target_keys.clear();
             self.new_mapping_interval.clear();
             self.new_mapping_duration.clear();
 
@@ -1779,8 +2046,8 @@ impl SorahkGui {
         }
 
         // Separate modifiers and main keys
-        let mut modifiers: Vec<u32> = Vec::new();
-        let mut main_keys: Vec<u32> = Vec::new();
+        let mut modifiers: SmallVec<[u32; 8]> = SmallVec::with_capacity(8);
+        let mut main_keys: SmallVec<[u32; 8]> = SmallVec::with_capacity(8);
 
         for &vk in vk_codes {
             match vk {
@@ -1794,7 +2061,7 @@ impl SorahkGui {
         }
 
         // Build the key combination string
-        let mut parts: Vec<String> = Vec::new();
+        let mut parts: SmallVec<[String; 8]> = SmallVec::with_capacity(8);
 
         // Add modifiers in consistent order
         for &vk in &modifiers {

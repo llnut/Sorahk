@@ -4,6 +4,7 @@
 //! including key mappings and runtime parameters.
 
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 use std::{fs, path::Path};
 
 use crate::i18n::Language;
@@ -46,6 +47,9 @@ pub struct AppConfig {
     /// HID device baselines for button detection
     #[serde(default)]
     pub hid_baselines: Vec<HidDeviceBaseline>,
+    /// HID input capture mode strategy
+    #[serde(default = "default_capture_mode")]
+    pub capture_mode: String,
 }
 
 /// HID device baseline configuration for button state detection.
@@ -62,8 +66,10 @@ pub struct HidDeviceBaseline {
 pub struct KeyMapping {
     /// Trigger key name
     pub trigger_key: String,
-    /// Target key name to send
-    pub target_key: String,
+    /// Target keys to send (supports multiple keys for simultaneous press)
+    /// Uses SmallVec with inline capacity of 4 to reduce heap allocations for common cases
+    #[serde(default = "default_target_keys")]
+    pub target_keys: SmallVec<[String; 4]>,
     /// Optional override for repeat interval
     #[serde(default)]
     pub interval: Option<u64>,
@@ -86,6 +92,49 @@ fn default_turbo_enabled() -> bool {
     true
 }
 
+fn default_target_keys() -> SmallVec<[String; 4]> {
+    SmallVec::new()
+}
+
+impl KeyMapping {
+    /// Gets the target keys slice
+    pub fn get_target_keys(&self) -> &[String] {
+        &self.target_keys
+    }
+
+    /// Sets target keys
+    pub fn set_target_keys(&mut self, keys: Vec<String>) {
+        self.target_keys.clear();
+        self.target_keys.extend(keys);
+    }
+
+    /// Adds a target key
+    pub fn add_target_key(&mut self, key: String) {
+        if !self.target_keys.contains(&key) {
+            self.target_keys.push(key);
+        }
+    }
+
+    /// Removes a target key
+    pub fn remove_target_key(&mut self, key: &str) {
+        self.target_keys.retain(|k| k != key);
+    }
+
+    /// Clears all target keys
+    pub fn clear_target_keys(&mut self) {
+        self.target_keys.clear();
+    }
+
+    /// Gets target keys as display string (comma separated)
+    pub fn target_keys_display(&self) -> String {
+        if self.target_keys.is_empty() {
+            String::new()
+        } else {
+            self.target_keys.join(", ")
+        }
+    }
+}
+
 fn default_input_timeout() -> u64 {
     5
 }
@@ -97,6 +146,9 @@ fn default_event_duration() -> u64 {
 }
 fn default_worker_count() -> usize {
     0 // 0 means auto-detect based on CPU cores
+}
+fn default_capture_mode() -> String {
+    "MostSustained".to_string()
 }
 
 impl Default for AppConfig {
@@ -111,7 +163,7 @@ impl Default for AppConfig {
             switch_key: "DELETE".to_string(),
             mappings: vec![KeyMapping {
                 trigger_key: "Q".to_string(),
-                target_key: "Q".to_string(),
+                target_keys: SmallVec::from_vec(vec!["Q".to_string()]),
                 interval: None,
                 event_duration: None,
                 turbo_enabled: true,
@@ -123,6 +175,7 @@ impl Default for AppConfig {
             worker_count: default_worker_count(),
             process_whitelist: vec![], // Empty means all processes enabled
             hid_baselines: Vec::new(),
+            capture_mode: default_capture_mode(),
         }
     }
 }
@@ -216,45 +269,53 @@ impl AppConfig {
              # Uncomment to enable combo key mappings:\n\
              # [[mappings]]\n\
              # trigger_key = \"LALT+1\"      # Left ALT + 1 (won't trigger with right ALT)\n\
-             # target_key = \"F1\"           # Auto-press F1\n\n\
+             # target_keys = [\"F1\"]        # Auto-press F1\n\n\
              # [[mappings]]\n\
              # trigger_key = \"CTRL+SHIFT+F\"  # Multiple modifiers\n\
-             # target_key = \"LALT+F4\"         # Output can also be combo\n\n\
+             # target_keys = [\"LALT+F4\"]     # Output can also be combo\n\n\
              # ─── Mouse Button Examples ───\n\
              # Uncomment to enable mouse button mappings:\n\
              # [[mappings]]\n\
              # trigger_key = \"LBUTTON\"     # Left mouse button trigger\n\
-             # target_key = \"LBUTTON\"      # Auto-click left button\n\n\
+             # target_keys = [\"LBUTTON\"]   # Auto-click left button\n\n\
              # [[mappings]]\n\
              # trigger_key = \"RBUTTON\"     # Right mouse button trigger\n\
-             # target_key = \"SPACE\"        # Press space when right-clicking\n\n\
+             # target_keys = [\"SPACE\"]     # Press space when right-clicking\n\n\
              # [[mappings]]\n\
              # trigger_key = \"XBUTTON1\"    # Side button 1 trigger\n\
-             # target_key = \"F\"            # Auto-press F key\n\n\
+             # target_keys = [\"F\"]         # Auto-press F key\n\n\
              # ─── Mouse Movement Examples ───\n\
              # [[mappings]]\n\
              # trigger_key = \"W\"           # Trigger key\n\
-             # target_key = \"MOUSE_UP\"     # Move cursor upward\n\
+             # target_keys = [\"MOUSE_UP\"]  # Move cursor upward\n\
              # move_speed = 10             # Speed in pixels (1-100)\n\
              # interval = 5                # Update interval in ms\n\
              # turbo_enabled = true        # Required for continuous movement\n\n\
              # [[mappings]]\n\
              # trigger_key = \"S\"\n\
-             # target_key = \"MOUSE_DOWN\"\n\
+             # target_keys = [\"MOUSE_DOWN\"]\n\
              # move_speed = 10\n\
              # interval = 5\n\
              # turbo_enabled = true\n\n\
+             # Multiple target keys for diagonal movement (simultaneous press):\n\
+             # [[mappings]]\n\
+             # trigger_key = \"Q\"\n\
+             # target_keys = [\"MOUSE_UP\", \"MOUSE_LEFT\"]  # Move diagonally up-left\n\
+             # move_speed = 10\n\
+             # interval = 5\n\
+             # turbo_enabled = true\n\n\
+             # Or use built-in diagonal directions:\n\
              # Diagonal: MOUSE_UP_LEFT, MOUSE_UP_RIGHT, MOUSE_DOWN_LEFT, MOUSE_DOWN_RIGHT\n\n\
              # ─── Mouse Scroll Examples ───\n\
              # [[mappings]]\n\
              # trigger_key = \"PAGEUP\"       # Trigger key\n\
-             # target_key = \"SCROLL_UP\"     # Scroll wheel upward\n\
+             # target_keys = [\"SCROLL_UP\"]  # Scroll wheel upward\n\
              # move_speed = 120             # Wheel delta (120 = standard notch)\n\
              # interval = 5                 # Repeat interval in ms\n\
              # turbo_enabled = true         # true = continuous, false = Windows repeat\n\n\
              # [[mappings]]\n\
              # trigger_key = \"PAGEDOWN\"\n\
-             # target_key = \"SCROLL_DOWN\"\n\
+             # target_keys = [\"SCROLL_DOWN\"]\n\
              # move_speed = 240             # Wheel delta (240 = 2x)\n\
              # interval = 5\n\
              # turbo_enabled = true\n\n\
@@ -271,15 +332,15 @@ impl AppConfig {
              # 5. Release all buttons to complete capture\n\
              # [[mappings]]\n\
              # trigger_key = \"GAMEPAD_045E_0B05_ABC123_B2.0\"  # Example: Xbox controller single button\n\
-             # target_key = \"SPACE\"                           # Press space\n\
+             # target_keys = [\"SPACE\"]                        # Press space\n\
              # turbo_enabled = true                           # Enable turbo mode\n\n\
              # [[mappings]]\n\
              # trigger_key = \"GAMEPAD_045E_028E_B+X\"          # Example: Xbox controller combo (B+X)\n\
-             # target_key = \"LCTRL+C\"                         # Press Ctrl+C\n\
+             # target_keys = [\"LCTRL+C\"]                      # Press Ctrl+C\n\
              # turbo_enabled = true                           # Enable turbo mode\n\n\
              # [[mappings]]\n\
              # trigger_key = \"JOYSTICK_046D_C21D_B1.0\"        # Example: Logitech joystick button\n\
-             # target_key = \"LBUTTON\"                         # Left mouse click\n\
+             # target_keys = [\"LBUTTON\"]                      # Left mouse click\n\
              # turbo_enabled = true                           # Enable turbo mode\n\n\
              # ─── HID Device Baselines (Auto-generated, Do Not Edit) ───\n\
              # This section is managed automatically by the application\n\
@@ -318,10 +379,30 @@ impl AppConfig {
             for mapping in &self.mappings {
                 result.push_str("[[mappings]]\n");
                 result.push_str(&format!(
-                    "trigger_key = \"{}\"           # Physical key you press\n\
-                     target_key = \"{}\"            # Key that gets repeatedly sent\n",
-                    mapping.trigger_key, mapping.target_key
+                    "trigger_key = \"{}\"           # Physical key you press\n",
+                    mapping.trigger_key
                 ));
+
+                if mapping.target_keys.len() == 1 {
+                    result.push_str("target_keys = [\"");
+                    result.push_str(&mapping.target_keys[0]);
+                    result.push_str("\"]         # Key(s) that get repeatedly sent\n");
+                } else if mapping.target_keys.len() > 1 {
+                    result.push_str("target_keys = [");
+                    for (i, key) in mapping.target_keys.iter().enumerate() {
+                        if i > 0 {
+                            result.push_str(", ");
+                        }
+                        result.push('"');
+                        result.push_str(key);
+                        result.push('"');
+                    }
+                    result.push_str("]  # Multiple keys for simultaneous press\n");
+                } else {
+                    result
+                        .push_str("target_keys = []             # Keys that get repeatedly sent\n");
+                }
+
                 if let Some(interval) = mapping.interval {
                     result.push_str(&format!(
                         "interval = {}                # Override global interval\n",
@@ -553,7 +634,7 @@ mod tests {
     fn test_key_mapping_with_overrides() {
         let mapping = KeyMapping {
             trigger_key: "A".to_string(),
-            target_key: "B".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string()]),
             interval: Some(10),
             event_duration: Some(8),
             turbo_enabled: true,
@@ -561,7 +642,7 @@ mod tests {
         };
 
         assert_eq!(mapping.trigger_key, "A");
-        assert_eq!(mapping.target_key, "B");
+        assert_eq!(mapping.target_keys.as_slice(), &["B".to_string()]);
         assert_eq!(mapping.interval, Some(10));
         assert_eq!(mapping.event_duration, Some(8));
     }
@@ -570,7 +651,7 @@ mod tests {
     fn test_key_mapping_without_overrides() {
         let mapping = KeyMapping {
             trigger_key: "C".to_string(),
-            target_key: "D".to_string(),
+            target_keys: SmallVec::from_vec(vec!["D".to_string()]),
             interval: None,
             event_duration: None,
             turbo_enabled: true,
@@ -578,7 +659,7 @@ mod tests {
         };
 
         assert_eq!(mapping.trigger_key, "C");
-        assert_eq!(mapping.target_key, "D");
+        assert_eq!(mapping.target_keys.as_slice(), &["D".to_string()]);
         assert_eq!(mapping.interval, None);
         assert_eq!(mapping.event_duration, None);
     }
@@ -644,7 +725,7 @@ mod tests {
         config.mappings = vec![
             KeyMapping {
                 trigger_key: "A".to_string(),
-                target_key: "1".to_string(),
+                target_keys: SmallVec::from_vec(vec!["1".to_string()]),
                 interval: Some(10),
                 event_duration: Some(5),
                 turbo_enabled: true,
@@ -652,7 +733,7 @@ mod tests {
             },
             KeyMapping {
                 trigger_key: "B".to_string(),
-                target_key: "2".to_string(),
+                target_keys: SmallVec::from_vec(vec!["2".to_string()]),
                 interval: None,
                 event_duration: None,
                 turbo_enabled: true,
@@ -660,7 +741,7 @@ mod tests {
             },
             KeyMapping {
                 trigger_key: "F1".to_string(),
-                target_key: "SPACE".to_string(),
+                target_keys: SmallVec::from_vec(vec!["SPACE".to_string()]),
                 interval: Some(20),
                 event_duration: Some(10),
                 turbo_enabled: true,
@@ -673,7 +754,10 @@ mod tests {
 
         assert_eq!(loaded_config.mappings.len(), 3);
         assert_eq!(loaded_config.mappings[0].trigger_key, "A");
-        assert_eq!(loaded_config.mappings[1].target_key, "2");
+        assert_eq!(
+            loaded_config.mappings[1].target_keys.as_slice(),
+            &["2".to_string()]
+        );
         assert_eq!(loaded_config.mappings[2].interval, Some(20));
 
         cleanup_test_file(&path);
@@ -853,6 +937,263 @@ mod tests {
                 .process_whitelist
                 .contains(&"firefox.exe".to_string())
         );
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_multiple_target_keys_single() {
+        let mapping = KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string()]),
+            interval: None,
+            event_duration: None,
+            turbo_enabled: true,
+            move_speed: 10,
+        };
+
+        assert_eq!(mapping.target_keys.len(), 1);
+        assert_eq!(mapping.target_keys_display(), "B");
+    }
+
+    #[test]
+    fn test_multiple_target_keys_multiple() {
+        let mapping = KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::from_vec(vec!["MOUSE_UP".to_string(), "MOUSE_LEFT".to_string()]),
+            interval: None,
+            event_duration: None,
+            turbo_enabled: true,
+            move_speed: 10,
+        };
+
+        assert_eq!(mapping.target_keys.len(), 2);
+        assert_eq!(mapping.target_keys_display(), "MOUSE_UP, MOUSE_LEFT");
+    }
+
+    #[test]
+    fn test_multiple_target_keys_empty() {
+        let mapping = KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::new(),
+            interval: None,
+            event_duration: None,
+            turbo_enabled: true,
+            move_speed: 10,
+        };
+
+        assert_eq!(mapping.target_keys.len(), 0);
+        assert_eq!(mapping.target_keys_display(), "");
+    }
+
+    #[test]
+    fn test_add_target_key() {
+        let mut mapping = KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string()]),
+            interval: None,
+            event_duration: None,
+            turbo_enabled: true,
+            move_speed: 10,
+        };
+
+        mapping.add_target_key("C".to_string());
+        assert_eq!(mapping.target_keys.len(), 2);
+        assert_eq!(mapping.target_keys[1], "C");
+
+        // Adding duplicate should not increase count
+        mapping.add_target_key("B".to_string());
+        assert_eq!(mapping.target_keys.len(), 2);
+    }
+
+    #[test]
+    fn test_remove_target_key() {
+        let mut mapping = KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::from_vec(vec![
+                "B".to_string(),
+                "C".to_string(),
+                "D".to_string(),
+            ]),
+            interval: None,
+            event_duration: None,
+            turbo_enabled: true,
+            move_speed: 10,
+        };
+
+        mapping.remove_target_key("C");
+        assert_eq!(mapping.target_keys.len(), 2);
+        assert_eq!(mapping.target_keys[0], "B");
+        assert_eq!(mapping.target_keys[1], "D");
+    }
+
+    #[test]
+    fn test_clear_target_keys() {
+        let mut mapping = KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string(), "C".to_string()]),
+            interval: None,
+            event_duration: None,
+            turbo_enabled: true,
+            move_speed: 10,
+        };
+
+        mapping.clear_target_keys();
+        assert_eq!(mapping.target_keys.len(), 0);
+    }
+
+    #[test]
+    fn test_set_target_keys() {
+        let mut mapping = KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string()]),
+            interval: None,
+            event_duration: None,
+            turbo_enabled: true,
+            move_speed: 10,
+        };
+
+        mapping.set_target_keys(vec!["X".to_string(), "Y".to_string(), "Z".to_string()]);
+        assert_eq!(mapping.target_keys.len(), 3);
+        assert_eq!(mapping.target_keys[0], "X");
+        assert_eq!(mapping.target_keys[1], "Y");
+        assert_eq!(mapping.target_keys[2], "Z");
+    }
+
+    #[test]
+    fn test_multiple_target_keys_serialization() {
+        let path = get_test_config_path("multi_target_keys");
+        cleanup_test_file(&path);
+
+        let mut config = AppConfig::default();
+        config.mappings = vec![
+            KeyMapping {
+                trigger_key: "Q".to_string(),
+                target_keys: SmallVec::from_vec(vec![
+                    "MOUSE_UP".to_string(),
+                    "MOUSE_LEFT".to_string(),
+                ]),
+                interval: Some(5),
+                event_duration: None,
+                turbo_enabled: true,
+                move_speed: 10,
+            },
+            KeyMapping {
+                trigger_key: "E".to_string(),
+                target_keys: SmallVec::from_vec(vec![
+                    "MOUSE_UP".to_string(),
+                    "MOUSE_RIGHT".to_string(),
+                ]),
+                interval: Some(5),
+                event_duration: None,
+                turbo_enabled: true,
+                move_speed: 10,
+            },
+        ];
+
+        config.save_to_file(&path).expect("Failed to save config");
+        let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
+
+        assert_eq!(loaded_config.mappings.len(), 2);
+        assert_eq!(loaded_config.mappings[0].target_keys.len(), 2);
+        assert_eq!(loaded_config.mappings[0].target_keys[0], "MOUSE_UP");
+        assert_eq!(loaded_config.mappings[0].target_keys[1], "MOUSE_LEFT");
+        assert_eq!(loaded_config.mappings[1].target_keys.len(), 2);
+        assert_eq!(loaded_config.mappings[1].target_keys[0], "MOUSE_UP");
+        assert_eq!(loaded_config.mappings[1].target_keys[1], "MOUSE_RIGHT");
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_smallvec_inline_capacity() {
+        // Test that SmallVec uses inline storage for small collections
+        let small_vec: SmallVec<[String; 4]> =
+            SmallVec::from_vec(vec!["A".to_string(), "B".to_string(), "C".to_string()]);
+
+        // Should be stored inline (capacity <= 4)
+        assert_eq!(small_vec.len(), 3);
+        assert!(small_vec.spilled() == false); // Not heap allocated
+
+        let mut large_vec: SmallVec<[String; 4]> = SmallVec::new();
+        for i in 0..6 {
+            large_vec.push(format!("KEY_{}", i));
+        }
+
+        // Should spill to heap (capacity > 4)
+        assert_eq!(large_vec.len(), 6);
+        assert!(large_vec.spilled()); // Heap allocated
+    }
+
+    #[test]
+    fn test_get_target_keys() {
+        let mapping = KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string(), "C".to_string()]),
+            interval: None,
+            event_duration: None,
+            turbo_enabled: true,
+            move_speed: 10,
+        };
+
+        let keys = mapping.get_target_keys();
+        assert_eq!(keys.len(), 2);
+        assert_eq!(keys[0], "B");
+        assert_eq!(keys[1], "C");
+    }
+
+    #[test]
+    fn test_empty_target_keys_serialization() {
+        let path = get_test_config_path("empty_target_keys");
+        cleanup_test_file(&path);
+
+        let mut config = AppConfig::default();
+        config.mappings = vec![KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::new(),
+            interval: None,
+            event_duration: None,
+            turbo_enabled: true,
+            move_speed: 10,
+        }];
+
+        config.save_to_file(&path).expect("Failed to save config");
+        let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
+
+        assert_eq!(loaded_config.mappings.len(), 1);
+        assert_eq!(loaded_config.mappings[0].target_keys.len(), 0);
+
+        cleanup_test_file(&path);
+    }
+
+    #[test]
+    fn test_many_target_keys_serialization() {
+        let path = get_test_config_path("many_target_keys");
+        cleanup_test_file(&path);
+
+        let mut config = AppConfig::default();
+        config.mappings = vec![KeyMapping {
+            trigger_key: "A".to_string(),
+            target_keys: SmallVec::from_vec(vec![
+                "1".to_string(),
+                "2".to_string(),
+                "3".to_string(),
+                "4".to_string(),
+                "5".to_string(),
+                "6".to_string(),
+            ]),
+            interval: None,
+            event_duration: None,
+            turbo_enabled: true,
+            move_speed: 10,
+        }];
+
+        config.save_to_file(&path).expect("Failed to save config");
+        let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
+
+        assert_eq!(loaded_config.mappings.len(), 1);
+        assert_eq!(loaded_config.mappings[0].target_keys.len(), 6);
+        assert_eq!(loaded_config.mappings[0].target_keys[5], "6");
 
         cleanup_test_file(&path);
     }

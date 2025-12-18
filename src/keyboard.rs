@@ -370,12 +370,26 @@ impl KeyboardHook {
                     } else {
                         // Non-turbo mode: handle Windows repeat events
                         // Process keyboard keys only (mouse buttons don't generate repeat events)
-                        if matches!(
-                            target_action,
-                            OutputAction::KeyboardKey(_) | OutputAction::KeyCombo(_)
-                        ) {
-                            state.simulate_action(target_action.clone(), *duration);
-                            *last_time = now;
+                        // Windows repeat sends full action cycles (press->duration->release)
+                        match target_action {
+                            OutputAction::KeyboardKey(_) | OutputAction::KeyCombo(_) => {
+                                state.simulate_action(target_action.clone(), *duration);
+                                *last_time = now;
+                            }
+                            OutputAction::MultipleActions(actions) => {
+                                // For multiple actions, check if all are keyboard-related
+                                let all_keyboard = actions.iter().all(|a| {
+                                    matches!(
+                                        a,
+                                        OutputAction::KeyboardKey(_) | OutputAction::KeyCombo(_)
+                                    )
+                                });
+                                if all_keyboard {
+                                    state.simulate_action(target_action.clone(), *duration);
+                                    *last_time = now;
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 } else {
@@ -603,9 +617,8 @@ impl KeyboardHook {
                 // Check if this is a scroll action first
                 // First check if device already in scroll_devices (Windows repeat)
                 let mut scroll_idx = None;
-                #[allow(clippy::needless_range_loop)]
-                for i in 0..4 {
-                    if scroll_devices[i].as_ref() == Some(&device) {
+                for (i, scroll_device) in scroll_devices.iter().enumerate().take(4) {
+                    if scroll_device.as_ref() == Some(&device) {
                         scroll_idx = Some(i);
                         break;
                     }
@@ -628,7 +641,6 @@ impl KeyboardHook {
                     && let OutputAction::MouseScroll(direction, speed) = &mapping.target_action
                 {
                     // Find empty slot
-                    #[allow(clippy::needless_range_loop)]
                     for i in 0..4 {
                         if scroll_devices[i].is_none() {
                             *scroll_active |= 1 << i;
@@ -650,9 +662,8 @@ impl KeyboardHook {
                 // Handle mouse movement
                 // Check if already active (Windows repeat event)
                 let mut found_idx = None;
-                #[allow(clippy::needless_range_loop)]
-                for i in 0..8 {
-                    if direction_devices[i].as_ref() == Some(&device) {
+                for (i, direction_device) in direction_devices.iter().enumerate().take(8) {
+                    if direction_device.as_ref() == Some(&device) {
                         found_idx = Some(i);
                         break;
                     }
@@ -728,22 +739,20 @@ impl KeyboardHook {
             }
             InputEvent::Released(device) => {
                 // Check if it's a scroll device
-                #[allow(clippy::needless_range_loop)]
-                for i in 0..4 {
-                    if scroll_devices[i].as_ref() == Some(&device) {
+                for (i, scroll_device) in scroll_devices.iter_mut().enumerate().take(4) {
+                    if scroll_device.as_ref() == Some(&device) {
                         *scroll_active &= !(1 << i);
-                        scroll_devices[i] = None;
+                        *scroll_device = None;
                         return;
                     }
                 }
 
                 // Handle mouse movement release
                 // Find and clear bit flag
-                #[allow(clippy::needless_range_loop)]
-                for i in 0..8 {
-                    if direction_devices[i].as_ref() == Some(&device) {
+                for (i, direction_device) in direction_devices.iter_mut().enumerate().take(8) {
+                    if direction_device.as_ref() == Some(&device) {
                         *active_directions &= !(1 << i);
-                        direction_devices[i] = None;
+                        *direction_device = None;
                         break;
                     }
                 }
@@ -1005,11 +1014,12 @@ mod tests {
     #[test]
     fn test_mapping_cache_retrieval() {
         use crate::config::KeyMapping;
+        use smallvec::SmallVec;
 
         let mut config = AppConfig::default();
         config.mappings = vec![KeyMapping {
             trigger_key: "A".to_string(),
-            target_key: "B".to_string(),
+            target_keys: SmallVec::from_vec(vec!["B".to_string()]),
             interval: Some(10),
             event_duration: Some(5),
             turbo_enabled: true,

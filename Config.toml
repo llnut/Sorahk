@@ -38,29 +38,29 @@ process_whitelist = []       # Example: ["notepad.exe", "game.exe"]
 # ─── Single Key Examples ───
 [[mappings]]
 trigger_key = "A"            # Physical key you press
-target_key = "A"             # Key that gets repeatedly sent
+target_keys = ["A"]          # Key(s) that get repeatedly sent
 interval = 5                 # Override global interval
 event_duration = 5           # Override global press duration
 turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = follow trigger press/release)
 
 [[mappings]]
 trigger_key = "B"            # Physical key you press
-target_key = "F"             # Key that gets repeatedly sent
+target_keys = ["F"]          # Key(s) that get repeatedly sent
 turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = follow trigger press/release)
 
 [[mappings]]
 trigger_key = "F1"           # Physical key you press
-target_key = "1"             # Key that gets repeatedly sent
+target_keys = ["1"]          # Key(s) that get repeatedly sent
 turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = follow trigger press/release)
 
 [[mappings]]
 trigger_key = "F2"           # Physical key you press
-target_key = "2"             # Key that gets repeatedly sent
+target_keys = ["2"]          # Key(s) that get repeatedly sent
 turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = follow trigger press/release)
 
 [[mappings]]
 trigger_key = "LSHIFT"       # Physical key you press
-target_key = "3"             # Key that gets repeatedly sent
+target_keys = ["3"]          # Key(s) that get repeatedly sent
 turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = follow trigger press/release)
 
 # ─── Key Combo Examples ───
@@ -72,73 +72,82 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = fo
 # Uncomment to enable combo key mappings:
 # [[mappings]]
 # trigger_key = "LALT+1"     # Left ALT + 1 (won't trigger with right ALT)
-# target_key = "F1"          # Auto-press F1
+# target_keys = ["F1"]       # Auto-press F1
 # turbo_enabled = true       # Enable turbo mode (true = auto-repeat, false = single press)
 
 # [[mappings]]
 # trigger_key = "CTRL+SHIFT+F"  # Multiple modifiers
-# target_key = "ALT+F4"         # Output can also be combo
+# target_keys = ["ALT+F4"]      # Output can also be combo
 # turbo_enabled = true       # Enable turbo mode (true = auto-repeat, false = single press)
 
 # ─── Mouse Button Examples ───
 # Uncomment to enable mouse button mappings:
 # [[mappings]]
 # trigger_key = "LBUTTON"    # Left mouse button trigger
-# target_key = "LBUTTON"     # Auto-click left button
+# target_keys = ["LBUTTON"]  # Auto-click left button
 # turbo_enabled = true       # Enable turbo mode (true = auto-repeat, false = single press)
 
 # [[mappings]]
 # trigger_key = "RBUTTON"    # Right mouse button trigger
-# target_key = "SPACE"       # Press space when right-clicking
+# target_keys = ["SPACE"]    # Press space when right-clicking
 # turbo_enabled = true       # Enable turbo mode (true = auto-repeat, false = single press)
 
 # [[mappings]]
 # trigger_key = "XBUTTON1"   # Side button 1 trigger
-# target_key = "F"           # Auto-press F key
+# target_keys = ["F"]        # Auto-press F key
 # turbo_enabled = true       # Enable turbo mode (true = auto-repeat, false = single press)
 
 # ─── Mouse Movement Examples ───
 # [[mappings]]
 # trigger_key = "W"          # Trigger key
-# target_key = "MOUSE_UP"    # Move cursor upward
+# target_keys = ["MOUSE_UP"] # Move cursor upward
 # move_speed = 10            # Speed in pixels (1-100)
 # interval = 5               # Update interval in ms
 # turbo_enabled = true       # Required for continuous movement
 
 # [[mappings]]
 # trigger_key = "S"
-# target_key = "MOUSE_DOWN"
+# target_keys = ["MOUSE_DOWN"]
 # move_speed = 10
 # interval = 5
 # turbo_enabled = true
 
 # [[mappings]]
 # trigger_key = "A"
-# target_key = "MOUSE_LEFT"
+# target_keys = ["MOUSE_LEFT"]
 # move_speed = 10
 # interval = 5
 # turbo_enabled = true
 
 # [[mappings]]
 # trigger_key = "D"
-# target_key = "MOUSE_RIGHT"
+# target_keys = ["MOUSE_RIGHT"]
 # move_speed = 10
 # interval = 5
 # turbo_enabled = true
 
+# Multiple target keys for diagonal movement (simultaneous press):
+# [[mappings]]
+# trigger_key = "Q"
+# target_keys = ["MOUSE_UP", "MOUSE_LEFT"]  # Move diagonally up-left
+# move_speed = 10
+# interval = 5
+# turbo_enabled = true
+
+# Or use built-in diagonal directions:
 # Diagonal: MOUSE_UP_LEFT, MOUSE_UP_RIGHT, MOUSE_DOWN_LEFT, MOUSE_DOWN_RIGHT
 
 # ─── Mouse Scroll Examples ───
 # [[mappings]]
 # trigger_key = "PAGEUP"       # Trigger key
-# target_key = "SCROLL_UP"     # Scroll wheel upward
+# target_keys = ["SCROLL_UP"]  # Scroll wheel upward
 # move_speed = 120             # Wheel delta (120 = standard notch)
 # interval = 5                 # Repeat interval in ms
 # turbo_enabled = true         # true = continuous, false = Windows repeat
 
 # [[mappings]]
 # trigger_key = "PAGEDOWN"
-# target_key = "SCROLL_DOWN"
+# target_keys = ["SCROLL_DOWN"]
 # move_speed = 240             # Wheel delta (240 = 2x)
 # interval = 5
 # turbo_enabled = true
@@ -156,17 +165,17 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = fo
 # 5. Release all buttons to complete capture
 # [[mappings]]
 # trigger_key = "GAMEPAD_045E_0B05_ABC123_B2.0"  # Example: Xbox controller single button
-# target_key = "SPACE"                           # Press space
+# target_keys = ["SPACE"]                        # Press space
 # turbo_enabled = true                           # Enable turbo mode
 
 # [[mappings]]
 # trigger_key = "GAMEPAD_045E_028E_B+X"          # Example: Xbox controller combo (B+X)
-# target_key = "LCTRL+C"                         # Press Ctrl+C
+# target_keys = ["LCTRL+C"]                      # Press Ctrl+C
 # turbo_enabled = true                           # Enable turbo mode
 
 # [[mappings]]
 # trigger_key = "JOYSTICK_046D_C21D_B1.0"        # Example: Logitech joystick button
-# target_key = "LBUTTON"                         # Left mouse click
+# target_keys = ["LBUTTON"]                      # Left mouse click
 # turbo_enabled = true                           # Enable turbo mode
 
 # ─── HID Device Baselines (Auto-generated, Do Not Edit) ───
@@ -176,3 +185,4 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = fo
 # [[hid_baselines]]
 # device_id = "045E:028E:1234567"
 # baseline_data = [0, 255, 127, 255, 127, 0, 128, 0, 0, 0, 0]
+

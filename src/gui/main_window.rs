@@ -163,7 +163,7 @@ impl eframe::App for SorahkGui {
                         if let Some(temp_config) = &mut self.temp_config
                             && let Some(mapping) = temp_config.mappings.get_mut(idx)
                         {
-                            mapping.target_key = selected;
+                            mapping.set_target_keys(vec![selected]);
                         }
                     } else {
                         // New mapping
@@ -187,7 +187,7 @@ impl eframe::App for SorahkGui {
                         if let Some(temp_config) = &mut self.temp_config
                             && let Some(mapping) = temp_config.mappings.get_mut(idx)
                         {
-                            mapping.target_key = selected;
+                            mapping.set_target_keys(vec![selected]);
                         }
                     } else {
                         // New mapping
@@ -850,13 +850,15 @@ impl SorahkGui {
                                             egui::Color32::from_rgb(180, 80, 0)
                                         },
                                     ));
-                                    ui.label(egui::RichText::new(&mapping.target_key).color(
-                                        if self.dark_mode {
-                                            egui::Color32::from_rgb(100, 200, 255)
-                                        } else {
-                                            egui::Color32::from_rgb(0, 80, 180)
-                                        },
-                                    ));
+                                    ui.label(
+                                        egui::RichText::new(mapping.target_keys_display()).color(
+                                            if self.dark_mode {
+                                                egui::Color32::from_rgb(100, 200, 255)
+                                            } else {
+                                                egui::Color32::from_rgb(0, 80, 180)
+                                            },
+                                        ),
+                                    );
                                     ui.label(
                                         egui::RichText::new(format!(
                                             "{}",
