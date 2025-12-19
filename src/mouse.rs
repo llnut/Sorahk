@@ -4,20 +4,7 @@ use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::state::AppState;
-
-/// Branch prediction helper for error paths.
-#[inline(always)]
-#[cold]
-fn cold() {}
-
-/// Indicates that the condition is unlikely to be true.
-#[inline(always)]
-fn unlikely(b: bool) -> bool {
-    if b {
-        cold()
-    }
-    b
-}
+use crate::util::unlikely;
 
 unsafe impl Send for MouseHook {}
 

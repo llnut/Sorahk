@@ -10,27 +10,7 @@ use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::state::{AppState, InputDevice, InputEvent};
-
-/// Branch prediction hints
-#[inline(always)]
-#[cold]
-fn cold() {}
-
-#[inline(always)]
-fn unlikely(b: bool) -> bool {
-    if b {
-        cold()
-    }
-    b
-}
-
-#[inline(always)]
-fn likely(b: bool) -> bool {
-    if !b {
-        cold()
-    }
-    b
-}
+use crate::util::{likely, unlikely};
 
 unsafe impl Send for KeyboardHook {}
 
@@ -157,18 +137,15 @@ impl WorkerPool {
     /// Hash generic device for worker distribution using FNV-1a.
     #[inline(always)]
     fn hash_generic_device(device_type: &crate::state::DeviceType, button_id: u64) -> usize {
-        const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-        const FNV_PRIME: u64 = 0x100000001b3;
-
-        let mut hash = FNV_OFFSET_BASIS;
+        let mut hash = crate::util::fnv64::OFFSET_BASIS;
 
         // Hash device type discriminant
         let discriminant = std::mem::discriminant(device_type);
         let disc_value = unsafe { *(&discriminant as *const _ as *const u64) };
-        hash = (hash ^ disc_value).wrapping_mul(FNV_PRIME);
+        hash = crate::util::fnv1a_hash_u64(hash, disc_value);
 
         // Hash button_id
-        hash = (hash ^ button_id).wrapping_mul(FNV_PRIME);
+        hash = crate::util::fnv1a_hash_u64(hash, button_id);
 
         hash as usize
     }

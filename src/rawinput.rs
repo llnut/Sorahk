@@ -39,29 +39,9 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::PCWSTR;
 
 use crate::state::{AppState, DeviceType, InputDevice, InputEvent};
-
-/// Branch prediction helper for error paths.
-#[inline(always)]
-#[cold]
-fn cold() {}
-
-/// Indicates that the condition is unlikely to be true.
-#[inline(always)]
-fn unlikely(b: bool) -> bool {
-    if b {
-        cold()
-    }
-    b
-}
-
-/// Indicates that the condition is likely to be true.
-#[inline(always)]
-fn likely(b: bool) -> bool {
-    if !b {
-        cold()
-    }
-    b
-}
+use crate::util::{
+    fnv1a_hash_bytes, fnv1a_hash_u32, fnv1a_hash_u64, fnv32, fnv64, likely, unlikely,
+};
 
 /// Number of buffers in the thread-local pool.
 const BUFFER_POOL_SIZE: usize = 8;
@@ -1209,11 +1189,8 @@ impl RawInputHandler {
     /// - Extremely fast with minimal collisions
     #[inline(always)]
     fn hash_changed_bit_pattern(data: &[u8], baseline: &[u8], stable_device_id: u64) -> u64 {
-        const FNV_OFFSET_BASIS: u32 = 0x811c9dc5;
-        const FNV_PRIME: u32 = 0x01000193;
-
         let min_len = data.len().min(baseline.len());
-        let mut hash = FNV_OFFSET_BASIS;
+        let mut hash = fnv32::OFFSET_BASIS;
 
         // Hash each changed bit position
         for byte_idx in SKIP_BYTES..min_len {
@@ -1227,8 +1204,8 @@ impl RawInputHandler {
                     let bit_idx = diff.trailing_zeros();
 
                     // Hash the position (byte_idx, bit_idx) using FNV-1a
-                    hash = (hash ^ (byte_idx as u32)).wrapping_mul(FNV_PRIME);
-                    hash = (hash ^ bit_idx).wrapping_mul(FNV_PRIME);
+                    hash = fnv1a_hash_u32(hash, byte_idx as u32);
+                    hash = fnv1a_hash_u32(hash, bit_idx);
 
                     // Clear the lowest set bit (BLSR instruction)
                     diff &= diff - 1;
@@ -1362,44 +1339,19 @@ impl RawInputHandler {
     /// Computes FNV-1a hash for device identification using VID, PID, and serial number.
     #[inline(always)]
     fn hash_vid_pid_serial(vendor_id: u16, product_id: u16, serial: &str) -> u64 {
-        const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-        const FNV_PRIME: u64 = 0x100000001b3;
-
-        let mut hash = FNV_OFFSET_BASIS;
-
-        // Hash VID
-        hash ^= vendor_id as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-
-        // Hash PID
-        hash ^= product_id as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-
-        // Hash serial bytes
-        for byte in serial.as_bytes() {
-            hash ^= *byte as u64;
-            hash = hash.wrapping_mul(FNV_PRIME);
-        }
-
+        let mut hash = fnv64::OFFSET_BASIS;
+        hash = fnv1a_hash_u64(hash, vendor_id as u64);
+        hash = fnv1a_hash_u64(hash, product_id as u64);
+        hash = fnv1a_hash_bytes(hash, serial.as_bytes());
         hash
     }
 
     /// Computes FNV-1a hash for device identification using VID and PID only.
     #[inline(always)]
     fn hash_vid_pid(vendor_id: u16, product_id: u16) -> u64 {
-        const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-        const FNV_PRIME: u64 = 0x100000001b3;
-
-        let mut hash = FNV_OFFSET_BASIS;
-
-        // Hash VID
-        hash ^= vendor_id as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-
-        // Hash PID
-        hash ^= product_id as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-
+        let mut hash = fnv64::OFFSET_BASIS;
+        hash = fnv1a_hash_u64(hash, vendor_id as u64);
+        hash = fnv1a_hash_u64(hash, product_id as u64);
         hash
     }
 
@@ -1557,13 +1509,10 @@ impl RawInputHandler {
     /// Extremely fast with minimal collisions.
     #[inline(always)]
     fn hash_bit_positions(positions: &[(usize, u32)], stable_device_id: u64) -> u64 {
-        const FNV_OFFSET_BASIS: u32 = 0x811c9dc5;
-        const FNV_PRIME: u32 = 0x01000193;
-
-        let mut hash = FNV_OFFSET_BASIS;
+        let mut hash = fnv32::OFFSET_BASIS;
         for &(byte_idx, bit_idx) in positions {
-            hash = (hash ^ (byte_idx as u32)).wrapping_mul(FNV_PRIME);
-            hash = (hash ^ bit_idx).wrapping_mul(FNV_PRIME);
+            hash = fnv1a_hash_u32(hash, byte_idx as u32);
+            hash = fnv1a_hash_u32(hash, bit_idx);
         }
 
         (stable_device_id << 32) | (hash as u64)
@@ -1579,7 +1528,8 @@ impl RawInputHandler {
         };
 
         let cache = DEVICE_DISPLAY_INFO.get_or_init(scc::HashMap::new);
-        let _ = cache.upsert_sync(stable_device_id, display_info);
+        // Only use lower 32 bits to match button_id format (device_id is stored in high 32 bits of button_id)
+        let _ = cache.upsert_sync(stable_device_id & 0xFFFFFFFF, display_info);
     }
 }
 

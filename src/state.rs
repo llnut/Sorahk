@@ -11,26 +11,7 @@ use std::time::{Duration, Instant};
 
 use smallvec::SmallVec;
 
-/// Branch prediction hints
-#[inline(always)]
-#[cold]
-fn cold() {}
-
-#[inline(always)]
-fn unlikely(b: bool) -> bool {
-    if b {
-        cold()
-    }
-    b
-}
-
-#[inline(always)]
-fn likely(b: bool) -> bool {
-    if !b {
-        cold()
-    }
-    b
-}
+use crate::util::{likely, unlikely};
 
 use windows::Win32::Foundation::MAX_PATH;
 use windows::Win32::System::Threading::{
@@ -2085,18 +2066,10 @@ impl AppState {
             parsed as u64
         } else {
             // Use FNV-1a hash (same as rawinput) for consistency
-            const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-            const FNV_PRIME: u64 = 0x100000001b3;
-
-            let mut hash = FNV_OFFSET_BASIS;
-            hash ^= vendor_id as u64;
-            hash = hash.wrapping_mul(FNV_PRIME);
-            hash ^= product_id as u64;
-            hash = hash.wrapping_mul(FNV_PRIME);
-            for byte in serial_part.as_bytes() {
-                hash ^= *byte as u64;
-                hash = hash.wrapping_mul(FNV_PRIME);
-            }
+            let mut hash = crate::util::fnv64::OFFSET_BASIS;
+            hash = crate::util::fnv1a_hash_u64(hash, vendor_id as u64);
+            hash = crate::util::fnv1a_hash_u64(hash, product_id as u64);
+            hash = crate::util::fnv1a_hash_bytes(hash, serial_part.as_bytes());
             hash
         };
 

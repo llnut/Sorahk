@@ -10,6 +10,7 @@ mod rawinput;
 mod signal;
 mod state;
 mod tray;
+mod util;
 
 use std::sync::Arc;
 use std::thread;
