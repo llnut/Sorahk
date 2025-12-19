@@ -168,8 +168,8 @@ struct TranslationCache {
     add_target_key_hover: String,
     clear_all_target_keys_hover: String,
     remove_target_key_prefix: String,
-    diagonal_hint_prefix: String,
-    diagonal_hint_suffix: String,
+    diagonal_hint_title: String,
+    diagonal_hint: String,
 }
 
 impl CachedTranslations {
@@ -481,11 +481,11 @@ impl CachedTranslations {
     pub fn format_remove_target_key_hover(&self, key: &str) -> String {
         format!("{} {}", self.inner.remove_target_key_prefix, key)
     }
-    pub fn format_diagonal_hint(&self, direction: &str) -> String {
-        format!(
-            "{}{}{}",
-            self.inner.diagonal_hint_prefix, direction, self.inner.diagonal_hint_suffix
-        )
+    pub fn diagonal_hint_title(&self) -> &str {
+        &self.inner.diagonal_hint_title
+    }
+    pub fn diagonal_hint(&self) -> &str {
+        &self.inner.diagonal_hint
     }
 
     // Additional main window status card
@@ -839,8 +839,8 @@ impl TranslationCache {
                 .to_string(),
             remove_target_key_prefix: get_raw_translation(lang, RawKey::RemoveTargetKeyPrefix)
                 .to_string(),
-            diagonal_hint_prefix: get_raw_translation(lang, RawKey::DiagonalHintPrefix).to_string(),
-            diagonal_hint_suffix: get_raw_translation(lang, RawKey::DiagonalHintSuffix).to_string(),
+            diagonal_hint_title: get_raw_translation(lang, RawKey::DiagonalHintTitle).to_string(),
+            diagonal_hint: get_raw_translation(lang, RawKey::DiagonalHint).to_string(),
         }
     }
 }
@@ -964,8 +964,8 @@ enum RawKey {
     AddTargetKeyHover,
     ClearAllTargetKeysHover,
     RemoveTargetKeyPrefix,
-    DiagonalHintPrefix,
-    DiagonalHintSuffix,
+    DiagonalHintTitle,
+    DiagonalHint,
 }
 
 /// Gets raw translation string without formatting.
@@ -1089,9 +1089,9 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
 
         // Target
         (Language::English, RawKey::Target) => "Target",
-        (Language::SimplifiedChinese, RawKey::Target) => "连发键",
-        (Language::TraditionalChinese, RawKey::Target) => "連發鍵",
-        (Language::Japanese, RawKey::Target) => "連打キー",
+        (Language::SimplifiedChinese, RawKey::Target) => "目标键",
+        (Language::TraditionalChinese, RawKey::Target) => "目標鍵",
+        (Language::Japanese, RawKey::Target) => "ターゲットキー",
 
         // Interval(ms) - Main window table header
         (Language::English, RawKey::IntervalMs) => "Interval(ms)",
@@ -1226,9 +1226,9 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::TriggerShort) => "起動キー:",
 
         (Language::English, RawKey::TargetShort) => "Target:",
-        (Language::SimplifiedChinese, RawKey::TargetShort) => "连发键:",
-        (Language::TraditionalChinese, RawKey::TargetShort) => "連發鍵:",
-        (Language::Japanese, RawKey::TargetShort) => "連打キー:",
+        (Language::SimplifiedChinese, RawKey::TargetShort) => "目标键:",
+        (Language::TraditionalChinese, RawKey::TargetShort) => "目標鍵:",
+        (Language::Japanese, RawKey::TargetShort) => "ターゲットキー:",
 
         (Language::English, RawKey::IntShort) => "Int:",
         (Language::SimplifiedChinese, RawKey::IntShort) => "间隔:",
@@ -1627,21 +1627,23 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::TraditionalChinese, RawKey::RemoveTargetKeyPrefix) => "🗑 點擊移除",
         (Language::Japanese, RawKey::RemoveTargetKeyPrefix) => "🗑 クリックで削除",
 
-        (Language::English, RawKey::DiagonalHintPrefix) => {
-            "💡 Hint: Adjacent directions detected, diagonal direction "
-        }
-        (Language::SimplifiedChinese, RawKey::DiagonalHintPrefix) => {
-            "💡 提示：检测到相邻方向，斜方向 "
-        }
-        (Language::TraditionalChinese, RawKey::DiagonalHintPrefix) => {
-            "💡 提示：檢測到相鄰方向，斜方向 "
-        }
-        (Language::Japanese, RawKey::DiagonalHintPrefix) => "💡 ヒント：隣接方向を検出、斜め方向 ",
+        (Language::English, RawKey::DiagonalHintTitle) => "🌸 ✨ Diagonal Input Usage ✨ 🌸",
+        (Language::SimplifiedChinese, RawKey::DiagonalHintTitle) => "🌸 ✨ 斜方向使用提示 ✨ 🌸",
+        (Language::TraditionalChinese, RawKey::DiagonalHintTitle) => "🌸 ✨ 斜方向使用提示 ✨ 🌸",
+        (Language::Japanese, RawKey::DiagonalHintTitle) => "🌸 ✨ 斜め入力の使用法 ✨ 🌸",
 
-        (Language::English, RawKey::DiagonalHintSuffix) => " has no effect by default",
-        (Language::SimplifiedChinese, RawKey::DiagonalHintSuffix) => " 默认无效果",
-        (Language::TraditionalChinese, RawKey::DiagonalHintSuffix) => " 預設無效果",
-        (Language::Japanese, RawKey::DiagonalHintSuffix) => " はデフォルトで無効",
+        (Language::English, RawKey::DiagonalHint) => {
+            "To trigger two cardinal directions with a diagonal input, create a separate mapping for the diagonal direction and add target keys for both cardinal directions"
+        }
+        (Language::SimplifiedChinese, RawKey::DiagonalHint) => {
+            "若需使用斜方向触发两个直方向的效果，请单独设置斜方向映射规则并添加两个直方向的所有目标键"
+        }
+        (Language::TraditionalChinese, RawKey::DiagonalHint) => {
+            "若需使用斜方向觸發兩個直方向的效果，請單獨設定斜方向映射規則並新增兩個直方向的所有目標鍵"
+        }
+        (Language::Japanese, RawKey::DiagonalHint) => {
+            "斜め入力で2つの直交方向を同時にトリガーする場合は、斜め方向の個別マッピングを作成し、両直交方向のターゲットキーを追加してください"
+        }
     }
 }
 

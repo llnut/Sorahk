@@ -94,50 +94,6 @@ fn is_mouse_scroll_target(target: &str) -> bool {
     )
 }
 
-/// Check if a mapping has adjacent orthogonal directions that could form a diagonal
-fn check_diagonal_opportunity(target_keys: &[String]) -> Option<(&'static str, Vec<String>)> {
-    let mut has_up = false;
-    let mut has_down = false;
-    let mut has_left = false;
-    let mut has_right = false;
-
-    for key in target_keys {
-        let upper = key.to_uppercase();
-        match upper.as_str() {
-            "MOUSE_UP" => has_up = true,
-            "MOUSE_DOWN" => has_down = true,
-            "MOUSE_LEFT" => has_left = true,
-            "MOUSE_RIGHT" => has_right = true,
-            _ => {}
-        }
-    }
-
-    // Check for diagonal opportunities
-    if has_up && has_right {
-        Some((
-            "MOUSE_UP_RIGHT",
-            vec!["MOUSE_UP".to_string(), "MOUSE_RIGHT".to_string()],
-        ))
-    } else if has_up && has_left {
-        Some((
-            "MOUSE_UP_LEFT",
-            vec!["MOUSE_UP".to_string(), "MOUSE_LEFT".to_string()],
-        ))
-    } else if has_down && has_right {
-        Some((
-            "MOUSE_DOWN_RIGHT",
-            vec!["MOUSE_DOWN".to_string(), "MOUSE_RIGHT".to_string()],
-        ))
-    } else if has_down && has_left {
-        Some((
-            "MOUSE_DOWN_LEFT",
-            vec!["MOUSE_DOWN".to_string(), "MOUSE_LEFT".to_string()],
-        ))
-    } else {
-        None
-    }
-}
-
 impl SorahkGui {
     /// Renders the settings dialog for configuration management.
     pub(super) fn render_settings_dialog(&mut self, ctx: &egui::Context) {
@@ -613,6 +569,58 @@ impl SorahkGui {
                                             );
                                             ui.add_space(6.0);
 
+                                            ui.add_space(2.0);
+                                            let hint_bg = if self.dark_mode {
+                                                egui::Color32::from_rgba_premultiplied(255, 200, 150, 25)
+                                            } else {
+                                                egui::Color32::from_rgba_premultiplied(255, 240, 200, 180)
+                                            };
+                                            ui.horizontal(|ui| {
+                                                egui::Frame::NONE
+                                                    .fill(hint_bg)
+                                                    .corner_radius(egui::CornerRadius::same(10))
+                                                    .inner_margin(egui::Margin::symmetric(10, 6))
+                                                    .show(ui, |ui| {
+                                                        ui.set_width(ui.available_width());
+                                                        egui::CollapsingHeader::new(
+                                                            egui::RichText::new(t.diagonal_hint_title())
+                                                                .size(12.0)
+                                                                .color(if self.dark_mode {
+                                                                    egui::Color32::from_rgb(
+                                                                        255, 200, 220,
+                                                                    )
+                                                                } else {
+                                                                    egui::Color32::from_rgb(
+                                                                        200, 100, 150,
+                                                                    )
+                                                                }),
+                                                        )
+                                                        .default_open(true)
+                                                        .show(ui, |ui| {
+                                                            ui.add_space(2.0);
+                                                            ui.add(
+                                                                egui::Label::new(
+                                                                    egui::RichText::new(
+                                                                        t.diagonal_hint(),
+                                                                    )
+                                                                    .size(11.0)
+                                                                    .color(if self.dark_mode {
+                                                                        egui::Color32::from_rgb(
+                                                                            255, 220, 150,
+                                                                        )
+                                                                    } else {
+                                                                        egui::Color32::from_rgb(
+                                                                            180, 100, 50,
+                                                                        )
+                                                                    }),
+                                                                )
+                                                                .wrap(),
+                                                            );
+                                                        });
+                                                    });
+                                            });
+                                            ui.add_space(4.0);
+
                                             // Existing mappings
                                             let mut to_remove = None;
                                             for (idx, mapping) in
@@ -1001,7 +1009,6 @@ impl SorahkGui {
                                                         to_remove = Some(idx);
                                                     }
                                                 });
-                                                // Display target keys list with remove buttons
                                                 if mapping.get_target_keys().len() > 1 {
                                                     ui.add_space(2.0);
                                                     ui.horizontal(|ui| {
@@ -1015,74 +1022,44 @@ impl SorahkGui {
                                                                     egui::Color32::from_rgb(100, 100, 100)
                                                                 })
                                                         );
-                                                        let mut key_to_remove: Option<String> = None;
-                                                        for (i, target_key) in mapping.get_target_keys().iter().enumerate() {
-                                                            if i > 0 {
-                                                                ui.label(
-                                                                    egui::RichText::new("·")
-                                                                        .size(12.0)
-                                                                        .color(egui::Color32::from_rgb(150, 150, 150))
-                                                                );
-                                                            }
-                                                            let key_chip = egui::Button::new(
-                                                                egui::RichText::new(format!("{} ✕", target_key))
-                                                                    .size(11.0)
-                                                                    .color(if self.dark_mode {
-                                                                        egui::Color32::from_rgb(255, 200, 220)
-                                                                    } else {
-                                                                        egui::Color32::from_rgb(220, 60, 100)
-                                                                    })
-                                                            )
-                                                            .fill(if self.dark_mode {
-                                                                egui::Color32::from_rgb(60, 50, 70)
-                                                            } else {
-                                                                egui::Color32::from_rgb(255, 230, 240)
-                                                            })
-                                                            .corner_radius(8.0)
-                                                            .frame(true);
-                                                    if ui.add(key_chip)
-                                                        .on_hover_text(t.format_remove_target_key_hover(target_key))
-                                                        .clicked()
-                                                            {
-                                                                key_to_remove = Some(target_key.clone());
-                                                            }
-                                                        }
-                                                        if let Some(key) = key_to_remove {
-                                                            mapping.remove_target_key(&key);
-                                                        }
-                                                    });
-                                                }
-                                                // Check for diagonal direction opportunity
-                                                if let Some((diagonal_name, _keys)) = check_diagonal_opportunity(mapping.get_target_keys()) {
-                                                    ui.add_space(3.0);
-                                                    ui.horizontal(|ui| {
-                                                        ui.add_space(30.0);
-                                                        let hint_bg = if self.dark_mode {
-                                                            egui::Color32::from_rgba_premultiplied(255, 200, 150, 25)
-                                                        } else {
-                                                            egui::Color32::from_rgba_premultiplied(255, 240, 200, 180)
-                                                        };
-                                                        egui::Frame::NONE
-                                                            .fill(hint_bg)
-                                                            .corner_radius(egui::CornerRadius::same(10))
-                                                            .inner_margin(egui::Margin::symmetric(8, 4))
-                                                            .show(ui, |ui| {
-                                                                ui.horizontal(|ui| {
+                                                        ui.horizontal_wrapped(|ui| {
+                                                            ui.spacing_mut().item_spacing.x = 4.0;
+                                                            let mut key_to_remove: Option<String> = None;
+                                                            for (i, target_key) in mapping.get_target_keys().iter().enumerate() {
+                                                                if i > 0 {
                                                                     ui.label(
-                                                                        egui::RichText::new("💡")
-                                                                            .size(14.0)
+                                                                        egui::RichText::new("·")
+                                                                            .size(12.0)
+                                                                            .color(egui::Color32::from_rgb(150, 150, 150))
                                                                     );
-                                                                ui.label(
-                                                                    egui::RichText::new(t.format_diagonal_hint(diagonal_name))
-                                                                    .size(11.0)
+                                                                }
+                                                                let key_chip = egui::Button::new(
+                                                                    egui::RichText::new(format!("{} ✕", target_key))
+                                                                        .size(11.0)
                                                                         .color(if self.dark_mode {
-                                                                            egui::Color32::from_rgb(255, 220, 150)
+                                                                            egui::Color32::from_rgb(255, 200, 220)
                                                                         } else {
-                                                                            egui::Color32::from_rgb(180, 100, 50)
+                                                                            egui::Color32::from_rgb(220, 60, 100)
                                                                         })
-                                                                    );
-                                                                });
-                                                            });
+                                                                )
+                                                                .fill(if self.dark_mode {
+                                                                    egui::Color32::from_rgb(60, 50, 70)
+                                                                } else {
+                                                                    egui::Color32::from_rgb(255, 230, 240)
+                                                                })
+                                                                .corner_radius(8.0)
+                                                                .frame(true);
+                                                        if ui.add(key_chip)
+                                                            .on_hover_text(t.format_remove_target_key_hover(target_key))
+                                                            .clicked()
+                                                                {
+                                                                    key_to_remove = Some(target_key.clone());
+                                                                }
+                                                            }
+                                                            if let Some(key) = key_to_remove {
+                                                                mapping.remove_target_key(&key);
+                                                            }
+                                                        });
                                                     });
                                                 }
                                                 ui.add_space(4.0);
@@ -1226,8 +1203,9 @@ impl SorahkGui {
                                                 }
 
                                                 // Check if target is mouse movement or scroll
-                                                let is_mouse_move = is_mouse_move_target(&self.new_mapping_target);
-                                                let is_mouse_scroll = is_mouse_scroll_target(&self.new_mapping_target);
+                                                let first_target = self.new_mapping_target_keys.first().map(|s| s.as_str()).unwrap_or("");
+                                                let is_mouse_move = is_mouse_move_target(first_target);
+                                                let is_mouse_scroll = is_mouse_scroll_target(first_target);
 
                                                 if is_mouse_move || is_mouse_scroll {
                                                     // Show interval and speed for mouse movement/scroll
@@ -1246,7 +1224,7 @@ impl SorahkGui {
                                                     ui.add_sized([45.0, 24.0], interval_edit);
 
                                                     ui.label(t.speed_label());
-                                                    let hint = if is_mouse_scroll { "120" } else { "10" };
+                                                    let hint = if is_mouse_scroll { "120" } else { "5" };
                                                     let speed_edit = egui::TextEdit::singleline(
                                                         &mut self.new_mapping_move_speed,
                                                     )
@@ -1462,7 +1440,7 @@ impl SorahkGui {
                                                         let move_speed = self
                                                             .new_mapping_move_speed
                                                             .parse::<i32>()
-                                                            .unwrap_or(10)
+                                                            .unwrap_or(5)
                                                             .clamp(1, 100);
 
                                                         let turbo_enabled = self.new_mapping_turbo;
@@ -1484,7 +1462,7 @@ impl SorahkGui {
                                                         self.new_mapping_target_keys.clear();
                                                         self.new_mapping_interval.clear();
                                                         self.new_mapping_duration.clear();
-                                                        self.new_mapping_move_speed = "10".to_string();
+                                                        self.new_mapping_move_speed = "5".to_string();
                                                         self.new_mapping_turbo = true; // Reset to default
                                                     }
                                                 }
@@ -1503,44 +1481,50 @@ impl SorahkGui {
                                                                 egui::Color32::from_rgb(100, 100, 100)
                                                             })
                                                     );
-                                                    let mut key_to_remove: Option<String> = None;
-                                                    for (i, target_key) in self.new_mapping_target_keys.iter().enumerate() {
-                                                        if i > 0 {
-                                                            ui.label(
-                                                                egui::RichText::new("·")
-                                                                    .size(12.0)
-                                                                    .color(egui::Color32::from_rgb(150, 150, 150))
-                                                            );
+                                                    // Wrap target keys within max width
+                                                    ui.horizontal_wrapped(|ui| {
+                                                        ui.spacing_mut().item_spacing.x = 4.0;
+                                                        let mut key_to_remove: Option<String> = None;
+                                                        for (i, target_key) in self.new_mapping_target_keys.iter().enumerate() {
+                                                            if i > 0 {
+                                                                ui.label(
+                                                                    egui::RichText::new("·")
+                                                                        .size(12.0)
+                                                                        .color(egui::Color32::from_rgb(150, 150, 150))
+                                                                );
+                                                            }
+                                                            let key_chip = egui::Button::new(
+                                                                egui::RichText::new(format!("{} ✕", target_key))
+                                                                    .size(11.0)
+                                                                    .color(if self.dark_mode {
+                                                                        egui::Color32::from_rgb(255, 200, 220)
+                                                                    } else {
+                                                                        egui::Color32::from_rgb(220, 60, 100)
+                                                                    })
+                                                            )
+                                                            .fill(if self.dark_mode {
+                                                                egui::Color32::from_rgb(60, 50, 70)
+                                                            } else {
+                                                                egui::Color32::from_rgb(255, 230, 240)
+                                                            })
+                                                            .corner_radius(8.0)
+                                                            .frame(true);
+                                                            if ui.add(key_chip)
+                                                                .on_hover_text(t.format_remove_target_key_hover(target_key))
+                                                                .clicked()
+                                                            {
+                                                                key_to_remove = Some(target_key.clone());
+                                                            }
                                                         }
-                                                        let key_chip = egui::Button::new(
-                                                            egui::RichText::new(format!("{} ✕", target_key))
-                                                                .size(11.0)
-                                                                .color(if self.dark_mode {
-                                                                    egui::Color32::from_rgb(255, 200, 220)
-                                                                } else {
-                                                                    egui::Color32::from_rgb(220, 60, 100)
-                                                                })
-                                                        )
-                                                        .fill(if self.dark_mode {
-                                                            egui::Color32::from_rgb(60, 50, 70)
-                                                        } else {
-                                                            egui::Color32::from_rgb(255, 230, 240)
-                                                        })
-                                                        .corner_radius(8.0)
-                                                        .frame(true);
-                                                        if ui.add(key_chip)
-                                                            .on_hover_text(t.format_remove_target_key_hover(target_key))
-                                                            .clicked()
-                                                        {
-                                                            key_to_remove = Some(target_key.clone());
+                                                        if let Some(key) = key_to_remove {
+                                                            self.new_mapping_target_keys.retain(|k| k != &key);
+                                                            if self.new_mapping_target_keys.len() == 1 {
+                                                                self.new_mapping_target = self.new_mapping_target_keys[0].clone();
+                                                            } else if self.new_mapping_target == key {
+                                                                self.new_mapping_target.clear();
+                                                            }
                                                         }
-                                                    }
-                                                    if let Some(key) = key_to_remove {
-                                                        self.new_mapping_target_keys.retain(|k| k != &key);
-                                                        if self.new_mapping_target == key {
-                                                            self.new_mapping_target.clear();
-                                                        }
-                                                    }
+                                                    });
                                                 });
                                             }
 

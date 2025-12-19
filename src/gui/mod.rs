@@ -126,7 +126,7 @@ impl SorahkGui {
             new_mapping_interval: String::new(),
             new_mapping_duration: String::new(),
             new_mapping_turbo: true,
-            new_mapping_move_speed: "10".to_string(),
+            new_mapping_move_speed: "5".to_string(),
             new_process_name: String::new(),
             key_capture_mode: KeyCaptureMode::None,
             just_captured_input: false,

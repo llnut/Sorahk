@@ -85,7 +85,7 @@ pub struct KeyMapping {
 }
 
 fn default_move_speed() -> i32 {
-    10
+    5
 }
 
 fn default_turbo_enabled() -> bool {
@@ -100,12 +100,6 @@ impl KeyMapping {
     /// Gets the target keys slice
     pub fn get_target_keys(&self) -> &[String] {
         &self.target_keys
-    }
-
-    /// Sets target keys
-    pub fn set_target_keys(&mut self, keys: Vec<String>) {
-        self.target_keys.clear();
-        self.target_keys.extend(keys);
     }
 
     /// Adds a target key
@@ -288,20 +282,20 @@ impl AppConfig {
              # [[mappings]]\n\
              # trigger_key = \"W\"           # Trigger key\n\
              # target_keys = [\"MOUSE_UP\"]  # Move cursor upward\n\
-             # move_speed = 10             # Speed in pixels (1-100)\n\
+             # move_speed = 5              # Speed in pixels (1-100)\n\
              # interval = 5                # Update interval in ms\n\
              # turbo_enabled = true        # Required for continuous movement\n\n\
              # [[mappings]]\n\
              # trigger_key = \"S\"\n\
              # target_keys = [\"MOUSE_DOWN\"]\n\
-             # move_speed = 10\n\
+             # move_speed = 5\n\
              # interval = 5\n\
              # turbo_enabled = true\n\n\
              # Multiple target keys for diagonal movement (simultaneous press):\n\
              # [[mappings]]\n\
              # trigger_key = \"Q\"\n\
              # target_keys = [\"MOUSE_UP\", \"MOUSE_LEFT\"]  # Move diagonally up-left\n\
-             # move_speed = 10\n\
+             # move_speed = 5\n\
              # interval = 5\n\
              # turbo_enabled = true\n\n\
              # Or use built-in diagonal directions:\n\
@@ -1040,24 +1034,6 @@ mod tests {
 
         mapping.clear_target_keys();
         assert_eq!(mapping.target_keys.len(), 0);
-    }
-
-    #[test]
-    fn test_set_target_keys() {
-        let mut mapping = KeyMapping {
-            trigger_key: "A".to_string(),
-            target_keys: SmallVec::from_vec(vec!["B".to_string()]),
-            interval: None,
-            event_duration: None,
-            turbo_enabled: true,
-            move_speed: 10,
-        };
-
-        mapping.set_target_keys(vec!["X".to_string(), "Y".to_string(), "Z".to_string()]);
-        assert_eq!(mapping.target_keys.len(), 3);
-        assert_eq!(mapping.target_keys[0], "X");
-        assert_eq!(mapping.target_keys[1], "Y");
-        assert_eq!(mapping.target_keys[2], "Z");
     }
 
     #[test]

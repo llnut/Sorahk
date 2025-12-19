@@ -159,15 +159,18 @@ impl eframe::App for SorahkGui {
                 if let Some(selected) = dialog.get_selected_direction() {
                     // Apply the selected direction
                     if let Some(idx) = self.mouse_direction_mapping_idx {
-                        // Editing existing mapping
+                        // Editing existing mapping - add to existing target keys
                         if let Some(temp_config) = &mut self.temp_config
                             && let Some(mapping) = temp_config.mappings.get_mut(idx)
                         {
-                            mapping.set_target_keys(vec![selected]);
+                            mapping.add_target_key(selected);
                         }
                     } else {
-                        // New mapping
-                        self.new_mapping_target = selected;
+                        // New mapping - add to target keys list
+                        self.new_mapping_target = selected.clone();
+                        if !self.new_mapping_target_keys.contains(&selected) {
+                            self.new_mapping_target_keys.push(selected);
+                        }
                     }
                 }
                 self.mouse_direction_dialog = None;
@@ -181,17 +184,17 @@ impl eframe::App for SorahkGui {
 
             if should_close {
                 if let Some(selected) = dialog.get_selected_direction() {
-                    // Apply the selected scroll direction
                     if let Some(idx) = self.mouse_scroll_mapping_idx {
-                        // Editing existing mapping
                         if let Some(temp_config) = &mut self.temp_config
                             && let Some(mapping) = temp_config.mappings.get_mut(idx)
                         {
-                            mapping.set_target_keys(vec![selected]);
+                            mapping.add_target_key(selected);
                         }
                     } else {
-                        // New mapping
-                        self.new_mapping_target = selected;
+                        self.new_mapping_target = selected.clone();
+                        if !self.new_mapping_target_keys.contains(&selected) {
+                            self.new_mapping_target_keys.push(selected);
+                        }
                     }
                 }
                 self.mouse_scroll_dialog = None;
@@ -843,22 +846,43 @@ impl SorahkGui {
 
                                 // Mappings
                                 for mapping in &self.config.mappings {
-                                    ui.label(egui::RichText::new(&mapping.trigger_key).color(
-                                        if self.dark_mode {
-                                            egui::Color32::from_rgb(255, 200, 100)
-                                        } else {
-                                            egui::Color32::from_rgb(180, 80, 0)
-                                        },
-                                    ));
-                                    ui.label(
-                                        egui::RichText::new(mapping.target_keys_display()).color(
+                                    let trigger_text = &mapping.trigger_key;
+                                    let max_trigger_len = 20;
+                                    let display_trigger = if trigger_text.len() > max_trigger_len {
+                                        format!("{}...", &trigger_text[..max_trigger_len])
+                                    } else {
+                                        trigger_text.clone()
+                                    };
+                                    let trigger_response =
+                                        ui.label(egui::RichText::new(&display_trigger).color(
+                                            if self.dark_mode {
+                                                egui::Color32::from_rgb(255, 200, 100)
+                                            } else {
+                                                egui::Color32::from_rgb(180, 80, 0)
+                                            },
+                                        ));
+                                    if trigger_text.len() > max_trigger_len {
+                                        trigger_response.on_hover_text(trigger_text);
+                                    }
+
+                                    let target_text = mapping.target_keys_display();
+                                    let max_target_len = 35;
+                                    let display_target = if target_text.len() > max_target_len {
+                                        format!("{}...", &target_text[..max_target_len])
+                                    } else {
+                                        target_text.clone()
+                                    };
+                                    let target_response =
+                                        ui.label(egui::RichText::new(&display_target).color(
                                             if self.dark_mode {
                                                 egui::Color32::from_rgb(100, 200, 255)
                                             } else {
                                                 egui::Color32::from_rgb(0, 80, 180)
                                             },
-                                        ),
-                                    );
+                                        ));
+                                    if target_text.len() > max_target_len {
+                                        target_response.on_hover_text(&target_text);
+                                    }
                                     ui.label(
                                         egui::RichText::new(format!(
                                             "{}",

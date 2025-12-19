@@ -2046,9 +2046,6 @@ impl AppState {
     /// - "HID_0001_045E_0B05_ABC123" (HID with serial)
     /// - "HID_0001_045E_0B05_DEV12345678" (HID without serial)
     fn parse_device_with_handle(input: &str) -> Option<InputDevice> {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
         let parts: Vec<&str> = input.split('_').collect();
 
         // Minimum parts: TYPE_VID_PID_SERIAL_B (5 parts)
@@ -2087,12 +2084,20 @@ impl AppState {
             let parsed = u32::from_str_radix(handle_str, 16).ok()?;
             parsed as u64
         } else {
-            // Use same hash as rawinput for consistency
-            let mut hasher = DefaultHasher::new();
-            vendor_id.hash(&mut hasher);
-            product_id.hash(&mut hasher);
-            serial_part.hash(&mut hasher);
-            hasher.finish()
+            // Use FNV-1a hash (same as rawinput) for consistency
+            const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+            const FNV_PRIME: u64 = 0x100000001b3;
+
+            let mut hash = FNV_OFFSET_BASIS;
+            hash ^= vendor_id as u64;
+            hash = hash.wrapping_mul(FNV_PRIME);
+            hash ^= product_id as u64;
+            hash = hash.wrapping_mul(FNV_PRIME);
+            for byte in serial_part.as_bytes() {
+                hash ^= *byte as u64;
+                hash = hash.wrapping_mul(FNV_PRIME);
+            }
+            hash
         };
 
         // Update device_type with actual VID
@@ -2145,7 +2150,7 @@ impl AppState {
 
         // Try mouse movement
         if let Some(direction) = Self::mouse_move_name_to_direction(&name_upper) {
-            return Some(OutputAction::MouseMove(direction, 10)); // Default speed, will be overridden by move_speed
+            return Some(OutputAction::MouseMove(direction, 5)); // Default speed, will be overridden by move_speed
         }
 
         // Try mouse button

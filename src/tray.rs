@@ -437,9 +437,6 @@ impl TrayIcon {
         let mut msg = MSG::default();
         while !self.should_exit() {
             if let Ok(event) = event_rx.try_recv() {
-                // Don't change icon dynamically to keep custom ico
-                // let _ = self.set_icon_by_status();
-
                 // Check show_notifications dynamically (in case user changed it in settings)
                 let show_notifications = state.show_notifications();
 

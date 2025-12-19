@@ -97,11 +97,7 @@ impl crate::state::EventDispatcher for WorkerPool {
             } else {
                 // Cache miss - query and update cache
                 let is_action = if let Some(mapping) = self.state.get_input_mapping(device) {
-                    matches!(
-                        mapping.target_action,
-                        crate::state::OutputAction::MouseMove(_, _)
-                            | crate::state::OutputAction::MouseScroll(_, _)
-                    )
+                    Self::is_mouse_action(&mapping.target_action)
                 } else {
                     false
                 };
@@ -112,11 +108,7 @@ impl crate::state::EventDispatcher for WorkerPool {
         } else {
             // Slow path: mouse buttons, combos, and generic devices
             if let Some(mapping) = self.state.get_input_mapping(device) {
-                matches!(
-                    mapping.target_action,
-                    crate::state::OutputAction::MouseMove(_, _)
-                        | crate::state::OutputAction::MouseScroll(_, _)
-                )
+                Self::is_mouse_action(&mapping.target_action)
             } else {
                 false
             }
@@ -151,6 +143,17 @@ impl crate::state::EventDispatcher for WorkerPool {
 }
 
 impl WorkerPool {
+    /// Check if OutputAction contains mouse movement or scroll
+    #[inline]
+    fn is_mouse_action(action: &crate::state::OutputAction) -> bool {
+        use crate::state::OutputAction;
+        match action {
+            OutputAction::MouseMove(_, _) | OutputAction::MouseScroll(_, _) => true,
+            OutputAction::MultipleActions(actions) => actions.iter().any(Self::is_mouse_action),
+            _ => false,
+        }
+    }
+
     /// Hash generic device for worker distribution using FNV-1a.
     #[inline(always)]
     fn hash_generic_device(device_type: &crate::state::DeviceType, button_id: u64) -> usize {
@@ -517,7 +520,7 @@ impl KeyboardHook {
             HashMap::with_capacity(8);
 
         // Track first pressed key's speed for multi-direction movement
-        let mut first_speed: i32 = 10;
+        let mut first_speed: i32 = 5;
         let mut has_first_speed = false;
 
         // 1ms timeout for high-frequency updates
@@ -528,7 +531,7 @@ impl KeyboardHook {
                 active_directions = 0;
                 scroll_active = 0;
                 has_first_speed = false;
-                first_speed = 10;
+                first_speed = 5;
                 mapping_cache.clear();
                 thread::sleep(Duration::from_millis(50));
                 continue;
@@ -584,6 +587,115 @@ impl KeyboardHook {
                     }
                 }
             }
+        }
+    }
+
+    /// Process MultipleActions containing mouse movements and scrolls
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    fn handle_multiple_mouse_actions(
+        state: &AppState,
+        device: &InputDevice,
+        actions: &smallvec::SmallVec<[crate::state::OutputAction; 4]>,
+        active_directions: &mut u8,
+        direction_devices: &mut [Option<InputDevice>; 8],
+        direction_intervals: &mut [u64; 8],
+        direction_last_times: &mut [Instant; 8],
+        direction_turbo: &mut [bool; 8],
+        scroll_active: &mut u8,
+        scroll_devices: &mut [Option<InputDevice>; 4],
+        scroll_directions: &mut [crate::state::MouseScrollDirection; 4],
+        scroll_speeds: &mut [i32; 4],
+        scroll_intervals: &mut [u64; 4],
+        scroll_last_times: &mut [Instant; 4],
+        scroll_turbo: &mut [bool; 4],
+        first_speed: &mut i32,
+        has_first_speed: &mut bool,
+        direction_vectors: &[(f32, f32); 8],
+        interval: u64,
+        turbo_enabled: bool,
+        now: Instant,
+    ) {
+        use crate::state::OutputAction;
+
+        let mut move_directions = smallvec::SmallVec::<[usize; 4]>::new();
+        let mut move_speed = 5;
+        let mut scroll_list =
+            smallvec::SmallVec::<[(crate::state::MouseScrollDirection, i32); 2]>::new();
+
+        for action in actions.iter() {
+            match action {
+                OutputAction::MouseMove(direction, speed) => {
+                    let dir_idx = *direction as usize;
+                    move_directions.push(dir_idx);
+                    if !*has_first_speed {
+                        move_speed = *speed;
+                        *first_speed = *speed;
+                        *has_first_speed = true;
+                    }
+                }
+                OutputAction::MouseScroll(direction, speed) => {
+                    scroll_list.push((*direction, *speed));
+                }
+                OutputAction::MultipleActions(sub_actions) => {
+                    for sub_action in sub_actions.iter() {
+                        match sub_action {
+                            OutputAction::MouseMove(direction, speed) => {
+                                let dir_idx = *direction as usize;
+                                move_directions.push(dir_idx);
+                                if !*has_first_speed {
+                                    move_speed = *speed;
+                                    *first_speed = *speed;
+                                    *has_first_speed = true;
+                                }
+                            }
+                            OutputAction::MouseScroll(direction, speed) => {
+                                scroll_list.push((*direction, *speed));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        for dir_idx in move_directions.iter() {
+            *active_directions |= 1 << dir_idx;
+            direction_devices[*dir_idx] = Some(device.clone());
+            direction_intervals[*dir_idx] = interval;
+            direction_last_times[*dir_idx] = now;
+            direction_turbo[*dir_idx] = turbo_enabled;
+        }
+
+        if !move_directions.is_empty() {
+            Self::execute_movement_immediate_bitflags(
+                *active_directions,
+                direction_vectors,
+                move_speed,
+            );
+        }
+
+        for (scroll_direction, scroll_speed) in scroll_list.iter() {
+            for i in 0..4 {
+                if scroll_devices[i].is_none() {
+                    *scroll_active |= 1 << i;
+                    scroll_devices[i] = Some(device.clone());
+                    scroll_directions[i] = *scroll_direction;
+                    scroll_speeds[i] = *scroll_speed;
+                    scroll_intervals[i] = interval;
+                    scroll_last_times[i] = now;
+                    scroll_turbo[i] = turbo_enabled;
+                    break;
+                }
+            }
+        }
+
+        for (scroll_direction, scroll_speed) in scroll_list.iter() {
+            state.simulate_action(
+                OutputAction::MouseScroll(*scroll_direction, *scroll_speed),
+                0,
+            );
         }
     }
 
@@ -707,53 +819,84 @@ impl KeyboardHook {
                 }
 
                 // Cache miss - query and cache
-                if let Some(mapping) = state.get_input_mapping(&device)
-                    && let OutputAction::MouseMove(direction, speed) = &mapping.target_action
-                {
-                    let dir_idx = *direction as usize;
+                if let Some(mapping) = state.get_input_mapping(&device) {
+                    match &mapping.target_action {
+                        OutputAction::MouseMove(direction, speed) => {
+                            let dir_idx = *direction as usize;
 
-                    // Cache the mapping
-                    mapping_cache.insert(
-                        device.clone(),
-                        (dir_idx, *speed, mapping.interval, mapping.turbo_enabled),
-                    );
+                            mapping_cache.insert(
+                                device.clone(),
+                                (dir_idx, *speed, mapping.interval, mapping.turbo_enabled),
+                            );
 
-                    if !*has_first_speed {
-                        *first_speed = *speed;
-                        *has_first_speed = true;
+                            if !*has_first_speed {
+                                *first_speed = *speed;
+                                *has_first_speed = true;
+                            }
+
+                            *active_directions |= 1 << dir_idx;
+                            direction_devices[dir_idx] = Some(device);
+                            direction_intervals[dir_idx] = mapping.interval;
+                            direction_last_times[dir_idx] = now;
+                            direction_turbo[dir_idx] = mapping.turbo_enabled;
+
+                            Self::execute_movement_immediate_bitflags(
+                                *active_directions,
+                                direction_vectors,
+                                *first_speed,
+                            );
+                        }
+                        OutputAction::MultipleActions(actions) => {
+                            Self::handle_multiple_mouse_actions(
+                                state,
+                                &device,
+                                actions,
+                                active_directions,
+                                direction_devices,
+                                direction_intervals,
+                                direction_last_times,
+                                direction_turbo,
+                                scroll_active,
+                                scroll_devices,
+                                scroll_directions,
+                                scroll_speeds,
+                                scroll_intervals,
+                                scroll_last_times,
+                                scroll_turbo,
+                                first_speed,
+                                has_first_speed,
+                                direction_vectors,
+                                mapping.interval,
+                                mapping.turbo_enabled,
+                                now,
+                            );
+                        }
+                        _ => {}
                     }
-
-                    // Set bit flag
-                    *active_directions |= 1 << dir_idx;
-                    direction_devices[dir_idx] = Some(device);
-                    direction_intervals[dir_idx] = mapping.interval;
-                    direction_last_times[dir_idx] = now;
-                    direction_turbo[dir_idx] = mapping.turbo_enabled;
-
-                    Self::execute_movement_immediate_bitflags(
-                        *active_directions,
-                        direction_vectors,
-                        *first_speed,
-                    );
                 }
             }
             InputEvent::Released(device) => {
-                // Check if it's a scroll device
+                // Clear all scroll slots associated with this device
+                let mut found_scroll = false;
                 for (i, scroll_device) in scroll_devices.iter_mut().enumerate().take(4) {
                     if scroll_device.as_ref() == Some(&device) {
                         *scroll_active &= !(1 << i);
                         *scroll_device = None;
-                        return;
+                        found_scroll = true;
                     }
                 }
 
+                // If we found scroll devices, don't process movement devices
+                if found_scroll {
+                    return;
+                }
+
                 // Handle mouse movement release
-                // Find and clear bit flag
+                // Clear all directions associated with this device
                 for (i, direction_device) in direction_devices.iter_mut().enumerate().take(8) {
                     if direction_device.as_ref() == Some(&device) {
                         *active_directions &= !(1 << i);
                         *direction_device = None;
-                        break;
                     }
                 }
 

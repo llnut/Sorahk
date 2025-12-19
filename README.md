@@ -294,28 +294,28 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = si
 [[mappings]]
 trigger_key = "W"            # Trigger key
 target_key = "MOUSE_UP"      # Move cursor upward
-move_speed = 10              # Speed in pixels (1-100)
+move_speed = 5               # Speed in pixels (1-100)
 interval = 1                 # Update interval in ms
 turbo_enabled = true         # Required for continuous movement
 
 [[mappings]]
 trigger_key = "S"
 target_key = "MOUSE_DOWN"
-move_speed = 10
+move_speed = 5
 interval = 1
 turbo_enabled = true
 
 [[mappings]]
 trigger_key = "A"
 target_key = "MOUSE_LEFT"
-move_speed = 10
+move_speed = 5
 interval = 1
 turbo_enabled = true
 
 [[mappings]]
 trigger_key = "D"
 target_key = "MOUSE_RIGHT"
-move_speed = 10
+move_speed = 5
 interval = 1
 turbo_enabled = true
 
@@ -323,7 +323,7 @@ turbo_enabled = true
 [[mappings]]
 trigger_key = "Q"
 target_key = "MOUSE_UP_LEFT"
-move_speed = 10
+move_speed = 5
 interval = 1
 turbo_enabled = true
 

@@ -253,7 +253,6 @@ impl DeviceCaptureState {
             let last_frame_record = &mut self.frames[last_idx];
             let last_frame = &last_frame_record.data[..last_frame_record.len as usize];
             if Self::is_equal_fast(last_frame, data) {
-                last_frame_record.timestamp = timestamp_ms;
                 return;
             }
         }
@@ -695,12 +694,7 @@ impl RawInputHandler {
                 let stable_id = if let Some(serial) = serial {
                     Self::hash_vid_pid_serial(vid, pid, &serial)
                 } else {
-                    // VID:PID only
-                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                    use std::hash::{Hash, Hasher};
-                    vid.hash(&mut hasher);
-                    pid.hash(&mut hasher);
-                    hasher.finish()
+                    Self::hash_vid_pid(vid, pid)
                 };
                 let _ = config_baselines.insert_sync(stable_id, baseline.baseline_data);
             }
@@ -1020,7 +1014,7 @@ impl RawInputHandler {
             let stable_device_id = if let Some(ref serial) = device_info.serial_number {
                 Self::hash_vid_pid_serial(device_info.vendor_id, device_info.product_id, serial)
             } else {
-                handle_key as u64
+                Self::hash_vid_pid(device_info.vendor_id, device_info.product_id)
             };
 
             Self::update_device_display_info(stable_device_id, &device_info);
@@ -1123,7 +1117,7 @@ impl RawInputHandler {
             return false;
         }
 
-        let stable_device_id = Self::generate_stable_device_id(handle_key, &device_info);
+        let stable_device_id = Self::generate_stable_device_id(&device_info);
         Self::update_device_display_info(stable_device_id, &device_info);
 
         // Compare current data with baseline
@@ -1357,25 +1351,56 @@ impl RawInputHandler {
 
     /// Generate stable device ID for consistent identification
     #[inline(always)]
-    fn generate_stable_device_id(handle_key: isize, device_info: &CachedDeviceInfo) -> u64 {
+    fn generate_stable_device_id(device_info: &CachedDeviceInfo) -> u64 {
         if let Some(ref serial) = device_info.serial_number {
             Self::hash_vid_pid_serial(device_info.vendor_id, device_info.product_id, serial)
         } else {
-            handle_key as u64
+            Self::hash_vid_pid(device_info.vendor_id, device_info.product_id)
         }
     }
 
-    /// Computes a hash for device identification using VID, PID, and serial number.
+    /// Computes FNV-1a hash for device identification using VID, PID, and serial number.
     #[inline(always)]
     fn hash_vid_pid_serial(vendor_id: u16, product_id: u16, serial: &str) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+        const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+        const FNV_PRIME: u64 = 0x100000001b3;
 
-        let mut hasher = DefaultHasher::new();
-        vendor_id.hash(&mut hasher);
-        product_id.hash(&mut hasher);
-        serial.hash(&mut hasher);
-        hasher.finish()
+        let mut hash = FNV_OFFSET_BASIS;
+
+        // Hash VID
+        hash ^= vendor_id as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+
+        // Hash PID
+        hash ^= product_id as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+
+        // Hash serial bytes
+        for byte in serial.as_bytes() {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+
+        hash
+    }
+
+    /// Computes FNV-1a hash for device identification using VID and PID only.
+    #[inline(always)]
+    fn hash_vid_pid(vendor_id: u16, product_id: u16) -> u64 {
+        const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+        const FNV_PRIME: u64 = 0x100000001b3;
+
+        let mut hash = FNV_OFFSET_BASIS;
+
+        // Hash VID
+        hash ^= vendor_id as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+
+        // Hash PID
+        hash ^= product_id as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+
+        hash
     }
 
     /// Parses device_id string (format: "VID:PID" or "VID:PID:Serial") into components.
