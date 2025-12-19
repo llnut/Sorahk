@@ -571,7 +571,7 @@ impl SorahkGui {
 
                                             ui.add_space(2.0);
                                             let hint_bg = if self.dark_mode {
-                                                egui::Color32::from_rgba_premultiplied(255, 200, 150, 25)
+                                                egui::Color32::from_rgba_premultiplied(80, 60, 40, 200)
                                             } else {
                                                 egui::Color32::from_rgba_premultiplied(255, 240, 200, 180)
                                             };
@@ -587,7 +587,7 @@ impl SorahkGui {
                                                                 .size(12.0)
                                                                 .color(if self.dark_mode {
                                                                     egui::Color32::from_rgb(
-                                                                        255, 200, 220,
+                                                                        255, 180, 220,
                                                                     )
                                                                 } else {
                                                                     egui::Color32::from_rgb(
@@ -606,7 +606,7 @@ impl SorahkGui {
                                                                     .size(11.0)
                                                                     .color(if self.dark_mode {
                                                                         egui::Color32::from_rgb(
-                                                                            255, 220, 150,
+                                                                            230, 230, 230,
                                                                         )
                                                                     } else {
                                                                         egui::Color32::from_rgb(
