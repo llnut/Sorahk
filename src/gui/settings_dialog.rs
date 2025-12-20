@@ -104,7 +104,8 @@ impl SorahkGui {
 
         // Handle key and mouse capture if in capture mode
         // Priority: Keyboard > Mouse > Raw Input (gamepad/joystick)
-        if self.key_capture_mode != KeyCaptureMode::None {
+        // Skip input handling when HID activation dialog is active
+        if self.key_capture_mode != KeyCaptureMode::None && self.hid_activation_dialog.is_none() {
             let mut captured_input: Option<String> = None;
 
             // Check keyboard input first

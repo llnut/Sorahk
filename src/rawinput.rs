@@ -22,11 +22,11 @@
 //!    - Authoritative source for device information
 //!    - Only queried on cache misses or after invalidation
 //!
-//! ## Cache Consistency
+//! ## Cache Management
 //!
-//! Cache invalidation occurs automatically on `WM_INPUT_DEVICE_CHANGE` messages
-//! when devices are disconnected, ensuring stale data is not reused if a device
-//! reconnects with the same handle.
+//! Device caches are automatically cleaned up when devices are disconnected.
+//! The `WM_INPUT_DEVICE_CHANGE` removal event triggers cleanup of all associated
+//! cache entries, including device info, HID states, and capture states.
 
 use smallvec::SmallVec;
 use std::cell::UnsafeCell;
@@ -613,27 +613,22 @@ pub struct RawInputHandler {
 }
 
 impl RawInputHandler {
-    /// Invalidates all device information caches.
+    /// Removes cached data for a specific device.
     ///
-    /// Called automatically when a device is disconnected to ensure
-    /// stale data is not used if the device reconnects with the same handle.
-    fn invalidate_caches(&self) {
-        // Clear global device information cache
-        self.device_cache.clear_sync();
+    /// Called when a device is disconnected to free associated resources.
+    fn remove_device_caches(&self, handle_key: isize) {
+        self.device_cache.remove_sync(&handle_key);
+        self.device_states.remove_sync(&handle_key);
+        self.capture_states.remove_sync(&handle_key);
 
-        // Clear thread-local last-device cache
+        // Clear thread-local cache if it references this device
         LAST_DEVICE_CACHE.with(|cache| unsafe {
-            *cache.get() = None;
+            if let Some((cached_handle, _)) = *cache.get() {
+                if cached_handle == handle_key {
+                    *cache.get() = None;
+                }
+            }
         });
-
-        // Clear HID device states to prevent using stale baseline/last_data
-        self.device_states.clear_sync();
-
-        // Clear capture states to prevent memory leaks
-        self.capture_states.clear_sync();
-
-        // Clear device display info cache
-        clear_device_display_info_cache();
     }
 
     /// Resets all HID device states to baseline (idle state).
@@ -671,8 +666,16 @@ impl RawInputHandler {
         for baseline in hid_baselines {
             // Parse device_id to extract VID, PID, Serial and compute hash
             if let Some((vid, pid, serial)) = Self::parse_device_id(&baseline.device_id) {
-                let stable_id = if let Some(serial) = serial {
-                    Self::hash_vid_pid_serial(vid, pid, &serial)
+                let stable_id = if let Some(ref serial) = serial {
+                    const SERIAL_FORBIDDEN_CHARS: [char; 3] = ['&', ':', '.'];
+                    let is_real_serial = serial.len() > 4
+                        && !serial.chars().any(|c| SERIAL_FORBIDDEN_CHARS.contains(&c));
+
+                    if is_real_serial {
+                        Self::hash_vid_pid_serial(vid, pid, serial)
+                    } else {
+                        Self::hash_vid_pid(vid, pid)
+                    }
                 } else {
                     Self::hash_vid_pid(vid, pid)
                 };
@@ -789,16 +792,18 @@ impl RawInputHandler {
                 DefWindowProcW(hwnd, msg, w_param, l_param)
             },
             WM_INPUT_DEVICE_CHANGE => unsafe {
-                // Device arrival or removal
                 match w_param.0 {
                     GIDC_REMOVAL => {
-                        // Device disconnected - invalidate caches
+                        // Device disconnected - remove its caches
+                        // l_param contains the device handle as isize
+                        let handle_key = l_param.0 as isize;
+
                         if let Some(handler) = RAW_INPUT_HANDLER.get() {
-                            handler.invalidate_caches();
+                            handler.remove_device_caches(handle_key);
                         }
                     }
                     GIDC_ARRIVAL => {
-                        // Device connected - caches will update on next input
+                        // Device connected - caches will populate on first input
                     }
                     _ => {}
                 }
@@ -991,11 +996,7 @@ impl RawInputHandler {
             // === NORMAL MODE - Detect button changes and dispatch events ===
 
             // Generate device identifier (needed for both activation and normal processing)
-            let stable_device_id = if let Some(ref serial) = device_info.serial_number {
-                Self::hash_vid_pid_serial(device_info.vendor_id, device_info.product_id, serial)
-            } else {
-                Self::hash_vid_pid(device_info.vendor_id, device_info.product_id)
-            };
+            let stable_device_id = Self::generate_stable_device_id(&device_info);
 
             Self::update_device_display_info(stable_device_id, &device_info);
 
@@ -1093,8 +1094,18 @@ impl RawInputHandler {
             .unwrap_or(false);
 
         if unlikely(!has_baseline) {
-            self.request_device_activation(handle_key, &device_info);
-            return false;
+            // Device not activated - handle activation regardless of capture mode
+            if likely(self.state.is_device_activating(handle_key)) {
+                // Send HID data to activation dialog
+                let pooled_data =
+                    unsafe { HID_DATA_POOL.with(|pool| (*pool.get()).copy_to_vec(current_data)) };
+                self.state.send_hid_activation_data(handle_key, pooled_data);
+                return false;
+            } else {
+                // Request activation for first time
+                self.request_device_activation(handle_key, &device_info);
+                return false;
+            }
         }
 
         let stable_device_id = Self::generate_stable_device_id(&device_info);
@@ -1326,14 +1337,30 @@ impl RawInputHandler {
         }
     }
 
-    /// Generate stable device ID for consistent identification
+    /// Generate stable device ID for consistent identification.
+    ///
+    /// Uses a hybrid strategy:
+    /// - If device has a valid serial number (not Windows instance ID), use VID+PID+Serial
+    /// - Otherwise, use only VID+PID to support device reconnection
     #[inline(always)]
     fn generate_stable_device_id(device_info: &CachedDeviceInfo) -> u64 {
         if let Some(ref serial) = device_info.serial_number {
-            Self::hash_vid_pid_serial(device_info.vendor_id, device_info.product_id, serial)
-        } else {
-            Self::hash_vid_pid(device_info.vendor_id, device_info.product_id)
+            // Check if this is a real serial number or Windows instance ID
+            // Windows instance IDs contain '&' (e.g., "6&2c5b8c5d&0&0000")
+            // Real serial numbers are typically longer and don't contain '&'
+            let is_real_serial = !serial.contains('&') && serial.len() > 4;
+
+            if is_real_serial {
+                return Self::hash_vid_pid_serial(
+                    device_info.vendor_id,
+                    device_info.product_id,
+                    serial,
+                );
+            }
         }
+
+        // No serial or unreliable serial - use only VID+PID
+        Self::hash_vid_pid(device_info.vendor_id, device_info.product_id)
     }
 
     /// Computes FNV-1a hash for device identification using VID, PID, and serial number.
@@ -1535,12 +1562,29 @@ impl RawInputHandler {
 
 /// Activates a HID device with the given baseline data.
 /// Called by GUI after successful activation.
+///
+/// Updates both runtime device states and baseline cache to support reconnection.
 #[inline]
 pub fn activate_hid_device(device_handle: isize, baseline_data: Vec<u8>) {
     if let Some(handler) = RAW_INPUT_HANDLER.get() {
-        let _ = handler
-            .device_states
-            .insert_sync(device_handle, DeviceHidState::with_baseline(baseline_data));
+        // Update runtime device state (for current session)
+        let _ = handler.device_states.insert_sync(
+            device_handle,
+            DeviceHidState::with_baseline(baseline_data.clone()),
+        );
+
+        // Get device info from cache to compute stable_device_id
+        if let Some(device_info) = handler
+            .device_cache
+            .read_sync(&device_handle, |_, v| v.clone())
+        {
+            let stable_device_id = RawInputHandler::generate_stable_device_id(&device_info);
+
+            // Update baseline cache (for reconnection support)
+            let _ = handler
+                .config_baselines
+                .insert_sync(stable_device_id, baseline_data);
+        }
     }
 }
 
