@@ -109,6 +109,15 @@ impl crate::state::EventDispatcher for WorkerPool {
                         0
                     }
                 }
+                InputDevice::XInputCombo {
+                    device_type,
+                    button_ids,
+                } => {
+                    // Hash device type and first button id for distribution
+                    let first_button_id = button_ids.first().copied().unwrap_or(0);
+                    Self::hash_generic_device(device_type, first_button_id as u64)
+                        % self.worker_count
+                }
                 InputDevice::GenericDevice {
                     device_type,
                     button_id,

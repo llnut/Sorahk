@@ -15,6 +15,12 @@ interval = 5                 # Default repeat interval between keystrokes (ms)
 event_duration = 5           # Duration of each simulated key press (ms)
 worker_count = 0             # Number of turbo workers (0 = auto-detect based on CPU cores)
 
+# ─── XInput Settings ───
+xinput_capture_mode = "DiagonalPriority"  # XInput capture mode: "DiagonalPriority", "MostSustained", "LastStable"
+                                          # DiagonalPriority: Prioritizes diagonal stick directions over straight directions
+                                          # MostSustained: Captures the most sustained input pattern
+                                          # LastStable: Captures the last stable input before release
+
 # ─── Control Settings ───
 switch_key = "DELETE"        # Reserved key to toggle SoraHK behavior
 
@@ -154,27 +160,51 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = fo
 
 # ─── HID Device Examples (Gamepads, Joysticks, Custom Controllers) ───
 # Automatic support for any HID device via GUI capture!
-# Format: DEVICE_VID_PID_SERIAL_Bx.x (with serial) or DEVICE_VID_PID_DEVxxxxxxxx_Bx.x (without serial)
+#
+# XInput Controllers (Xbox, compatible gamepads):
+#   Format: GAMEPAD_VID_ButtonName[+ButtonName...] (readable format)
+#   Buttons: A, B, X, Y, Start, Back, LB, RB, LS_Click, RS_Click, LT, RT
+#   D-Pad: DPad_Up, DPad_Down, DPad_Left, DPad_Right, DPad_UpLeft, DPad_UpRight, DPad_DownLeft, DPad_DownRight
+#   Left Stick: LS_Up, LS_Down, LS_Left, LS_Right, LS_LeftUp, LS_LeftDown, LS_RightUp, LS_RightDown
+#   Right Stick: RS_Up, RS_Down, RS_Left, RS_Right, RS_LeftUp, RS_LeftDown, RS_RightUp, RS_RightDown
+#   Combos: Use '+' to combine buttons (e.g., "LS_RightUp+A+B")
+#
+# Raw Input Devices (other gamepads, joysticks):
+#   Format: DEVICE_VID_PID_SERIAL_Bx.x (with serial) or DEVICE_VID_PID_DEVxxxxxxxx_Bx.x (without serial)
+#
 # How to configure:
-# 1. Connect your HID device (gamepad, joystick, etc.)
-# 2. First-time use: Activation dialog will appear automatically when you press any button
+# 1. Connect your device (XInput controllers work automatically, others require activation)
+# 2. First-time use for non-XInput devices: Activation dialog will appear when you press any button
 #    - Follow instructions: press and release a single button to establish baseline
 #    - Device activation data is saved automatically
-# 3. After activation: Open settings dialog, click Capture button for trigger key
+# 3. Open settings dialog, click Capture button for trigger key
 # 4. Press button(s) on your device (supports single button or combo keys)
 # 5. Release all buttons to complete capture
+#
+# XInput Examples:
 # [[mappings]]
-# trigger_key = "GAMEPAD_045E_0B05_ABC123_B2.0"  # Example: Xbox controller single button
+# trigger_key = "GAMEPAD_045E_A"              # Xbox controller A button
+# target_keys = ["SPACE"]                     # Press space
+# turbo_enabled = true                        # Enable turbo mode
+
+# [[mappings]]
+# trigger_key = "GAMEPAD_045E_LS_RightUp+A"   # Left stick right-up + A button
+# target_keys = ["LCTRL+C"]                   # Press Ctrl+C
+# turbo_enabled = true                        # Enable turbo mode
+
+# [[mappings]]
+# trigger_key = "GAMEPAD_045E_DPad_Up+B+X"    # D-Pad up + B + X buttons
+# target_keys = ["F"]                         # Auto-press F
+# turbo_enabled = true                        # Enable turbo mode
+
+# Raw Input Examples:
+# [[mappings]]
+# trigger_key = "GAMEPAD_045E_0B05_ABC123_B2.0"  # Raw Input format (with serial)
 # target_keys = ["SPACE"]                        # Press space
 # turbo_enabled = true                           # Enable turbo mode
 
 # [[mappings]]
-# trigger_key = "GAMEPAD_045E_028E_B+X"          # Example: Xbox controller combo (B+X)
-# target_keys = ["LCTRL+C"]                      # Press Ctrl+C
-# turbo_enabled = true                           # Enable turbo mode
-
-# [[mappings]]
-# trigger_key = "JOYSTICK_046D_C21D_B1.0"        # Example: Logitech joystick button
+# trigger_key = "JOYSTICK_046D_C21D_B1.0"        # Logitech joystick button
 # target_keys = ["LBUTTON"]                      # Left mouse click
 # turbo_enabled = true                           # Enable turbo mode
 
@@ -185,4 +215,12 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = fo
 # [[hid_baselines]]
 # device_id = "045E:028E:1234567"
 # baseline_data = [0, 255, 127, 255, 127, 0, 128, 0, 0, 0, 0]
+
+# ─── Device API Preferences (Auto-managed) ───
+# Preferred input API for each device (VID:PID format)
+# Options: "Auto" (default), "XInput", "RawInput"
+# Configure via Device Manager GUI window
+# [device_api_preferences]
+# "045E:028E" = "XInput"    # Force XInput for Xbox 360 controller
+# "046D:C21D" = "RawInput"  # Force Raw Input for Logitech device
 

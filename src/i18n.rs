@@ -157,7 +157,8 @@ struct TranslationCache {
     mouse_scroll_down: String,
     set_mouse_scroll_direction_hover: String,
     speed_label: String,
-    capture_mode_label: String,
+    rawinput_capture_mode_label: String,
+    xinput_capture_mode_label: String,
     capture_mode_most_sustained: String,
     capture_mode_adaptive_intelligent: String,
     capture_mode_max_changed_bits: String,
@@ -165,11 +166,40 @@ struct TranslationCache {
     capture_mode_last_stable: String,
     capture_mode_hat_switch_optimized: String,
     capture_mode_analog_optimized: String,
+    capture_mode_diagonal_priority: String,
     add_target_key_hover: String,
     clear_all_target_keys_hover: String,
     remove_target_key_prefix: String,
     diagonal_hint_title: String,
     diagonal_hint: String,
+
+    // Device Manager Dialog
+    devices_button: String,
+    device_manager_title: String,
+    connected_devices_title: String,
+    refresh_button: String,
+    xinput_controllers_title: String,
+    no_controllers_connected: String,
+    hid_devices_title: String,
+    no_hid_devices_detected: String,
+    slot_label: String,
+    hide_button: String,
+    device_settings_button: String,
+    vibration_control_title: String,
+    left_motor_label: String,
+    right_motor_label: String,
+    power_label: String,
+    test_vibration_button: String,
+    stop_vibration_button: String,
+    deadzone_settings_title: String,
+    stick_label: String,
+    trigger_label_short: String,
+    threshold_label: String,
+    device_manager_close_button: String,
+    preferred_api_label: String,
+    api_auto: String,
+    api_xinput: String,
+    api_rawinput: String,
 }
 
 impl CachedTranslations {
@@ -446,8 +476,11 @@ impl CachedTranslations {
     }
 
     // Capture Mode
-    pub fn capture_mode_label(&self) -> &str {
-        &self.inner.capture_mode_label
+    pub fn rawinput_capture_mode_label(&self) -> &str {
+        &self.inner.rawinput_capture_mode_label
+    }
+    pub fn xinput_capture_mode_label(&self) -> &str {
+        &self.inner.xinput_capture_mode_label
     }
     pub fn capture_mode_most_sustained(&self) -> &str {
         &self.inner.capture_mode_most_sustained
@@ -463,6 +496,9 @@ impl CachedTranslations {
     }
     pub fn capture_mode_last_stable(&self) -> &str {
         &self.inner.capture_mode_last_stable
+    }
+    pub fn capture_mode_diagonal_priority(&self) -> &str {
+        &self.inner.capture_mode_diagonal_priority
     }
     pub fn capture_mode_hat_switch_optimized(&self) -> &str {
         &self.inner.capture_mode_hat_switch_optimized
@@ -486,6 +522,86 @@ impl CachedTranslations {
     }
     pub fn diagonal_hint(&self) -> &str {
         &self.inner.diagonal_hint
+    }
+
+    // Device Manager Dialog
+    pub fn devices_button(&self) -> &str {
+        &self.inner.devices_button
+    }
+    pub fn device_manager_title(&self) -> &str {
+        &self.inner.device_manager_title
+    }
+    pub fn connected_devices_title(&self) -> &str {
+        &self.inner.connected_devices_title
+    }
+    pub fn refresh_button(&self) -> &str {
+        &self.inner.refresh_button
+    }
+    pub fn xinput_controllers_title(&self) -> &str {
+        &self.inner.xinput_controllers_title
+    }
+    pub fn no_controllers_connected(&self) -> &str {
+        &self.inner.no_controllers_connected
+    }
+    pub fn hid_devices_title(&self) -> &str {
+        &self.inner.hid_devices_title
+    }
+    pub fn no_hid_devices_detected(&self) -> &str {
+        &self.inner.no_hid_devices_detected
+    }
+    pub fn slot_label(&self) -> &str {
+        &self.inner.slot_label
+    }
+    pub fn hide_button(&self) -> &str {
+        &self.inner.hide_button
+    }
+    pub fn device_settings_button(&self) -> &str {
+        &self.inner.device_settings_button
+    }
+    pub fn vibration_control_title(&self) -> &str {
+        &self.inner.vibration_control_title
+    }
+    pub fn left_motor_label(&self) -> &str {
+        &self.inner.left_motor_label
+    }
+    pub fn right_motor_label(&self) -> &str {
+        &self.inner.right_motor_label
+    }
+    pub fn power_label(&self) -> &str {
+        &self.inner.power_label
+    }
+    pub fn test_vibration_button(&self) -> &str {
+        &self.inner.test_vibration_button
+    }
+    pub fn stop_vibration_button(&self) -> &str {
+        &self.inner.stop_vibration_button
+    }
+    pub fn deadzone_settings_title(&self) -> &str {
+        &self.inner.deadzone_settings_title
+    }
+    pub fn stick_label(&self) -> &str {
+        &self.inner.stick_label
+    }
+    pub fn trigger_label_short(&self) -> &str {
+        &self.inner.trigger_label_short
+    }
+    pub fn threshold_label(&self) -> &str {
+        &self.inner.threshold_label
+    }
+    pub fn device_manager_close_button(&self) -> &str {
+        &self.inner.device_manager_close_button
+    }
+    pub fn preferred_api_label(&self) -> &str {
+        &self.inner.preferred_api_label
+    }
+    pub fn api_auto(&self) -> &str {
+        &self.inner.api_auto
+    }
+    pub fn api_xinput(&self) -> &str {
+        &self.inner.api_xinput
+    }
+    pub fn api_rawinput(&self) -> &str {
+        &self.inner.api_rawinput
     }
 
     // Additional main window status card
@@ -804,7 +920,13 @@ impl TranslationCache {
             )
             .to_string(),
             speed_label: get_raw_translation(lang, RawKey::SpeedLabel).to_string(),
-            capture_mode_label: get_raw_translation(lang, RawKey::CaptureModeLabel).to_string(),
+            rawinput_capture_mode_label: get_raw_translation(
+                lang,
+                RawKey::RawInputCaptureModeLabel,
+            )
+            .to_string(),
+            xinput_capture_mode_label: get_raw_translation(lang, RawKey::XInputCaptureModeLabel)
+                .to_string(),
             capture_mode_most_sustained: get_raw_translation(
                 lang,
                 RawKey::CaptureModeMostSustained,
@@ -834,6 +956,11 @@ impl TranslationCache {
                 RawKey::CaptureModeAnalogOptimized,
             )
             .to_string(),
+            capture_mode_diagonal_priority: get_raw_translation(
+                lang,
+                RawKey::CaptureModeDiagonalPriority,
+            )
+            .to_string(),
             add_target_key_hover: get_raw_translation(lang, RawKey::AddTargetKeyHover).to_string(),
             clear_all_target_keys_hover: get_raw_translation(lang, RawKey::ClearAllTargetKeysHover)
                 .to_string(),
@@ -841,6 +968,41 @@ impl TranslationCache {
                 .to_string(),
             diagonal_hint_title: get_raw_translation(lang, RawKey::DiagonalHintTitle).to_string(),
             diagonal_hint: get_raw_translation(lang, RawKey::DiagonalHint).to_string(),
+
+            // Device Manager Dialog
+            devices_button: get_raw_translation(lang, RawKey::DevicesBtn).to_string(),
+            device_manager_title: get_raw_translation(lang, RawKey::DeviceManagerTitle).to_string(),
+            connected_devices_title: get_raw_translation(lang, RawKey::ConnectedDevicesTitle)
+                .to_string(),
+            refresh_button: get_raw_translation(lang, RawKey::RefreshBtn).to_string(),
+            xinput_controllers_title: get_raw_translation(lang, RawKey::XInputControllersTitle)
+                .to_string(),
+            no_controllers_connected: get_raw_translation(lang, RawKey::NoControllersConnected)
+                .to_string(),
+            hid_devices_title: get_raw_translation(lang, RawKey::HidDevicesTitle).to_string(),
+            no_hid_devices_detected: get_raw_translation(lang, RawKey::NoHidDevicesDetected)
+                .to_string(),
+            slot_label: get_raw_translation(lang, RawKey::SlotLabel).to_string(),
+            hide_button: get_raw_translation(lang, RawKey::HideBtn).to_string(),
+            device_settings_button: get_raw_translation(lang, RawKey::DeviceSettingsBtn)
+                .to_string(),
+            vibration_control_title: get_raw_translation(lang, RawKey::VibrationControlTitle)
+                .to_string(),
+            left_motor_label: get_raw_translation(lang, RawKey::LeftMotorLabel).to_string(),
+            right_motor_label: get_raw_translation(lang, RawKey::RightMotorLabel).to_string(),
+            power_label: get_raw_translation(lang, RawKey::PowerLabel).to_string(),
+            test_vibration_button: get_raw_translation(lang, RawKey::TestVibrationBtn).to_string(),
+            stop_vibration_button: get_raw_translation(lang, RawKey::StopVibrationBtn).to_string(),
+            deadzone_settings_title: get_raw_translation(lang, RawKey::DeadzoneSettingsTitle)
+                .to_string(),
+            stick_label: get_raw_translation(lang, RawKey::StickLabel).to_string(),
+            trigger_label_short: get_raw_translation(lang, RawKey::TriggerLabelShort).to_string(),
+            threshold_label: get_raw_translation(lang, RawKey::ThresholdLabel).to_string(),
+            device_manager_close_button: get_raw_translation(lang, RawKey::Close).to_string(),
+            preferred_api_label: get_raw_translation(lang, RawKey::PreferredApiLabel).to_string(),
+            api_auto: get_raw_translation(lang, RawKey::ApiAuto).to_string(),
+            api_xinput: get_raw_translation(lang, RawKey::ApiXInput).to_string(),
+            api_rawinput: get_raw_translation(lang, RawKey::ApiRawInput).to_string(),
         }
     }
 }
@@ -953,7 +1115,8 @@ enum RawKey {
     MouseScrollDown,
     SetMouseScrollDirectionHover,
     SpeedLabel,
-    CaptureModeLabel,
+    RawInputCaptureModeLabel,
+    XInputCaptureModeLabel,
     CaptureModeMostSustained,
     CaptureModeAdaptiveIntelligent,
     CaptureModeMaxChangedBits,
@@ -961,11 +1124,39 @@ enum RawKey {
     CaptureModeLastStable,
     CaptureModeHatSwitchOptimized,
     CaptureModeAnalogOptimized,
+    CaptureModeDiagonalPriority,
     AddTargetKeyHover,
     ClearAllTargetKeysHover,
     RemoveTargetKeyPrefix,
     DiagonalHintTitle,
     DiagonalHint,
+
+    // Device Manager Dialog
+    DevicesBtn,
+    DeviceManagerTitle,
+    ConnectedDevicesTitle,
+    RefreshBtn,
+    XInputControllersTitle,
+    NoControllersConnected,
+    HidDevicesTitle,
+    NoHidDevicesDetected,
+    SlotLabel,
+    HideBtn,
+    DeviceSettingsBtn,
+    VibrationControlTitle,
+    LeftMotorLabel,
+    RightMotorLabel,
+    PowerLabel,
+    TestVibrationBtn,
+    StopVibrationBtn,
+    DeadzoneSettingsTitle,
+    StickLabel,
+    TriggerLabelShort,
+    ThresholdLabel,
+    PreferredApiLabel,
+    ApiAuto,
+    ApiXInput,
+    ApiRawInput,
 }
 
 /// Gets raw translation string without formatting.
@@ -1572,10 +1763,15 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::SpeedLabel) => "速度:",
 
         // Capture Mode
-        (Language::English, RawKey::CaptureModeLabel) => "HID Capture Mode:",
-        (Language::SimplifiedChinese, RawKey::CaptureModeLabel) => "按键捕获模式:",
-        (Language::TraditionalChinese, RawKey::CaptureModeLabel) => "按鍵捕獲模式:",
-        (Language::Japanese, RawKey::CaptureModeLabel) => "入力検出モード:",
+        (Language::English, RawKey::RawInputCaptureModeLabel) => "Raw Input Capture:",
+        (Language::SimplifiedChinese, RawKey::RawInputCaptureModeLabel) => "Raw Input 捕获:",
+        (Language::TraditionalChinese, RawKey::RawInputCaptureModeLabel) => "Raw Input 捕獲:",
+        (Language::Japanese, RawKey::RawInputCaptureModeLabel) => "Raw Input検出:",
+
+        (Language::English, RawKey::XInputCaptureModeLabel) => "XInput Capture:",
+        (Language::SimplifiedChinese, RawKey::XInputCaptureModeLabel) => "XInput 捕获:",
+        (Language::TraditionalChinese, RawKey::XInputCaptureModeLabel) => "XInput 捕獲:",
+        (Language::Japanese, RawKey::XInputCaptureModeLabel) => "XInput検出:",
 
         (Language::English, RawKey::CaptureModeMostSustained) => "Most Sustained",
         (Language::SimplifiedChinese, RawKey::CaptureModeMostSustained) => "持续时间最长",
@@ -1601,6 +1797,11 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::SimplifiedChinese, RawKey::CaptureModeLastStable) => "最终稳定状态",
         (Language::TraditionalChinese, RawKey::CaptureModeLastStable) => "最終穩定狀態",
         (Language::Japanese, RawKey::CaptureModeLastStable) => "最終安定状態",
+
+        (Language::English, RawKey::CaptureModeDiagonalPriority) => "Diagonal Priority",
+        (Language::SimplifiedChinese, RawKey::CaptureModeDiagonalPriority) => "斜方向优先",
+        (Language::TraditionalChinese, RawKey::CaptureModeDiagonalPriority) => "斜方向優先",
+        (Language::Japanese, RawKey::CaptureModeDiagonalPriority) => "斜め方向優先",
 
         (Language::English, RawKey::CaptureModeHatSwitchOptimized) => "Hat Switch Optimized",
         (Language::SimplifiedChinese, RawKey::CaptureModeHatSwitchOptimized) => "摇杆方向优化",
@@ -1644,6 +1845,132 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::DiagonalHint) => {
             "斜め入力で2つの直交方向を同時にトリガーする場合は、斜め方向の個別マッピングを作成し、両直交方向のターゲットキーを追加してください"
         }
+
+        // Device Manager Dialog
+        (Language::English, RawKey::DevicesBtn) => "🎮 Devices",
+        (Language::SimplifiedChinese, RawKey::DevicesBtn) => "🎮 设备",
+        (Language::TraditionalChinese, RawKey::DevicesBtn) => "🎮 設備",
+        (Language::Japanese, RawKey::DevicesBtn) => "🎮 デバイス",
+
+        (Language::English, RawKey::DeviceManagerTitle) => "🌸 Device Manager 🌸",
+        (Language::SimplifiedChinese, RawKey::DeviceManagerTitle) => "🌸 设备管理 🌸",
+        (Language::TraditionalChinese, RawKey::DeviceManagerTitle) => "🌸 設備管理 🌸",
+        (Language::Japanese, RawKey::DeviceManagerTitle) => "🌸 デバイス管理 🌸",
+
+        (Language::English, RawKey::ConnectedDevicesTitle) => "✨ Connected Devices ✨",
+        (Language::SimplifiedChinese, RawKey::ConnectedDevicesTitle) => "✨ 已连接设备 ✨",
+        (Language::TraditionalChinese, RawKey::ConnectedDevicesTitle) => "✨ 已連接設備 ✨",
+        (Language::Japanese, RawKey::ConnectedDevicesTitle) => "✨ 接続済みデバイス ✨",
+
+        (Language::English, RawKey::RefreshBtn) => "🔄 Refresh",
+        (Language::SimplifiedChinese, RawKey::RefreshBtn) => "🔄 刷新",
+        (Language::TraditionalChinese, RawKey::RefreshBtn) => "🔄 刷新",
+        (Language::Japanese, RawKey::RefreshBtn) => "🔄 更新",
+
+        (Language::English, RawKey::XInputControllersTitle) => "🎮 XInput Controllers ♡",
+        (Language::SimplifiedChinese, RawKey::XInputControllersTitle) => "🎮 XInput 控制器 ♡",
+        (Language::TraditionalChinese, RawKey::XInputControllersTitle) => "🎮 XInput 控制器 ♡",
+        (Language::Japanese, RawKey::XInputControllersTitle) => "🎮 XInput コントローラー ♡",
+
+        (Language::English, RawKey::NoControllersConnected) => "No controllers connected",
+        (Language::SimplifiedChinese, RawKey::NoControllersConnected) => "未连接控制器",
+        (Language::TraditionalChinese, RawKey::NoControllersConnected) => "未連接控制器",
+        (Language::Japanese, RawKey::NoControllersConnected) => "コントローラー未接続",
+
+        (Language::English, RawKey::HidDevicesTitle) => "🕹 HID Devices ★",
+        (Language::SimplifiedChinese, RawKey::HidDevicesTitle) => "🕹 HID 设备 ★",
+        (Language::TraditionalChinese, RawKey::HidDevicesTitle) => "🕹 HID 設備 ★",
+        (Language::Japanese, RawKey::HidDevicesTitle) => "🕹 HID デバイス ★",
+
+        (Language::English, RawKey::NoHidDevicesDetected) => "No HID devices detected",
+        (Language::SimplifiedChinese, RawKey::NoHidDevicesDetected) => "未检测到 HID 设备",
+        (Language::TraditionalChinese, RawKey::NoHidDevicesDetected) => "未檢測到 HID 設備",
+        (Language::Japanese, RawKey::NoHidDevicesDetected) => "HID デバイスが検出されませんでした",
+
+        (Language::English, RawKey::SlotLabel) => "✨ Slot",
+        (Language::SimplifiedChinese, RawKey::SlotLabel) => "✨ 插槽",
+        (Language::TraditionalChinese, RawKey::SlotLabel) => "✨ 插槽",
+        (Language::Japanese, RawKey::SlotLabel) => "✨ スロット",
+
+        (Language::English, RawKey::HideBtn) => "🔽 Hide",
+        (Language::SimplifiedChinese, RawKey::HideBtn) => "🔽 收起",
+        (Language::TraditionalChinese, RawKey::HideBtn) => "🔽 收起",
+        (Language::Japanese, RawKey::HideBtn) => "🔽 隠す",
+
+        (Language::English, RawKey::DeviceSettingsBtn) => "⚙ Settings",
+        (Language::SimplifiedChinese, RawKey::DeviceSettingsBtn) => "⚙ 设置",
+        (Language::TraditionalChinese, RawKey::DeviceSettingsBtn) => "⚙ 設定",
+        (Language::Japanese, RawKey::DeviceSettingsBtn) => "⚙ 設定",
+
+        (Language::English, RawKey::VibrationControlTitle) => "💫 Vibration Control",
+        (Language::SimplifiedChinese, RawKey::VibrationControlTitle) => "💫 振动控制",
+        (Language::TraditionalChinese, RawKey::VibrationControlTitle) => "💫 振動控制",
+        (Language::Japanese, RawKey::VibrationControlTitle) => "💫 振動制御",
+
+        (Language::English, RawKey::LeftMotorLabel) => "✨ Left:",
+        (Language::SimplifiedChinese, RawKey::LeftMotorLabel) => "✨ 左侧：",
+        (Language::TraditionalChinese, RawKey::LeftMotorLabel) => "✨ 左側：",
+        (Language::Japanese, RawKey::LeftMotorLabel) => "✨ 左側：",
+
+        (Language::English, RawKey::RightMotorLabel) => "✨ Right:",
+        (Language::SimplifiedChinese, RawKey::RightMotorLabel) => "✨ 右侧：",
+        (Language::TraditionalChinese, RawKey::RightMotorLabel) => "✨ 右側：",
+        (Language::Japanese, RawKey::RightMotorLabel) => "✨ 右側：",
+
+        (Language::English, RawKey::PowerLabel) => "power",
+        (Language::SimplifiedChinese, RawKey::PowerLabel) => "强度",
+        (Language::TraditionalChinese, RawKey::PowerLabel) => "強度",
+        (Language::Japanese, RawKey::PowerLabel) => "強度",
+
+        (Language::English, RawKey::TestVibrationBtn) => "▶ Test (1s)",
+        (Language::SimplifiedChinese, RawKey::TestVibrationBtn) => "▶ 测试 (1秒)",
+        (Language::TraditionalChinese, RawKey::TestVibrationBtn) => "▶ 測試 (1秒)",
+        (Language::Japanese, RawKey::TestVibrationBtn) => "▶ テスト (1秒)",
+
+        (Language::English, RawKey::StopVibrationBtn) => "⏹ Stop",
+        (Language::SimplifiedChinese, RawKey::StopVibrationBtn) => "⏹ 停止",
+        (Language::TraditionalChinese, RawKey::StopVibrationBtn) => "⏹ 停止",
+        (Language::Japanese, RawKey::StopVibrationBtn) => "⏹ 停止",
+
+        (Language::English, RawKey::DeadzoneSettingsTitle) => "🎯 Deadzone Settings",
+        (Language::SimplifiedChinese, RawKey::DeadzoneSettingsTitle) => "🎯 死区设置",
+        (Language::TraditionalChinese, RawKey::DeadzoneSettingsTitle) => "🎯 死區設置",
+        (Language::Japanese, RawKey::DeadzoneSettingsTitle) => "🎯 デッドゾーン設定",
+
+        (Language::English, RawKey::StickLabel) => "🕹 Stick:",
+        (Language::SimplifiedChinese, RawKey::StickLabel) => "🕹 摇杆：",
+        (Language::TraditionalChinese, RawKey::StickLabel) => "🕹 搖桿：",
+        (Language::Japanese, RawKey::StickLabel) => "🕹 スティック：",
+
+        (Language::English, RawKey::TriggerLabelShort) => "⚡ Trigger:",
+        (Language::SimplifiedChinese, RawKey::TriggerLabelShort) => "⚡ 扳机：",
+        (Language::TraditionalChinese, RawKey::TriggerLabelShort) => "⚡ 扳機：",
+        (Language::Japanese, RawKey::TriggerLabelShort) => "⚡ トリガー：",
+
+        (Language::English, RawKey::ThresholdLabel) => "threshold",
+        (Language::SimplifiedChinese, RawKey::ThresholdLabel) => "阈值",
+        (Language::TraditionalChinese, RawKey::ThresholdLabel) => "閾值",
+        (Language::Japanese, RawKey::ThresholdLabel) => "しきい値",
+
+        (Language::English, RawKey::PreferredApiLabel) => "Preferred API:",
+        (Language::SimplifiedChinese, RawKey::PreferredApiLabel) => "优先 API：",
+        (Language::TraditionalChinese, RawKey::PreferredApiLabel) => "優先 API：",
+        (Language::Japanese, RawKey::PreferredApiLabel) => "優先 API：",
+
+        (Language::English, RawKey::ApiAuto) => "Auto",
+        (Language::SimplifiedChinese, RawKey::ApiAuto) => "自动",
+        (Language::TraditionalChinese, RawKey::ApiAuto) => "自動",
+        (Language::Japanese, RawKey::ApiAuto) => "自動",
+
+        (Language::English, RawKey::ApiXInput) => "XInput",
+        (Language::SimplifiedChinese, RawKey::ApiXInput) => "XInput",
+        (Language::TraditionalChinese, RawKey::ApiXInput) => "XInput",
+        (Language::Japanese, RawKey::ApiXInput) => "XInput",
+
+        (Language::English, RawKey::ApiRawInput) => "RawInput",
+        (Language::SimplifiedChinese, RawKey::ApiRawInput) => "RawInput",
+        (Language::TraditionalChinese, RawKey::ApiRawInput) => "RawInput",
+        (Language::Japanese, RawKey::ApiRawInput) => "RawInput",
     }
 }
 

@@ -179,12 +179,13 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
   - Adjustable movement speed (1-100 pixels per interval)
   - Visual direction selector dialog in settings
   - Compatible with turbo mode for smooth continuous movement
-- **HID Device Support** – Raw Input API integration for gamepads, joysticks, and other controllers
+- **Controller Support** – Multi-API input handling for gaming devices
+  - **XInput** – Native Xbox controller support with polling-based input
+  - **Raw Input** – HID device integration for other gamepads and joysticks
   - Interactive activation dialog for first-time device setup
   - Single button and combo key mapping
   - Press/release detection with turbo-fire capability
   - Persistent device baseline data
-  - VID/PID/Serial-based stable device identification
 - **Per-Mapping Turbo Control** – Individual turbo mode toggle for each mapping
 - **Adjustable Timing** – Configure repeat interval and press duration per mapping
 - **Global Toggle** – Quick enable/disable with a single hotkey (default: DELETE)
@@ -201,6 +202,7 @@ Suitable for gaming, productivity automation, and other scenarios requiring rapi
 - **Low Resource Usage** – Minimal CPU and memory footprint
 
 ### 🔔 **Additional Features**
+- **Device Manager** – Dedicated GUI for controller configuration
 - **Toast Notifications** – Windows native notifications for status updates
 - **TOML Configuration** – Simple, human-readable configuration file
 - **Auto-configuration** – Automatic generation of default settings on first run
@@ -353,15 +355,26 @@ trigger_key = "LALT+1"
 target_key = "F1"
 turbo_enabled = true
 
-# HID device examples (gamepad/joystick buttons)
+# XInput controller examples (readable format)
 [[mappings]]
-trigger_key = "GAMEPAD_045E_028E_A"  # Xbox controller A button
+trigger_key = "GAMEPAD_045E_A"        # Xbox controller A button
 target_key = "SPACE"
 turbo_enabled = true
 
 [[mappings]]
-trigger_key = "GAMEPAD_045E_028E_B+X" # Xbox controller B+X combo
+trigger_key = "GAMEPAD_045E_LS_RightUp+A"  # Left stick right-up + A
 target_key = "LCTRL+C"
+turbo_enabled = true
+
+[[mappings]]
+trigger_key = "GAMEPAD_045E_DPad_Up+B"     # D-Pad up + B button
+target_key = "F"
+turbo_enabled = true
+
+# Raw Input device examples
+[[mappings]]
+trigger_key = "GAMEPAD_045E_0B05_ABC123_B2.0"  # Raw Input format
+target_key = "SPACE"
 turbo_enabled = true
 
 [[mappings]]
@@ -431,7 +444,21 @@ Input names support both keyboard keys and mouse buttons:
 - **GUI Support**: Visual direction selector in settings
 
 **HID Devices (Gamepads/Joysticks):**
-- Button IDs are captured through GUI automatically
+
+**XInput Controllers (Xbox, compatible gamepads):**
+- **Format**: `GAMEPAD_VID_ButtonName[+ButtonName...]` (readable format)
+- **Buttons**: `A`, `B`, `X`, `Y`, `Start`, `Back`, `LB`, `RB`, `LS_Click`, `RS_Click`, `LT`, `RT`
+- **D-Pad**: `DPad_Up`, `DPad_Down`, `DPad_Left`, `DPad_Right`, `DPad_UpLeft`, `DPad_UpRight`, `DPad_DownLeft`, `DPad_DownRight`
+- **Left Stick**: `LS_Up`, `LS_Down`, `LS_Left`, `LS_Right`, `LS_LeftUp`, `LS_LeftDown`, `LS_RightUp`, `LS_RightDown`
+- **Right Stick**: `RS_Up`, `RS_Down`, `RS_Left`, `RS_Right`, `RS_LeftUp`, `RS_LeftDown`, `RS_RightUp`, `RS_RightDown`
+- **Combos**: Use `+` to combine buttons (e.g., `GAMEPAD_045E_LS_RightUp+A+B`)
+- **Examples**: 
+  - `GAMEPAD_045E_A` - Xbox controller A button
+  - `GAMEPAD_045E_LS_RightUp+A` - Left stick right-up + A button
+  - `GAMEPAD_045E_DPad_Up+B+X` - D-Pad up + B + X buttons
+
+**Raw Input Devices (other gamepads, joysticks):**
+- **Format**: `DEVICE_VID_PID_SERIAL_Bx.x` (with serial) or `DEVICE_VID_PID_DEVxxxxxxxx_Bx.x` (without serial)
 - First-time device activation required to establish baseline
 - Supports single button and combo key mapping
 - Example format: `GAMEPAD_045E_028E_A`, `JOYSTICK_046D_C21D_B1`
@@ -530,6 +557,8 @@ run_tests.bat
 - **Configuration Management**: Loading, saving, and validation
 - **Key Mapping**: Virtual key code conversion and scancode mapping
 - **Mouse Support**: Button name parsing, event handling, and movement direction validation
+- **HID Devices**: Device ID generation, baseline management, and combo key capture
+- **XInput Controllers**: Button detection, analog stick mapping, trigger filtering, and hash generation
 - **Internationalization**: Multi-language support and translations
 - **Worker Pool**: Event distribution and multi-threading
 - **Integration**: Cross-module interactions and data persistence

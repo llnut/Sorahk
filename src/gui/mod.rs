@@ -4,6 +4,7 @@
 //! including the main window, dialogs, and utility functions.
 
 mod about_dialog;
+pub mod device_manager_dialog;
 mod error_dialog;
 mod fonts;
 mod hid_activation_dialog;
@@ -39,6 +40,10 @@ pub struct SorahkGui {
     show_settings_dialog: bool,
     /// About dialog visibility
     show_about_dialog: bool,
+    /// Device manager dialog visibility
+    show_device_manager: bool,
+    /// Device manager dialog
+    device_manager_dialog: Option<device_manager_dialog::DeviceManagerDialog>,
     /// HID device activation dialog
     hid_activation_dialog: Option<hid_activation_dialog::HidActivationDialog>,
     /// HID activation dialog creation time (for 10ms debounce)
@@ -110,6 +115,8 @@ impl SorahkGui {
             show_close_dialog: false,
             show_settings_dialog: false,
             show_about_dialog: false,
+            show_device_manager: false,
+            device_manager_dialog: None,
             hid_activation_dialog: None,
             hid_activation_creation_time: None,
             mouse_direction_dialog: None,

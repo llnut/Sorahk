@@ -151,6 +151,52 @@ impl eframe::App for SorahkGui {
             );
         }
 
+        // Show device manager dialog
+        if self.show_device_manager {
+            if self.device_manager_dialog.is_none() {
+                let mut dialog = crate::gui::device_manager_dialog::DeviceManagerDialog::new();
+                dialog.load_preferences(&self.config.device_api_preferences);
+                dialog.refresh_devices();
+                self.device_manager_dialog = Some(dialog);
+            }
+
+            if let Some(dialog) = &mut self.device_manager_dialog {
+                let should_close = dialog.render(ctx, self.dark_mode, &self.translations);
+
+                // Check for changed API preferences
+                let changed_prefs = dialog.take_changed_preferences();
+                if !changed_prefs.is_empty() {
+                    // Update config
+                    for (key, pref) in changed_prefs {
+                        self.config.device_api_preferences.insert(key.clone(), pref);
+
+                        // Parse VID:PID and apply preference immediately
+                        if let Some((vid, pid)) = key.split_once(':')
+                            && let (Ok(vid_u16), Ok(pid_u16)) =
+                                (u16::from_str_radix(vid, 16), u16::from_str_radix(pid, 16))
+                        {
+                            // Set the API preference in the ownership manager
+                            crate::input_manager::set_device_api_preference(
+                                (vid_u16, pid_u16),
+                                pref,
+                            );
+
+                            // Release device ownership so it can be reclaimed by the new preferred API
+                            crate::input_manager::release_device_ownership((vid_u16, pid_u16));
+                        }
+                    }
+
+                    // Save config
+                    let _ = self.config.save_to_file("Config.toml");
+                }
+
+                if should_close {
+                    self.show_device_manager = false;
+                    self.device_manager_dialog = None;
+                }
+            }
+        }
+
         // Handle mouse direction dialog
         if let Some(dialog) = &mut self.mouse_direction_dialog {
             let should_close = dialog.render(ctx, self.dark_mode, &self.translations);
@@ -257,9 +303,9 @@ impl SorahkGui {
         }
 
         let dialog_bg = if self.dark_mode {
-            egui::Color32::from_rgb(32, 34, 45)
+            egui::Color32::from_rgb(30, 32, 42)
         } else {
-            egui::Color32::from_rgb(245, 240, 252)
+            egui::Color32::from_rgb(252, 248, 255)
         };
 
         let window = egui::Window::new("")
@@ -325,7 +371,11 @@ impl SorahkGui {
                             .color(egui::Color32::WHITE)
                             .strong(),
                     )
-                    .fill(egui::Color32::from_rgb(135, 206, 235))
+                    .fill(if self.dark_mode {
+                        egui::Color32::from_rgb(180, 160, 230)
+                    } else {
+                        egui::Color32::from_rgb(210, 190, 240)
+                    })
                     .corner_radius(15.0);
 
                     if ui
@@ -345,7 +395,11 @@ impl SorahkGui {
                         .color(egui::Color32::WHITE)
                         .strong(),
                 )
-                .fill(egui::Color32::from_rgb(255, 182, 193))
+                .fill(if self.dark_mode {
+                    egui::Color32::from_rgb(220, 180, 210)
+                } else {
+                    egui::Color32::from_rgb(230, 200, 220)
+                })
                 .corner_radius(15.0);
 
                 if ui
@@ -407,26 +461,38 @@ impl SorahkGui {
 
     /// Renders the main content panel with all UI components.
     fn render_main_content(&mut self, ctx: &egui::Context, frame_state: &FrameState) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            self.render_title_bar(ui);
+        let panel_bg = if self.dark_mode {
+            egui::Color32::from_rgb(30, 32, 42)
+        } else {
+            egui::Color32::from_rgb(252, 248, 255)
+        };
 
-            ui.add_space(10.0);
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::central_panel(&ctx.style())
+                    .fill(panel_bg)
+                    .inner_margin(egui::Margin::same(10)),
+            )
+            .show(ctx, |ui| {
+                self.render_title_bar(ui);
 
-            // Add scroll area for main content to allow vertical scrolling
-            egui::ScrollArea::vertical()
-                .auto_shrink([false; 2])
-                .show(ui, |ui| {
-                    ui.add_space(10.0);
-                    self.render_status_card(ui, frame_state);
-                    ui.add_space(10.0);
-                    self.render_hotkey_card(ui);
-                    ui.add_space(10.0);
-                    self.render_config_card(ui);
-                    ui.add_space(10.0);
-                    self.render_mappings_card(ui);
-                    ui.add_space(10.0);
-                });
-        });
+                ui.add_space(10.0);
+
+                // Add scroll area for main content to allow vertical scrolling
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .show(ui, |ui| {
+                        ui.add_space(10.0);
+                        self.render_status_card(ui, frame_state);
+                        ui.add_space(10.0);
+                        self.render_hotkey_card(ui);
+                        ui.add_space(10.0);
+                        self.render_config_card(ui);
+                        ui.add_space(10.0);
+                        self.render_mappings_card(ui);
+                        ui.add_space(10.0);
+                    });
+            });
     }
 
     /// Renders the title bar with theme toggle and menu buttons.
@@ -504,6 +570,20 @@ impl SorahkGui {
 
                 ui.add_space(8.0);
 
+                let device_manager_btn = egui::Button::new(
+                    egui::RichText::new(t.devices_button())
+                        .size(13.0)
+                        .color(egui::Color32::WHITE),
+                )
+                .fill(egui::Color32::from_rgb(152, 181, 226))
+                .corner_radius(12.0);
+
+                if ui.add(device_manager_btn).clicked() {
+                    self.show_device_manager = true;
+                }
+
+                ui.add_space(8.0);
+
                 let about_btn = egui::Button::new(
                     egui::RichText::new(t.about_button())
                         .size(13.0)
@@ -523,14 +603,14 @@ impl SorahkGui {
     fn render_status_card(&mut self, ui: &mut egui::Ui, frame_state: &FrameState) {
         let t = &self.translations;
         let card_bg = if self.dark_mode {
-            egui::Color32::from_rgb(42, 38, 48)
+            egui::Color32::from_rgb(40, 42, 50)
         } else {
-            egui::Color32::from_rgb(255, 245, 250)
+            egui::Color32::from_rgb(245, 238, 252)
         };
 
         egui::Frame::NONE
             .fill(card_bg)
-            .corner_radius(egui::CornerRadius::same(16))
+            .corner_radius(egui::CornerRadius::same(15))
             .inner_margin(egui::Margin::same(16))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
@@ -541,9 +621,9 @@ impl SorahkGui {
                             .size(16.0)
                             .strong()
                             .color(if self.dark_mode {
-                                egui::Color32::from_rgb(255, 182, 193)
+                                egui::Color32::from_rgb(200, 180, 255)
                             } else {
-                                egui::Color32::from_rgb(220, 20, 60)
+                                egui::Color32::from_rgb(150, 100, 200)
                             }),
                     );
 
@@ -586,9 +666,23 @@ impl SorahkGui {
                     let height = 32.0;
 
                     let (text, color) = if frame_state.is_paused {
-                        (t.start_button(), egui::Color32::from_rgb(144, 238, 144))
+                        (
+                            t.start_button(),
+                            if self.dark_mode {
+                                egui::Color32::from_rgb(120, 220, 140)
+                            } else {
+                                egui::Color32::from_rgb(140, 230, 150)
+                            },
+                        )
                     } else {
-                        (t.pause_button(), egui::Color32::from_rgb(255, 218, 185))
+                        (
+                            t.pause_button(),
+                            if self.dark_mode {
+                                egui::Color32::from_rgb(255, 200, 130)
+                            } else {
+                                egui::Color32::from_rgb(255, 215, 170)
+                            },
+                        )
                     };
 
                     let toggle_btn = egui::Button::new(
@@ -620,7 +714,11 @@ impl SorahkGui {
                             .color(egui::Color32::WHITE)
                             .strong(),
                     )
-                    .fill(egui::Color32::from_rgb(255, 182, 193))
+                    .fill(if self.dark_mode {
+                        egui::Color32::from_rgb(220, 180, 210)
+                    } else {
+                        egui::Color32::from_rgb(230, 200, 220)
+                    })
                     .corner_radius(15.0);
 
                     if ui.add_sized([width, height], exit_btn).clicked() {
@@ -635,14 +733,14 @@ impl SorahkGui {
     fn render_hotkey_card(&self, ui: &mut egui::Ui) {
         let t = &self.translations;
         let card_bg = if self.dark_mode {
-            egui::Color32::from_rgb(35, 42, 50)
+            egui::Color32::from_rgb(40, 42, 50)
         } else {
-            egui::Color32::from_rgb(240, 248, 255)
+            egui::Color32::from_rgb(245, 238, 252)
         };
 
         egui::Frame::NONE
             .fill(card_bg)
-            .corner_radius(egui::CornerRadius::same(16))
+            .corner_radius(egui::CornerRadius::same(15))
             .inner_margin(egui::Margin::same(16))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
@@ -652,9 +750,9 @@ impl SorahkGui {
                         .size(16.0)
                         .strong()
                         .color(if self.dark_mode {
-                            egui::Color32::from_rgb(173, 216, 230)
+                            egui::Color32::from_rgb(200, 180, 255)
                         } else {
-                            egui::Color32::from_rgb(30, 90, 180)
+                            egui::Color32::from_rgb(100, 120, 200)
                         }),
                 );
 
@@ -686,14 +784,14 @@ impl SorahkGui {
     fn render_config_card(&self, ui: &mut egui::Ui) {
         let t = &self.translations;
         let card_bg = if self.dark_mode {
-            egui::Color32::from_rgb(48, 42, 38)
+            egui::Color32::from_rgb(40, 42, 50)
         } else {
-            egui::Color32::from_rgb(255, 248, 240)
+            egui::Color32::from_rgb(245, 238, 252)
         };
 
         egui::Frame::NONE
             .fill(card_bg)
-            .corner_radius(egui::CornerRadius::same(16))
+            .corner_radius(egui::CornerRadius::same(15))
             .inner_margin(egui::Margin::same(16))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
@@ -703,9 +801,9 @@ impl SorahkGui {
                         .size(16.0)
                         .strong()
                         .color(if self.dark_mode {
-                            egui::Color32::from_rgb(255, 218, 185)
+                            egui::Color32::from_rgb(200, 180, 255)
                         } else {
-                            egui::Color32::from_rgb(200, 100, 0)
+                            egui::Color32::from_rgb(150, 100, 200)
                         }),
                 );
 
@@ -807,14 +905,14 @@ impl SorahkGui {
     fn render_mappings_card(&self, ui: &mut egui::Ui) {
         let t = &self.translations;
         let card_bg = if self.dark_mode {
-            egui::Color32::from_rgb(35, 45, 40)
+            egui::Color32::from_rgb(40, 42, 50)
         } else {
-            egui::Color32::from_rgb(240, 255, 245)
+            egui::Color32::from_rgb(245, 238, 252)
         };
 
         egui::Frame::NONE
             .fill(card_bg)
-            .corner_radius(egui::CornerRadius::same(16))
+            .corner_radius(egui::CornerRadius::same(15))
             .inner_margin(egui::Margin::same(16))
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
@@ -824,9 +922,9 @@ impl SorahkGui {
                         .size(16.0)
                         .strong()
                         .color(if self.dark_mode {
-                            egui::Color32::from_rgb(152, 251, 152)
+                            egui::Color32::from_rgb(200, 180, 255)
                         } else {
-                            egui::Color32::from_rgb(0, 120, 0)
+                            egui::Color32::from_rgb(80, 150, 90)
                         }),
                 );
                 ui.add_space(5.0);
@@ -834,6 +932,14 @@ impl SorahkGui {
                 egui::ScrollArea::vertical()
                     .max_height(280.0)
                     .show(ui, |ui| {
+                        // Customize stripe color for better contrast
+                        let stripe_color = if self.dark_mode {
+                            egui::Color32::from_rgba_premultiplied(50, 52, 60, 100)
+                        } else {
+                            egui::Color32::from_rgba_premultiplied(240, 230, 248, 150)
+                        };
+                        ui.style_mut().visuals.faint_bg_color = stripe_color;
+
                         let available = ui.available_width();
                         egui::Grid::new("mappings_grid")
                             .num_columns(5)

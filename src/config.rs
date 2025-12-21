@@ -5,9 +5,64 @@
 
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use std::{fs, path::Path};
+use std::convert::Infallible;
+use std::{collections::HashMap, fs, path::Path, str::FromStr};
 
 use crate::i18n::Language;
+
+/// Device API preference for input handling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+pub enum DeviceApiPreference {
+    /// Auto-detect best API.
+    #[default]
+    Auto,
+    /// Force XInput.
+    XInput,
+    /// Force Raw Input.
+    RawInput,
+}
+
+/// XInput capture mode strategy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+pub enum XInputCaptureMode {
+    /// Captures the most sustained input pattern.
+    MostSustained,
+    /// Captures the last stable input before release.
+    LastStable,
+    /// Prioritizes diagonal directions over straight directions with combo key support.
+    #[default]
+    DiagonalPriority,
+}
+
+impl FromStr for XInputCaptureMode {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "LastStable" => Ok(Self::LastStable),
+            "DiagonalPriority" => Ok(Self::DiagonalPriority),
+            _ => Ok(Self::default()),
+        }
+    }
+}
+
+impl XInputCaptureMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::MostSustained => "MostSustained",
+            Self::LastStable => "LastStable",
+            Self::DiagonalPriority => "DiagonalPriority",
+        }
+    }
+
+    pub fn all_modes() -> &'static [XInputCaptureMode] {
+        &[
+            XInputCaptureMode::MostSustained,
+            XInputCaptureMode::LastStable,
+            XInputCaptureMode::DiagonalPriority,
+        ]
+    }
+}
 
 /// Main application configuration structure.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -47,9 +102,15 @@ pub struct AppConfig {
     /// HID device baselines for button detection
     #[serde(default)]
     pub hid_baselines: Vec<HidDeviceBaseline>,
-    /// HID input capture mode strategy
+    /// Raw Input capture mode strategy
     #[serde(default = "default_capture_mode")]
-    pub capture_mode: String,
+    pub rawinput_capture_mode: String,
+    /// XInput capture mode strategy
+    #[serde(default = "default_xinput_capture_mode")]
+    pub xinput_capture_mode: String,
+    /// Device API preferences (VID:PID -> API preference)
+    #[serde(default)]
+    pub device_api_preferences: HashMap<String, DeviceApiPreference>,
 }
 
 /// HID device baseline configuration for button state detection.
@@ -144,6 +205,9 @@ fn default_worker_count() -> usize {
 fn default_capture_mode() -> String {
     "MostSustained".to_string()
 }
+fn default_xinput_capture_mode() -> String {
+    "MostSustained".to_string()
+}
 
 impl Default for AppConfig {
     /// Creates a default configuration with sensible defaults.
@@ -169,7 +233,9 @@ impl Default for AppConfig {
             worker_count: default_worker_count(),
             process_whitelist: vec![], // Empty means all processes enabled
             hid_baselines: Vec::new(),
-            capture_mode: default_capture_mode(),
+            rawinput_capture_mode: default_capture_mode(),
+            xinput_capture_mode: default_xinput_capture_mode(),
+            device_api_preferences: HashMap::new(),
         }
     }
 }
@@ -238,6 +304,11 @@ impl AppConfig {
              interval = {}                # Default repeat interval between keystrokes (ms)\n\
              event_duration = {}          # Duration of each simulated key press (ms)\n\
              worker_count = {}            # Number of turbo workers (0 = auto-detect based on CPU cores)\n\n\
+             # ─── XInput Settings ───\n\
+             xinput_capture_mode = \"{}\"  # XInput capture mode: \"DiagonalPriority\", \"MostSustained\", \"LastStable\"\n\
+                                           # DiagonalPriority: Prioritizes diagonal stick directions over straight directions\n\
+                                           # MostSustained: Captures the most sustained input pattern\n\
+                                           # LastStable: Captures the last stable input before release\n\n\
              # ─── Control Settings ───   \n\
              switch_key = \"{}\"       # Reserved key to toggle SoraHK behavior\n\n\
              # ─── Process Whitelist ───\n\
@@ -315,25 +386,47 @@ impl AppConfig {
              # turbo_enabled = true\n\n\
              # ─── HID Device Examples (Gamepads, Joysticks, Custom Controllers) ───\n\
              # Automatic support for any HID device via GUI capture!\n\
-             # Format: DEVICE_VID_PID_SERIAL_Bx.x (with serial) or DEVICE_VID_PID_DEVxxxxxxxx_Bx.x (without serial)\n\
+             # \n\
+             # XInput Controllers (Xbox, compatible gamepads):\n\
+             #   Format: GAMEPAD_VID_ButtonName[+ButtonName...] (readable format)\n\
+             #   Buttons: A, B, X, Y, Start, Back, LB, RB, LS_Click, RS_Click, LT, RT\n\
+             #   D-Pad: DPad_Up, DPad_Down, DPad_Left, DPad_Right, DPad_UpLeft, DPad_UpRight, DPad_DownLeft, DPad_DownRight\n\
+             #   Left Stick: LS_Up, LS_Down, LS_Left, LS_Right, LS_LeftUp, LS_LeftDown, LS_RightUp, LS_RightDown\n\
+             #   Right Stick: RS_Up, RS_Down, RS_Left, RS_Right, RS_LeftUp, RS_LeftDown, RS_RightUp, RS_RightDown\n\
+             #   Combos: Use '+' to combine buttons (e.g., \"LS_RightUp+A+B\")\n\
+             #\n\
+             # Raw Input Devices (other gamepads, joysticks):\n\
+             #   Format: DEVICE_VID_PID_SERIAL_Bx.x (with serial) or DEVICE_VID_PID_DEVxxxxxxxx_Bx.x (without serial)\n\
+             #\n\
              # How to configure:\n\
-             # 1. Connect your HID device (gamepad, joystick, etc.)\n\
-             # 2. First-time use: Activation dialog will appear automatically when you press any button\n\
+             # 1. Connect your device (XInput controllers work automatically, others require activation)\n\
+             # 2. First-time use for non-XInput devices: Activation dialog will appear when you press any button\n\
              #    - Follow instructions: press and release a single button to establish baseline\n\
              #    - Device activation data is saved automatically\n\
-             # 3. After activation: Open settings dialog, click Capture button for trigger key\n\
+             # 3. Open settings dialog, click Capture button for trigger key\n\
              # 4. Press button(s) on your device (supports single button or combo keys)\n\
              # 5. Release all buttons to complete capture\n\
+             #\n\
+             # XInput Examples:\n\
              # [[mappings]]\n\
-             # trigger_key = \"GAMEPAD_045E_0B05_ABC123_B2.0\"  # Example: Xbox controller single button\n\
+             # trigger_key = \"GAMEPAD_045E_A\"              # Xbox controller A button\n\
+             # target_keys = [\"SPACE\"]                     # Press space\n\
+             # turbo_enabled = true                        # Enable turbo mode\n\n\
+             # [[mappings]]\n\
+             # trigger_key = \"GAMEPAD_045E_LS_RightUp+A\"   # Left stick right-up + A button\n\
+             # target_keys = [\"LCTRL+C\"]                   # Press Ctrl+C\n\
+             # turbo_enabled = true                        # Enable turbo mode\n\n\
+             # [[mappings]]\n\
+             # trigger_key = \"GAMEPAD_045E_DPad_Up+B+X\"    # D-Pad up + B + X buttons\n\
+             # target_keys = [\"F\"]                         # Auto-press F\n\
+             # turbo_enabled = true                        # Enable turbo mode\n\n\
+             # Raw Input Examples:\n\
+             # [[mappings]]\n\
+             # trigger_key = \"GAMEPAD_045E_0B05_ABC123_B2.0\"  # Raw Input format (with serial)\n\
              # target_keys = [\"SPACE\"]                        # Press space\n\
              # turbo_enabled = true                           # Enable turbo mode\n\n\
              # [[mappings]]\n\
-             # trigger_key = \"GAMEPAD_045E_028E_B+X\"          # Example: Xbox controller combo (B+X)\n\
-             # target_keys = [\"LCTRL+C\"]                      # Press Ctrl+C\n\
-             # turbo_enabled = true                           # Enable turbo mode\n\n\
-             # [[mappings]]\n\
-             # trigger_key = \"JOYSTICK_046D_C21D_B1.0\"        # Example: Logitech joystick button\n\
+             # trigger_key = \"JOYSTICK_046D_C21D_B1.0\"        # Logitech joystick button\n\
              # target_keys = [\"LBUTTON\"]                      # Left mouse click\n\
              # turbo_enabled = true                           # Enable turbo mode\n\n\
              # ─── HID Device Baselines (Auto-generated, Do Not Edit) ───\n\
@@ -357,6 +450,7 @@ impl AppConfig {
             self.interval,
             self.event_duration,
             self.worker_count,
+            self.xinput_capture_mode,
             self.switch_key,
             self.process_whitelist
         );
@@ -432,6 +526,24 @@ impl AppConfig {
                 result.push_str(&format!("baseline_data = {:?}\n", baseline.baseline_data));
                 result.push('\n');
             }
+        }
+
+        // Append device API preferences
+        if !self.device_api_preferences.is_empty() {
+            result.push_str("# ─── Device API Preferences (Auto-managed) ───\n");
+            result.push_str("# Preferred input API for each device (VID:PID format)\n");
+            result.push_str("# Options: \"Auto\" (default), \"XInput\", \"RawInput\"\n");
+            result.push_str("# Configure via Device Manager GUI window\n");
+            result.push_str("[device_api_preferences]\n");
+            for (device_key, preference) in &self.device_api_preferences {
+                let pref_str = match preference {
+                    DeviceApiPreference::Auto => "\"Auto\"",
+                    DeviceApiPreference::XInput => "\"XInput\"",
+                    DeviceApiPreference::RawInput => "\"RawInput\"",
+                };
+                result.push_str(&format!("\"{}\" = {}\n", device_key, pref_str));
+            }
+            result.push('\n');
         }
 
         fs::write(path, result)?;

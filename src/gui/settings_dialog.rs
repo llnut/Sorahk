@@ -9,6 +9,8 @@ use eframe::egui;
 use smallvec::SmallVec;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
+use std::str::FromStr;
+
 const TEXT_TRUNCATE_LEN: usize = 9;
 
 /// Gets localized display name for a capture mode.
@@ -217,9 +219,9 @@ impl SorahkGui {
         }
 
         let dialog_bg = if self.dark_mode {
-            egui::Color32::from_rgb(32, 34, 45)
+            egui::Color32::from_rgb(30, 32, 42)
         } else {
-            egui::Color32::from_rgb(245, 240, 252)
+            egui::Color32::from_rgb(252, 248, 255)
         };
 
         egui::Window::new("")
@@ -236,10 +238,10 @@ impl SorahkGui {
                     .corner_radius(egui::CornerRadius::same(20))
                     .stroke(egui::Stroke::NONE)
                     .shadow(egui::epaint::Shadow {
-                        offset: [0, 4],
-                        blur: 10,
+                        offset: [0, 5],
+                        blur: 22,
                         spread: 2,
-                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 40),
+                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 45),
                     }),
             )
             .show(ctx, |ui| {
@@ -294,15 +296,15 @@ impl SorahkGui {
                                 .show(ui, |ui| {
                                     // Toggle Key Section
                                     let card_bg = if self.dark_mode {
-                                        egui::Color32::from_rgb(35, 42, 50)
+                                        egui::Color32::from_rgb(40, 40, 50)
                                     } else {
-                                        egui::Color32::from_rgb(240, 248, 255)
+                                        egui::Color32::from_rgb(250, 240, 255)
                                     };
 
                                     egui::Frame::NONE
                                         .fill(card_bg)
-                                        .corner_radius(egui::CornerRadius::same(14))
-                                        .inner_margin(egui::Margin::same(14))
+                                        .corner_radius(egui::CornerRadius::same(15))
+                                        .inner_margin(egui::Margin::same(16))
                                         .show(ui, |ui| {
                                             ui.set_min_width(ui.available_width());
                                             ui.label(
@@ -310,9 +312,9 @@ impl SorahkGui {
                                                     .size(16.0)
                                                     .strong()
                                                     .color(if self.dark_mode {
-                                                        egui::Color32::from_rgb(100, 200, 255)
+                                                        egui::Color32::from_rgb(200, 180, 255)
                                                     } else {
-                                                        egui::Color32::from_rgb(20, 100, 200)
+                                                        egui::Color32::from_rgb(100, 120, 200)
                                                     }),
                                             );
                                             ui.add_space(6.0);
@@ -370,15 +372,15 @@ impl SorahkGui {
 
                                     // Global Configuration Section
                                     let card_bg = if self.dark_mode {
-                                        egui::Color32::from_rgb(48, 42, 38)
+                                        egui::Color32::from_rgb(40, 40, 50)
                                     } else {
-                                        egui::Color32::from_rgb(255, 248, 240)
+                                        egui::Color32::from_rgb(250, 240, 255)
                                     };
 
                                     egui::Frame::NONE
                                         .fill(card_bg)
-                                        .corner_radius(egui::CornerRadius::same(14))
-                                        .inner_margin(egui::Margin::same(14))
+                                        .corner_radius(egui::CornerRadius::same(15))
+                                        .inner_margin(egui::Margin::same(16))
                                         .show(ui, |ui| {
                                             ui.set_min_width(ui.available_width());
                                             ui.label(
@@ -386,9 +388,9 @@ impl SorahkGui {
                                                     .size(16.0)
                                                     .strong()
                                                     .color(if self.dark_mode {
-                                                        egui::Color32::from_rgb(255, 200, 100)
+                                                        egui::Color32::from_rgb(200, 180, 255)
                                                     } else {
-                                                        egui::Color32::from_rgb(200, 100, 0)
+                                                        egui::Color32::from_rgb(200, 120, 80)
                                                     }),
                                             );
                                             ui.add_space(6.0);
@@ -420,23 +422,47 @@ impl SorahkGui {
                                                     });
                                                     ui.end_row();
 
-                                                    // HID Capture Mode selector
-                                                    ui.label(t.capture_mode_label());
-                                                    let current_mode = self.app_state.get_capture_mode();
+                                                    // Raw Input Capture Mode selector
+                                                    ui.label(t.rawinput_capture_mode_label());
+                                                    let current_mode_str = &temp_config.rawinput_capture_mode;
+                                                    let current_mode = CaptureMode::from_str(current_mode_str).unwrap();
                                                     let current_mode_name = get_capture_mode_display_name(t, current_mode);
-                                                    let mode_names: SmallVec<[(&str, CaptureMode); 8]> = CaptureMode::all_modes()
-                                                        .iter()
-                                                        .map(|&mode| (get_capture_mode_display_name(t, mode), mode))
-                                                        .collect();
-                                                    egui::ComboBox::from_id_salt("hid_capture_mode")
+                                                    egui::ComboBox::from_id_salt("rawinput_capture_mode")
                                                         .selected_text(current_mode_name)
                                                         .width(180.0)
                                                         .show_ui(ui, |ui| {
-                                                            for (mode_name, mode) in &mode_names {
-                                                                let is_selected = temp_config.capture_mode == mode.as_str();
-                                                                if ui.selectable_label(is_selected, *mode_name).clicked() {
-                                                                    temp_config.capture_mode = mode.as_str().to_string();
-                                                                    self.app_state.set_capture_mode(*mode);
+                                                            for &mode in CaptureMode::all_modes() {
+                                                                let mode_name = get_capture_mode_display_name(t, mode);
+                                                                let is_selected = temp_config.rawinput_capture_mode == mode.as_str();
+                                                                if ui.selectable_label(is_selected, mode_name).clicked() {
+                                                                    temp_config.rawinput_capture_mode = mode.as_str().to_string();
+                                                                }
+                                                            }
+                                                        });
+                                                    ui.end_row();
+
+                                                    // XInput Capture Mode selector
+                                                    ui.label(t.xinput_capture_mode_label());
+                                                    let current_mode_str = &temp_config.xinput_capture_mode;
+                                                    let current_mode = crate::config::XInputCaptureMode::from_str(current_mode_str).unwrap();
+                                                    let current_mode_name = match current_mode {
+                                                        crate::config::XInputCaptureMode::MostSustained => t.capture_mode_most_sustained(),
+                                                        crate::config::XInputCaptureMode::LastStable => t.capture_mode_last_stable(),
+                                                        crate::config::XInputCaptureMode::DiagonalPriority => t.capture_mode_diagonal_priority(),
+                                                    };
+                                                    egui::ComboBox::from_id_salt("xinput_capture_mode")
+                                                        .selected_text(current_mode_name)
+                                                        .width(180.0)
+                                                        .show_ui(ui, |ui| {
+                                                            for &mode in crate::config::XInputCaptureMode::all_modes() {
+                                                                let mode_name = match mode {
+                                                                    crate::config::XInputCaptureMode::MostSustained => t.capture_mode_most_sustained(),
+                                                                    crate::config::XInputCaptureMode::LastStable => t.capture_mode_last_stable(),
+                                                                    crate::config::XInputCaptureMode::DiagonalPriority => t.capture_mode_diagonal_priority(),
+                                                                };
+                                                                let is_selected = temp_config.xinput_capture_mode == mode.as_str();
+                                                                if ui.selectable_label(is_selected, mode_name).clicked() {
+                                                                    temp_config.xinput_capture_mode = mode.as_str().to_string();
                                                                 }
                                                             }
                                                         });
@@ -547,15 +573,15 @@ impl SorahkGui {
 
                                     // Key Mappings Section
                                     let card_bg = if self.dark_mode {
-                                        egui::Color32::from_rgb(35, 45, 40)
+                                        egui::Color32::from_rgb(40, 40, 50)
                                     } else {
-                                        egui::Color32::from_rgb(240, 255, 245)
+                                        egui::Color32::from_rgb(250, 240, 255)
                                     };
 
                                     egui::Frame::NONE
                                         .fill(card_bg)
-                                        .corner_radius(egui::CornerRadius::same(14))
-                                        .inner_margin(egui::Margin::same(14))
+                                        .corner_radius(egui::CornerRadius::same(15))
+                                        .inner_margin(egui::Margin::same(16))
                                         .show(ui, |ui| {
                                             ui.set_min_width(ui.available_width());
                                             ui.label(
@@ -563,23 +589,23 @@ impl SorahkGui {
                                                     .size(16.0)
                                                     .strong()
                                                     .color(if self.dark_mode {
-                                                        egui::Color32::from_rgb(150, 255, 150)
+                                                        egui::Color32::from_rgb(200, 180, 255)
                                                     } else {
-                                                        egui::Color32::from_rgb(0, 150, 0)
+                                                        egui::Color32::from_rgb(80, 150, 90)
                                                     }),
                                             );
                                             ui.add_space(6.0);
 
                                             ui.add_space(2.0);
                                             let hint_bg = if self.dark_mode {
-                                                egui::Color32::from_rgba_premultiplied(80, 60, 40, 200)
+                                                egui::Color32::from_rgba_premultiplied(60, 50, 70, 180)
                                             } else {
-                                                egui::Color32::from_rgba_premultiplied(255, 240, 200, 180)
+                                                egui::Color32::from_rgba_premultiplied(220, 200, 235, 220)
                                             };
                                             ui.horizontal(|ui| {
                                                 egui::Frame::NONE
                                                     .fill(hint_bg)
-                                                    .corner_radius(egui::CornerRadius::same(10))
+                                                    .corner_radius(egui::CornerRadius::same(12))
                                                     .inner_margin(egui::Margin::symmetric(10, 6))
                                                     .show(ui, |ui| {
                                                         ui.set_width(ui.available_width());
@@ -1404,7 +1430,11 @@ impl SorahkGui {
                                                         .color(egui::Color32::WHITE)
                                                         .strong(),
                                                 )
-                                                .fill(egui::Color32::from_rgb(144, 238, 144))
+                                                .fill(if self.dark_mode {
+                                                    egui::Color32::from_rgb(120, 220, 140)
+                                                } else {
+                                                    egui::Color32::from_rgb(140, 230, 150)
+                                                })
                                                 .corner_radius(10.0);
 
                                                 if ui.add_sized([70.0, 24.0], add_btn).clicked()
@@ -1548,15 +1578,15 @@ impl SorahkGui {
 
                                     // Process Whitelist Section
                                     let card_bg = if self.dark_mode {
-                                        egui::Color32::from_rgb(45, 35, 50)
+                                        egui::Color32::from_rgb(40, 40, 50)
                                     } else {
-                                        egui::Color32::from_rgb(255, 245, 250)
+                                        egui::Color32::from_rgb(250, 240, 255)
                                     };
 
                                     egui::Frame::NONE
                                         .fill(card_bg)
-                                        .corner_radius(egui::CornerRadius::same(14))
-                                        .inner_margin(egui::Margin::same(14))
+                                        .corner_radius(egui::CornerRadius::same(15))
+                                        .inner_margin(egui::Margin::same(16))
                                         .show(ui, |ui| {
                                             ui.set_min_width(ui.available_width());
                                             ui.label(
@@ -1564,9 +1594,9 @@ impl SorahkGui {
                                                     .size(16.0)
                                                     .strong()
                                                     .color(if self.dark_mode {
-                                                        egui::Color32::from_rgb(186, 149, 230) // Soft purple
+                                                        egui::Color32::from_rgb(200, 180, 255)
                                                     } else {
-                                                        egui::Color32::from_rgb(100, 50, 150) // Darker purple for contrast
+                                                        egui::Color32::from_rgb(150, 100, 200)
                                                     }),
                                             );
                                             ui.add_space(6.0);
@@ -1653,7 +1683,11 @@ impl SorahkGui {
                                                         .size(12.0)
                                                         .strong(),
                                                 )
-                                                .fill(egui::Color32::from_rgb(144, 238, 144)) // Soft green
+                                                .fill(if self.dark_mode {
+                                                    egui::Color32::from_rgb(120, 220, 140)
+                                                } else {
+                                                    egui::Color32::from_rgb(140, 230, 150)
+                                                })
                                                 .corner_radius(10.0);
 
                                                 if ui.add_sized([70.0, 24.0], add_btn).clicked() {
@@ -1688,7 +1722,11 @@ impl SorahkGui {
                                                         .size(12.0)
                                                         .strong(),
                                                 )
-                                                .fill(egui::Color32::from_rgb(135, 206, 235)) // Sky blue
+                                                .fill(if self.dark_mode {
+                                                    egui::Color32::from_rgb(180, 160, 230)
+                                                } else {
+                                                    egui::Color32::from_rgb(210, 190, 240)
+                                                })
                                                 .corner_radius(10.0);
 
                                                 if ui.add_sized([85.0, 24.0], browse_btn).clicked()
@@ -1757,11 +1795,15 @@ impl SorahkGui {
 
                             let save_btn = egui::Button::new(
                                 egui::RichText::new(t.save())
-                                    .size(14.0) // Slightly smaller for consistency
+                                    .size(14.0)
                                     .color(egui::Color32::WHITE)
                                     .strong(),
                             )
-                            .fill(egui::Color32::from_rgb(144, 238, 144)) // Soft green
+                            .fill(if self.dark_mode {
+                                egui::Color32::from_rgb(120, 220, 140)
+                            } else {
+                                egui::Color32::from_rgb(140, 230, 150)
+                            })
                             .corner_radius(15.0);
 
                             if ui.add_sized([button_width, 32.0], save_btn).clicked() {
@@ -1776,7 +1818,11 @@ impl SorahkGui {
                                     .color(egui::Color32::WHITE)
                                     .strong(),
                             )
-                            .fill(egui::Color32::from_rgb(255, 182, 193)) // Soft pink
+                            .fill(if self.dark_mode {
+                                egui::Color32::from_rgb(220, 180, 210)
+                            } else {
+                                egui::Color32::from_rgb(230, 200, 220)
+                            })
                             .corner_radius(15.0);
 
                             if ui.add_sized([button_width, 32.0], cancel_btn).clicked() {

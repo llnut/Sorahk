@@ -3,13 +3,8 @@
 Feature enhancements:
 
 - Add multiple target keys support for simultaneous key presses
-- Add Raw Input API integration for HID device support
-  - Support for gamepads, joysticks, and other HID controllers
-  - Combo key support: capture multiple buttons pressed simultaneously
-  - Automatic device detection and button mapping via GUI capture
-  - Multi-device support with vendor ID and serial number identification
-  - Device-specific button mapping format (e.g., GAMEPAD_045E_0B05_ABC123_B2.0)
-  - Turbo-fire support for HID devices with press/release detection
+- Add XInput API integration for Xbox controllers
+- Add Raw Input API integration for HID devices
 - Add HID device activation system
   - Interactive activation dialog for establishing device baseline
   - Baseline data persistence across application restarts
@@ -39,6 +34,7 @@ Feature enhancements:
 
 UI Improvements:
 
+- Add Device Manager dialog for controller configuration
 - Add mouse direction selection dialog
 - Add mouse scroll direction selection dialog
 - Add target type selector buttons in settings (keyboard/mouse, movement, scroll)
@@ -50,11 +46,11 @@ UI Improvements:
 Configuration:
 
 - Change `target_key` field to `target_keys` array in KeyMapping
+- Add `xinput_capture_mode` field for XInput capture strategy (DiagonalPriority, MostSustained, LastStable)
 - Add `hid_baselines` field for device activation data persistence
+- Add `device_api_preferences` field for per-device API selection
 - Add `move_speed` field to KeyMapping for movement and scroll speed control
-  - Mouse movement: 1-100 pixels per interval
-  - Mouse scroll: direct wheel delta value (120 = standard notch)
-- Add `capture_mode` field for HID input capture strategy selection
+- Add readable XInput button format support in trigger_key field
 
 0.3.0
 =====

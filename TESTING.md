@@ -45,6 +45,7 @@ src/
 ├── keyboard.rs    # Worker pool and event handling
 ├── mouse.rs       # Mouse input handling
 ├── rawinput.rs    # HID device input processing
+├── xinput.rs      # XInput controller handling
 ├── tray.rs        # System tray utilities
 ├── signal.rs      # Signal handling
 └── gui/
@@ -72,6 +73,7 @@ tests/
 | **keyboard.rs** | Worker pool creation, worker distribution stability, mapping cache retrieval |
 | **mouse.rs** | Mouse button handling, message parsing, event processing |
 | **rawinput.rs** | FNV-1a hash algorithm, device ID generation, VID/PID parsing, button counting, HID baseline management, combo key capture logic |
+| **xinput.rs** | VID/PID hash generation, button state detection, analog stick direction mapping, trigger state detection, input combination hashing, deadzone filtering |
 | **gui/utils.rs** | Key string conversion, icon loading |
 | **gui/types.rs** | KeyCaptureMode enum |
 | **tray.rs** | XML escaping for notifications, utility functions, constants |
@@ -97,6 +99,7 @@ Run `cargo test -- --list` to see all available test functions.
 - HID device baseline establishment and persistence
 - HID combo key capture logic (frame selection, button counting)
 - Device ID parsing and validation (VID/PID/Serial format)
+- XInput controller input logic
 - GUI utility functions and type definitions
 - Multi-language translation system
 - Worker pool and event distribution
@@ -108,7 +111,7 @@ Run `cargo test -- --list` to see all available test functions.
 
 Due to Windows API requirements, the following are not covered by automated tests:
 
-- Windows API calls (SetWindowsHookExA, Shell_NotifyIconW, SendInput, etc.)
+- Windows API calls (SetWindowsHookExA, Shell_NotifyIconW, SendInput, XInputGetState, XInputGetCapabilities, etc.)
 - Actual keyboard and mouse hook installation
 - System tray icon display
 - Toast notification display
@@ -117,8 +120,10 @@ Due to Windows API requirements, the following are not covered by automated test
 - Combo key event handling with real keyboard input
 - HID device activation dialog interactions
 - Raw Input API device enumeration and data reception
+- XInput API device polling and state retrieval
+- Physical Xbox controller connection and disconnection
 
-**Note:** Internal logic is tested without requiring Windows API interaction. Tests verify key conversion, combo parsing, and data structure operations, but avoid triggering actual input to prevent system interference.
+**Note:** Internal logic is tested without requiring Windows API interaction. Tests verify key conversion, combo parsing, data structure operations, button state detection, and hash generation, but avoid triggering actual input or API calls to prevent system interference.
 
 ## Writing New Tests
 

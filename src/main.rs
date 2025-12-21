@@ -4,6 +4,8 @@
 mod config;
 mod gui;
 mod i18n;
+mod input_manager;
+mod input_ownership;
 mod keyboard;
 mod mouse;
 mod rawinput;
@@ -11,6 +13,7 @@ mod signal;
 mod state;
 mod tray;
 mod util;
+mod xinput;
 
 use std::sync::Arc;
 use std::thread;
@@ -18,9 +21,9 @@ use std::thread;
 use anyhow::Result;
 use config::AppConfig;
 use gui::{SorahkGui, show_error};
+use input_manager::InputManager;
 use keyboard::KeyboardHook;
 use mouse::MouseHook;
-use rawinput::RawInputHandler;
 use state::AppState;
 use tray::TrayIcon;
 
@@ -59,12 +62,20 @@ fn main() -> Result<()> {
         Err(e) => Err(e),
     });
 
-    // Start Raw Input handler for HID devices (gamepads, joysticks, etc.)
-    let rawinput_state = app_state.clone();
-    let _rawinput_thread =
-        RawInputHandler::start_thread(rawinput_state, config.hid_baselines.clone());
+    // Start input manager
+    let _input_manager = match InputManager::new(
+        app_state.clone(),
+        config.hid_baselines.clone(),
+        config.device_api_preferences.clone(),
+    ) {
+        Ok(manager) => manager,
+        Err(e) => {
+            let error_msg = format!("Failed to initialize input manager: {}", e);
+            return show_error(&error_msg);
+        }
+    };
 
-    // Give hooks time to initialize
+    // Give hooks and input managers time to initialize
     thread::sleep(std::time::Duration::from_millis(200));
 
     // Start tray icon if enabled

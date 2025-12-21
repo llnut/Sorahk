@@ -610,6 +610,8 @@ pub struct RawInputHandler {
     device_states: scc::HashMap<isize, DeviceHidState>,
     /// Config baselines keyed by stable device ID (hash of VID:PID:Serial).
     config_baselines: scc::HashMap<u64, Vec<u8>>,
+    /// Device ownership manager.
+    ownership: crate::input_ownership::DeviceOwnership,
 }
 
 impl RawInputHandler {
@@ -617,16 +619,25 @@ impl RawInputHandler {
     ///
     /// Called when a device is disconnected to free associated resources.
     fn remove_device_caches(&self, handle_key: isize) {
+        if let Some(device_info) = self.device_cache.read_sync(&handle_key, |_, v| v.clone()) {
+            let vid_pid = (device_info.vendor_id, device_info.product_id);
+            if let Some(owner) = self.ownership.get_owner(vid_pid)
+                && matches!(owner, crate::input_ownership::InputSource::RawInput(_))
+            {
+                self.ownership.release_device(vid_pid);
+            }
+        }
+
         self.device_cache.remove_sync(&handle_key);
         self.device_states.remove_sync(&handle_key);
         self.capture_states.remove_sync(&handle_key);
 
         // Clear thread-local cache if it references this device
         LAST_DEVICE_CACHE.with(|cache| unsafe {
-            if let Some((cached_handle, _)) = *cache.get() {
-                if cached_handle == handle_key {
-                    *cache.get() = None;
-                }
+            if let Some((cached_handle, _)) = *cache.get()
+                && cached_handle == handle_key
+            {
+                *cache.get() = None;
             }
         });
     }
@@ -658,6 +669,7 @@ impl RawInputHandler {
         hwnd: HWND,
         state: Arc<AppState>,
         hid_baselines: Vec<crate::config::HidDeviceBaseline>,
+        ownership: crate::input_ownership::DeviceOwnership,
     ) -> anyhow::Result<Self> {
         Self::register_devices(hwnd)?;
 
@@ -689,6 +701,7 @@ impl RawInputHandler {
             capture_states: scc::HashMap::new(),
             device_states: scc::HashMap::new(),
             config_baselines,
+            ownership,
         })
     }
 
@@ -696,11 +709,12 @@ impl RawInputHandler {
     pub fn start_thread(
         state: Arc<AppState>,
         hid_baselines: Vec<crate::config::HidDeviceBaseline>,
+        ownership: crate::input_ownership::DeviceOwnership,
     ) -> RawInputThread {
         let handle = std::thread::Builder::new()
             .name("rawinput_thread".to_string())
             .spawn(move || {
-                if let Err(e) = Self::run_message_loop(state, hid_baselines) {
+                if let Err(e) = Self::run_message_loop(state, hid_baselines, ownership) {
                     eprintln!("Raw Input thread error: {}", e);
                 }
             })
@@ -713,6 +727,7 @@ impl RawInputHandler {
     fn run_message_loop(
         state: Arc<AppState>,
         hid_baselines: Vec<crate::config::HidDeviceBaseline>,
+        ownership: crate::input_ownership::DeviceOwnership,
     ) -> anyhow::Result<()> {
         unsafe {
             let class_name = Self::to_wstring(RAWINPUT_WINDOW_CLASS);
@@ -750,7 +765,7 @@ impl RawInputHandler {
                 None,
             )?;
 
-            let handler = Self::new(hwnd, state, hid_baselines)?;
+            let handler = Self::new(hwnd, state, hid_baselines, ownership)?;
             let _ = RAW_INPUT_HANDLER.set(handler);
 
             let mut msg = MSG::default();
@@ -796,7 +811,7 @@ impl RawInputHandler {
                     GIDC_REMOVAL => {
                         // Device disconnected - remove its caches
                         // l_param contains the device handle as isize
-                        let handle_key = l_param.0 as isize;
+                        let handle_key = l_param.0;
 
                         if let Some(handler) = RAW_INPUT_HANDLER.get() {
                             handler.remove_device_caches(handle_key);
@@ -983,6 +998,14 @@ impl RawInputHandler {
                 return false;
             }
 
+            let vid_pid = (device_info.vendor_id, device_info.product_id);
+            if self.ownership.is_claimed_by_higher_priority(
+                vid_pid,
+                &crate::input_ownership::InputSource::RawInput(handle_key),
+            ) {
+                return false;
+            }
+
             let is_capturing = self.state.is_raw_input_capture_active();
 
             let data_ptr = hid.bRawData.as_ptr();
@@ -1130,7 +1153,7 @@ impl RawInputHandler {
 
             if likely(has_frames) {
                 // Get best frame based on capture mode
-                let capture_mode = self.state.get_capture_mode();
+                let capture_mode = self.state.get_rawinput_capture_mode();
 
                 if let Some((best_data, baseline_data)) = self
                     .device_states
@@ -1622,10 +1645,151 @@ pub fn get_device_display_info(stable_device_id: u64) -> Option<DeviceDisplayInf
         .map(|entry| entry.get().clone())
 }
 
+/// Registers device display information.
+///
+/// Used for devices not detected through Raw Input (e.g., XInput).
+pub fn register_device_display_info(stable_device_id: u64, info: DeviceDisplayInfo) {
+    if let Some(cache) = DEVICE_DISPLAY_INFO.get() {
+        let _ = cache.upsert_sync(stable_device_id, info);
+    }
+}
+
 /// Clears the device display information cache.
 pub fn clear_device_display_info_cache() {
     if let Some(cache) = DEVICE_DISPLAY_INFO.get() {
         cache.clear_sync();
+    }
+}
+
+/// Enumerates all HID devices currently connected.
+pub fn enumerate_hid_devices() -> Vec<crate::gui::device_manager_dialog::HidDeviceInfo> {
+    use windows::Win32::UI::Input::*;
+
+    let mut devices = Vec::new();
+
+    unsafe {
+        let mut device_count = 0u32;
+        if GetRawInputDeviceList(
+            None,
+            &mut device_count,
+            std::mem::size_of::<RAWINPUTDEVICELIST>() as u32,
+        ) == u32::MAX
+        {
+            return devices;
+        }
+
+        if device_count == 0 {
+            return devices;
+        }
+
+        let mut device_list = vec![RAWINPUTDEVICELIST::default(); device_count as usize];
+        let result = GetRawInputDeviceList(
+            Some(device_list.as_mut_ptr()),
+            &mut device_count,
+            std::mem::size_of::<RAWINPUTDEVICELIST>() as u32,
+        );
+
+        if result == u32::MAX {
+            return devices;
+        }
+
+        for device in device_list.iter().take(device_count as usize) {
+            if device.dwType != RIM_TYPEHID {
+                continue;
+            }
+
+            let handle = device.hDevice;
+
+            // Get device info
+            let mut size = 0u32;
+            if GetRawInputDeviceInfoW(Some(handle), RIDI_DEVICEINFO, None, &mut size) != 0 {
+                continue;
+            }
+
+            let mut buffer = vec![0u8; size as usize];
+            if GetRawInputDeviceInfoW(
+                Some(handle),
+                RIDI_DEVICEINFO,
+                Some(buffer.as_mut_ptr() as *mut _),
+                &mut size,
+            ) == u32::MAX
+            {
+                continue;
+            }
+
+            let device_info = &*(buffer.as_ptr() as *const RID_DEVICE_INFO);
+            if device_info.dwType != RIM_TYPEHID {
+                continue;
+            }
+
+            let hid = device_info.Anonymous.hid;
+
+            // Get device name
+            let mut name_size = 0u32;
+            if GetRawInputDeviceInfoW(Some(handle), RIDI_DEVICENAME, None, &mut name_size) != 0 {
+                continue;
+            }
+
+            let mut name_buffer = vec![0u16; name_size as usize];
+            if GetRawInputDeviceInfoW(
+                Some(handle),
+                RIDI_DEVICENAME,
+                Some(name_buffer.as_mut_ptr() as *mut _),
+                &mut name_size,
+            ) == u32::MAX
+            {
+                continue;
+            }
+
+            let device_path = String::from_utf16_lossy(&name_buffer);
+            let device_name = extract_device_name(&device_path);
+
+            // Parse VID/PID from device path
+            let (vid, pid) =
+                if let Some((v, p)) = RawInputHandler::parse_vid_pid_from_path(&device_path) {
+                    (v, p)
+                } else {
+                    continue;
+                };
+
+            devices.push(crate::gui::device_manager_dialog::HidDeviceInfo {
+                vid,
+                pid,
+                device_name,
+                usage_page: hid.usUsagePage,
+                usage: hid.usUsage,
+            });
+        }
+    }
+
+    devices
+}
+
+impl RawInputHandler {
+    /// Parses VID and PID from a device path.
+    /// Device path format: \\?\HID#VID_045E&PID_028E#...
+    fn parse_vid_pid_from_path(path: &str) -> Option<(u16, u16)> {
+        let upper = path.to_uppercase();
+
+        let vid_pos = upper.find("VID_")?;
+        let pid_pos = upper.find("PID_")?;
+
+        let vid_str = &upper[vid_pos + 4..].split(&['&', '#'][..]).next()?;
+        let pid_str = &upper[pid_pos + 4..].split(&['&', '#'][..]).next()?;
+
+        let vid = u16::from_str_radix(vid_str, 16).ok()?;
+        let pid = u16::from_str_radix(pid_str, 16).ok()?;
+
+        Some((vid, pid))
+    }
+}
+
+/// Extracts a human-readable device name from the device path.
+fn extract_device_name(path: &str) -> String {
+    if let Some(name_part) = path.split('#').nth(1) {
+        name_part.replace('_', " ").to_string()
+    } else {
+        "Unknown HID Device".to_string()
     }
 }
 

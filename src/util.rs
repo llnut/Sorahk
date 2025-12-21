@@ -14,10 +14,18 @@ pub fn cold() {}
 /// Helps the compiler optimize for the more common case where the condition is false.
 ///
 /// # Example
-/// ```ignore
-/// if unlikely(error_condition) {
-///     handle_error();
+/// ```
+/// use sorahk::util::unlikely;
+///
+/// fn process_data(value: i32) -> Result<i32, &'static str> {
+///     if unlikely(value < 0) {
+///         return Err("negative value");
+///     }
+///     Ok(value * 2)
 /// }
+///
+/// assert_eq!(process_data(5).unwrap(), 10);
+/// assert!(process_data(-1).is_err());
 /// ```
 #[inline(always)]
 pub fn unlikely(b: bool) -> bool {
@@ -32,10 +40,18 @@ pub fn unlikely(b: bool) -> bool {
 /// Helps the compiler optimize for the more common case where the condition is true.
 ///
 /// # Example
-/// ```ignore
-/// if likely(success_condition) {
-///     continue_processing();
+/// ```
+/// use sorahk::util::likely;
+///
+/// fn validate_input(value: i32) -> Option<i32> {
+///     if likely(value >= 0 && value <= 100) {
+///         return Some(value);
+///     }
+///     None
 /// }
+///
+/// assert_eq!(validate_input(50), Some(50));
+/// assert_eq!(validate_input(150), None);
 /// ```
 #[inline(always)]
 pub fn likely(b: bool) -> bool {

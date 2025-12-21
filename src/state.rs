@@ -4,6 +4,8 @@
 //! including configuration, keyboard event handling, and process filtering.
 
 use std::collections::HashMap;
+use std::convert::Infallible;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock, RwLock};
@@ -55,6 +57,12 @@ pub enum InputDevice {
     /// Format: [modifier1, modifier2, ..., main_key]
     /// The last element is always the main key, others are modifiers
     KeyCombo(Vec<u32>),
+    /// XInput gamepad input with readable button names
+    /// Format: (device_type, button_ids)
+    XInputCombo {
+        device_type: DeviceType,
+        button_ids: Vec<u32>,
+    },
     /// Generic device input for gamepads, joysticks, and other HID devices
     /// Format: (device_type, button_id)
     GenericDevice {
@@ -66,6 +74,75 @@ pub enum InputDevice {
 impl std::fmt::Display for InputDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            InputDevice::XInputCombo {
+                device_type,
+                button_ids,
+            } => {
+                let vid = match device_type {
+                    DeviceType::Gamepad(vid) => *vid,
+                    DeviceType::Joystick(vid) => *vid,
+                    DeviceType::HidDevice { .. } => 0,
+                };
+
+                let prefix = match device_type {
+                    DeviceType::Gamepad(_) => "GAMEPAD",
+                    DeviceType::Joystick(_) => "JOYSTICK",
+                    _ => "XINPUT",
+                };
+
+                // Try to combine directions into diagonal first
+                let mut dir_inputs = SmallVec::<[u32; 4]>::new();
+                let mut other_inputs = SmallVec::<[u32; 8]>::new();
+
+                for &id in button_ids {
+                    if crate::xinput::XInputHandler::is_direction_input(id) {
+                        dir_inputs.push(id);
+                    } else {
+                        other_inputs.push(id);
+                    }
+                }
+
+                // Format as GAMEPAD_VID_buttons
+                write!(f, "{}_{:04X}_", prefix, vid)?;
+
+                // Write button names directly without intermediate Vec
+                let mut first = true;
+
+                if dir_inputs.len() == 2 {
+                    if let Some(diagonal_name) =
+                        crate::xinput::XInputHandler::try_combine_diagonal(&dir_inputs)
+                    {
+                        write!(f, "{}", diagonal_name)?;
+                        first = false;
+                    } else {
+                        for &id in &dir_inputs {
+                            if !first {
+                                write!(f, "+")?;
+                            }
+                            write!(f, "{}", crate::xinput::XInputHandler::input_id_to_name(id))?;
+                            first = false;
+                        }
+                    }
+                } else {
+                    for &id in &dir_inputs {
+                        if !first {
+                            write!(f, "+")?;
+                        }
+                        write!(f, "{}", crate::xinput::XInputHandler::input_id_to_name(id))?;
+                        first = false;
+                    }
+                }
+
+                for &id in &other_inputs {
+                    if !first {
+                        write!(f, "+")?;
+                    }
+                    write!(f, "{}", crate::xinput::XInputHandler::input_id_to_name(id))?;
+                    first = false;
+                }
+
+                Ok(())
+            }
             InputDevice::GenericDevice {
                 device_type,
                 button_id,
@@ -74,10 +151,23 @@ impl std::fmt::Display for InputDevice {
                 let stable_device_id = (button_id >> 32) as u32;
                 let position = (button_id & 0xFFFFFFFF) as u32;
 
-                // Get device display info (VID/PID/Serial)
-                let display_info =
-                    crate::rawinput::get_device_display_info(stable_device_id as u64)
-                        .expect("Device display info not available - device may not be connected");
+                let display_info_opt =
+                    crate::rawinput::get_device_display_info(stable_device_id as u64);
+
+                let display_info = if let Some(info) = display_info_opt {
+                    info
+                } else {
+                    let vid = match device_type {
+                        DeviceType::Gamepad(vid) => *vid,
+                        DeviceType::Joystick(vid) => *vid,
+                        DeviceType::HidDevice { .. } => 0,
+                    };
+                    crate::rawinput::DeviceDisplayInfo {
+                        vendor_id: vid,
+                        product_id: 0,
+                        serial_number: None,
+                    }
+                };
 
                 let prefix = match device_type {
                     DeviceType::Gamepad(_) => "GAMEPAD",
@@ -201,6 +291,23 @@ pub enum CaptureMode {
     AnalogOptimized,
 }
 
+impl FromStr for CaptureMode {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "MostSustained" => Ok(Self::MostSustained),
+            "AdaptiveIntelligent" => Ok(Self::AdaptiveIntelligent),
+            "MaxChangedBits" => Ok(Self::MaxChangedBits),
+            "MaxSetBits" => Ok(Self::MaxSetBits),
+            "LastStable" => Ok(Self::LastStable),
+            "HatSwitchOptimized" => Ok(Self::HatSwitchOptimized),
+            "AnalogOptimized" => Ok(Self::AnalogOptimized),
+            _ => Ok(Self::default()),
+        }
+    }
+}
+
 impl CaptureMode {
     pub fn all_modes() -> &'static [CaptureMode] {
         &[
@@ -212,19 +319,6 @@ impl CaptureMode {
             CaptureMode::HatSwitchOptimized,
             CaptureMode::AnalogOptimized,
         ]
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "MostSustained" => Self::MostSustained,
-            "AdaptiveIntelligent" => Self::AdaptiveIntelligent,
-            "MaxChangedBits" => Self::MaxChangedBits,
-            "MaxSetBits" => Self::MaxSetBits,
-            "LastStable" => Self::LastStable,
-            "HatSwitchOptimized" => Self::HatSwitchOptimized,
-            "AnalogOptimized" => Self::AnalogOptimized,
-            _ => Self::default(),
-        }
     }
 
     pub fn as_str(&self) -> &'static str {
@@ -349,7 +443,7 @@ pub struct AppState {
     pressed_keys: scc::HashSet<u32>,
     /// Active combo triggers (multiple combos can be active simultaneously)
     /// Maps combo device to the set of modifier keys that were suppressed
-    active_combo_triggers: scc::HashMap<InputDevice, std::collections::HashSet<u32>>,
+    active_combo_triggers: scc::HashMap<InputDevice, SmallVec<[u32; 8]>>,
     /// Cached turbo state for keyboard keys (VK 0-255) for fast access
     cached_turbo_keyboard: [AtomicBool; 256],
     /// Cached turbo state for mouse buttons and key combos
@@ -363,8 +457,10 @@ pub struct AppState {
     raw_input_capture_receiver: Mutex<Receiver<InputDevice>>,
     /// Flag indicating GUI is in capture mode for Raw Input
     is_capturing_raw_input: AtomicBool,
-    /// HID input capture mode strategy
-    capture_mode: RwLock<CaptureMode>,
+    /// Raw Input capture mode strategy
+    rawinput_capture_mode: RwLock<CaptureMode>,
+    /// XInput capture mode strategy
+    xinput_capture_mode: RwLock<crate::config::XInputCaptureMode>,
     /// HID device activation request sender
     hid_activation_sender: Sender<(isize, String)>,
     /// HID device activation request receiver
@@ -459,7 +555,12 @@ impl AppState {
             raw_input_capture_sender,
             raw_input_capture_receiver: Mutex::new(raw_input_capture_receiver),
             is_capturing_raw_input: AtomicBool::new(false),
-            capture_mode: RwLock::new(CaptureMode::from_str(&config.capture_mode)),
+            rawinput_capture_mode: RwLock::new(
+                CaptureMode::from_str(&config.rawinput_capture_mode).unwrap(),
+            ),
+            xinput_capture_mode: RwLock::new(crate::config::XInputCaptureMode::from_str(
+                &config.xinput_capture_mode,
+            )?),
             hid_activation_sender,
             hid_activation_receiver: Mutex::new(hid_activation_receiver),
             hid_activation_data_sender,
@@ -490,8 +591,11 @@ impl AppState {
         self.input_timeout
             .store(config.input_timeout, Ordering::Relaxed);
 
-        // Update capture mode
-        *self.capture_mode.write().unwrap() = CaptureMode::from_str(&config.capture_mode);
+        // Update capture modes
+        *self.rawinput_capture_mode.write().unwrap() =
+            CaptureMode::from_str(&config.rawinput_capture_mode).unwrap();
+        *self.xinput_capture_mode.write().unwrap() =
+            crate::config::XInputCaptureMode::from_str(&config.xinput_capture_mode)?;
 
         // Update mappings (lock-free concurrent HashMap)
         let new_input_mappings = Self::create_input_mappings(&config)?;
@@ -578,14 +682,14 @@ impl AppState {
         &self.raw_input_capture_sender
     }
 
-    /// Gets the current HID input capture mode.
-    pub fn get_capture_mode(&self) -> CaptureMode {
-        *self.capture_mode.read().unwrap()
+    /// Gets the current Raw Input capture mode.
+    pub fn get_rawinput_capture_mode(&self) -> CaptureMode {
+        *self.rawinput_capture_mode.read().unwrap()
     }
 
-    /// Sets the HID input capture mode.
-    pub fn set_capture_mode(&self, mode: CaptureMode) {
-        *self.capture_mode.write().unwrap() = mode;
+    /// Gets the current XInput capture mode.
+    pub fn get_xinput_capture_mode(&self) -> crate::config::XInputCaptureMode {
+        *self.xinput_capture_mode.read().unwrap()
     }
 
     /// Tries to receive a captured Raw Input event (non-blocking).
@@ -842,7 +946,7 @@ impl AppState {
     }
 
     /// Add a combo to active triggers
-    fn add_active_combo(&self, combo: InputDevice, modifiers: std::collections::HashSet<u32>) {
+    fn add_active_combo(&self, combo: InputDevice, modifiers: SmallVec<[u32; 8]>) {
         let _ = self.active_combo_triggers.insert_sync(combo, modifiers);
     }
 
@@ -854,16 +958,15 @@ impl AppState {
 
     /// Release modifiers once (send KEYUP events using scancodes)
     /// Skips modifiers already suppressed by other active combos
-    fn release_modifiers_once(&self, modifiers: &std::collections::HashSet<u32>) {
+    fn release_modifiers_once(&self, modifiers: &SmallVec<[u32; 8]>) {
         if modifiers.is_empty() {
             return;
         }
 
         // Check which modifiers are already suppressed by active combos
-        let mut already_suppressed: std::collections::HashSet<u32> =
-            std::collections::HashSet::with_capacity(8);
+        let mut already_suppressed: SmallVec<[u32; 8]> = SmallVec::new();
         self.active_combo_triggers.iter_sync(|_, modifiers| {
-            already_suppressed.extend(modifiers.iter().copied());
+            already_suppressed.extend_from_slice(modifiers);
             true
         });
 
@@ -914,7 +1017,7 @@ impl AppState {
     /// Remove combos that no longer have all their keys pressed
     /// Returns vec of combos that were removed
     fn cleanup_released_combos(&self) -> SmallVec<[InputDevice; 4]> {
-        let mut pressed: SmallVec<[u32; 8]> = SmallVec::new();
+        let mut pressed: SmallVec<[u32; 16]> = SmallVec::new();
         self.pressed_keys.iter_sync(|&k| {
             pressed.push(k);
             true
@@ -1649,11 +1752,10 @@ impl AppState {
 
                     // Handle combo key: always suppress physical modifiers to avoid interference
                     if let InputDevice::KeyCombo(_) = &device {
-                        let mut modifiers: std::collections::HashSet<u32> =
-                            std::collections::HashSet::with_capacity(8);
+                        let mut modifiers: SmallVec<[u32; 8]> = SmallVec::new();
                         self.pressed_keys.iter_sync(|key| {
                             if *key != vk_code && self.is_modifier_key(*key) {
-                                modifiers.insert(*key);
+                                modifiers.push(*key);
                             }
                             true
                         });
@@ -1957,6 +2059,13 @@ impl AppState {
     fn input_name_to_device(name: &str) -> Option<InputDevice> {
         let name_upper = name.to_uppercase();
 
+        // Check for XInput combo format first (e.g., "GAMEPAD_045E_A" or "GAMEPAD_045E_LS_RightUp+A")
+        if (name_upper.starts_with("GAMEPAD_") || name_upper.starts_with("JOYSTICK_"))
+            && let Some(device) = Self::parse_xinput_combo(&name_upper)
+        {
+            return Some(device);
+        }
+
         // Check for HID device formats (VID/PID with serial or device ID)
         // Format: "GAMEPAD_045E_0B05_ABC123_B2.0" (with serial)
         // Format: "GAMEPAD_045E_0B05_DEV12345678_B2.0" (without serial, uses device ID)
@@ -2026,6 +2135,62 @@ impl AppState {
     /// - "GAMEPAD_045E_0B05_DEV12345678_B2.0" (without serial number, uses device handle)
     /// - "HID_0001_045E_0B05_ABC123" (HID with serial)
     /// - "HID_0001_045E_0B05_DEV12345678" (HID without serial)
+    ///
+    /// Parse XInput combo format (e.g., "GAMEPAD_045E_A", "GAMEPAD_045E_LS_RightUp+A")
+    fn parse_xinput_combo(input: &str) -> Option<InputDevice> {
+        let mut parts = input.split('_');
+
+        // XInput format: TYPE_VID_ButtonName[+ButtonName...]
+        let device_type = match parts.next()? {
+            "GAMEPAD" => DeviceType::Gamepad(0),
+            "JOYSTICK" => DeviceType::Joystick(0),
+            _ => return None,
+        };
+
+        // Parse VID (4-digit hex)
+        let vid = u16::from_str_radix(parts.next()?, 16).ok()?;
+        let device_type = match device_type {
+            DeviceType::Gamepad(_) => DeviceType::Gamepad(vid),
+            DeviceType::Joystick(_) => DeviceType::Joystick(vid),
+            other => other,
+        };
+
+        // Collect remaining parts as button name (may contain underscores)
+        let button_part: SmallVec<[&str; 4]> = parts.collect();
+        if button_part.is_empty() {
+            return None;
+        }
+
+        let button_str = button_part.join("_");
+        let mut button_ids = SmallVec::<[u32; 8]>::new();
+
+        // Split by '+' to get individual button names
+        for button_name in button_str.split('+') {
+            let button_name = button_name.trim();
+            // Try to parse as diagonal first
+            if let Some(diagonal_ids) =
+                crate::xinput::XInputHandler::parse_diagonal_name(button_name)
+            {
+                button_ids.push(diagonal_ids[0]);
+                button_ids.push(diagonal_ids[1]);
+            } else if let Some(id) = crate::xinput::XInputHandler::name_to_input_id(button_name) {
+                button_ids.push(id);
+            } else {
+                // Unknown button name, fall through to GenericDevice parsing
+                return None;
+            }
+        }
+
+        if button_ids.is_empty() {
+            return None;
+        }
+
+        Some(InputDevice::XInputCombo {
+            device_type,
+            button_ids: button_ids.into_vec(),
+        })
+    }
+
     fn parse_device_with_handle(input: &str) -> Option<InputDevice> {
         let parts: Vec<&str> = input.split('_').collect();
 
