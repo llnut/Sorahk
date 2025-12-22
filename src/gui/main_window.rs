@@ -31,11 +31,15 @@ impl eframe::App for SorahkGui {
         // Check for HID device activation requests
         if self.hid_activation_dialog.is_none() {
             let requests = self.app_state.poll_hid_activation_requests();
-            if let Some((device_handle, device_name)) = requests.first() {
+            if let Some(request) = requests.first() {
                 self.hid_activation_dialog =
                     Some(crate::gui::hid_activation_dialog::HidActivationDialog::new(
-                        device_name.clone(),
-                        *device_handle,
+                        request.device_name.clone(),
+                        request.device_handle,
+                        request.vid,
+                        request.pid,
+                        request.usage_page,
+                        request.usage,
                     ));
                 // Record creation time for 100ms debounce
                 self.hid_activation_creation_time = Some(std::time::Instant::now());
@@ -161,33 +165,64 @@ impl eframe::App for SorahkGui {
             }
 
             if let Some(dialog) = &mut self.device_manager_dialog {
-                let should_close = dialog.render(ctx, self.dark_mode, &self.translations);
+                let mut activated_devices =
+                    std::collections::HashSet::with_capacity(self.config.hid_baselines.len());
 
-                // Check for changed API preferences
+                for baseline in &self.config.hid_baselines {
+                    // Parse VID:PID from device_id (format: "VID:PID" or "VID:PID:Serial")
+                    if let Some(colon_pos) = baseline.device_id.find(':') {
+                        let vid_str = &baseline.device_id[..colon_pos];
+                        let remaining = &baseline.device_id[colon_pos + 1..];
+
+                        if let Some(second_colon) = remaining.find(':') {
+                            let pid_str = &remaining[..second_colon];
+                            if let (Ok(vid), Ok(pid)) = (
+                                u16::from_str_radix(vid_str, 16),
+                                u16::from_str_radix(pid_str, 16),
+                            ) {
+                                activated_devices.insert((vid, pid));
+                            }
+                        } else if let (Ok(vid), Ok(pid)) = (
+                            u16::from_str_radix(vid_str, 16),
+                            u16::from_str_radix(remaining, 16),
+                        ) {
+                            activated_devices.insert((vid, pid));
+                        }
+                    }
+                }
+
+                let should_close =
+                    dialog.render(ctx, self.dark_mode, &self.translations, &activated_devices);
+
                 let changed_prefs = dialog.take_changed_preferences();
                 if !changed_prefs.is_empty() {
-                    // Update config
                     for (key, pref) in changed_prefs {
                         self.config.device_api_preferences.insert(key.clone(), pref);
-
-                        // Parse VID:PID and apply preference immediately
                         if let Some((vid, pid)) = key.split_once(':')
                             && let (Ok(vid_u16), Ok(pid_u16)) =
                                 (u16::from_str_radix(vid, 16), u16::from_str_radix(pid, 16))
                         {
-                            // Set the API preference in the ownership manager
                             crate::input_manager::set_device_api_preference(
                                 (vid_u16, pid_u16),
                                 pref,
                             );
-
-                            // Release device ownership so it can be reclaimed by the new preferred API
                             crate::input_manager::release_device_ownership((vid_u16, pid_u16));
                         }
                     }
-
-                    // Save config
                     let _ = self.config.save_to_file("Config.toml");
+                }
+
+                let devices_to_reactivate = dialog.take_devices_to_reactivate();
+                if !devices_to_reactivate.is_empty() {
+                    for (vid, pid) in devices_to_reactivate {
+                        let vid_pid_prefix = format!("{:04X}:{:04X}", vid, pid);
+                        self.config
+                            .hid_baselines
+                            .retain(|baseline| !baseline.device_id.starts_with(&vid_pid_prefix));
+                        self.app_state.clear_device_baseline(vid, pid);
+                    }
+                    let _ = self.config.save_to_file("Config.toml");
+                    dialog.refresh_devices();
                 }
 
                 if should_close {

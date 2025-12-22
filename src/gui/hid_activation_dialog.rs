@@ -1,5 +1,6 @@
 //! HID device activation dialog for establishing device baseline.
 
+use crate::gui::device_info::{get_device_model, get_hid_device_type, get_vendor_name};
 use crate::i18n::CachedTranslations;
 use eframe::egui;
 use std::time::Instant;
@@ -17,6 +18,10 @@ pub enum ActivationState {
 pub struct HidActivationDialog {
     device_name: String,
     device_handle: isize,
+    vid: u16,
+    pid: u16,
+    usage_page: u16,
+    usage: u16,
     pub state: ActivationState,
     pub pressed_data: Option<Vec<u8>>,
     pub released_data: Option<Vec<u8>>,
@@ -26,10 +31,21 @@ pub struct HidActivationDialog {
 
 impl HidActivationDialog {
     #[inline]
-    pub fn new(device_name: String, device_handle: isize) -> Self {
+    pub fn new(
+        device_name: String,
+        device_handle: isize,
+        vid: u16,
+        pid: u16,
+        usage_page: u16,
+        usage: u16,
+    ) -> Self {
         Self {
             device_name,
             device_handle,
+            vid,
+            pid,
+            usage_page,
+            usage,
             state: ActivationState::WaitingForPress,
             pressed_data: None,
             released_data: None,
@@ -136,11 +152,11 @@ impl HidActivationDialog {
 
                     ui.add_space(20.0);
 
-                    // Device name card
+                    // Device name card with enhanced information
                     egui::Frame::NONE
                         .fill(card_bg)
                         .corner_radius(egui::CornerRadius::same(12))
-                        .inner_margin(egui::Margin::same(12))
+                        .inner_margin(egui::Margin::symmetric(16, 12))
                         .shadow(egui::epaint::Shadow {
                             offset: [0, 2],
                             blur: 6,
@@ -148,11 +164,55 @@ impl HidActivationDialog {
                             color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 25),
                         })
                         .show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new(format!("📱 {}", self.device_name))
-                                    .size(16.0)
-                                    .color(text_color),
-                            );
+                            ui.set_width(ui.available_width());
+
+                            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                                // Display device icon based on type
+                                let device_type = get_hid_device_type(self.usage_page, self.usage);
+                                let device_icon = match device_type {
+                                    "Gamepad" | "Joystick" | "Multi-axis Controller" => "🎮",
+                                    "Keyboard" => "⌨",
+                                    "Mouse" => "🖱",
+                                    _ => "📱",
+                                };
+
+                                ui.label(egui::RichText::new(device_icon).size(20.0));
+                                ui.add_space(6.0);
+
+                                // Display model name or device name
+                                let display_name =
+                                    if let Some(model) = get_device_model(self.vid, self.pid) {
+                                        model.to_string()
+                                    } else if !self.device_name.is_empty() {
+                                        self.device_name.clone()
+                                    } else {
+                                        device_type.to_string()
+                                    };
+
+                                ui.label(
+                                    egui::RichText::new(&display_name)
+                                        .size(16.0)
+                                        .strong()
+                                        .color(text_color),
+                                );
+
+                                ui.add_space(4.0);
+
+                                // Display vendor and technical info
+                                let mut info_parts = vec![];
+                                if let Some(vendor) = get_vendor_name(self.vid) {
+                                    info_parts.push(vendor.to_string());
+                                }
+                                info_parts.push(format!("{:04X}:{:04X}", self.vid, self.pid));
+
+                                if !info_parts.is_empty() {
+                                    ui.label(
+                                        egui::RichText::new(info_parts.join(" │ "))
+                                            .size(12.0)
+                                            .color(egui::Color32::from_rgb(150, 150, 150)),
+                                    );
+                                }
+                            });
                         });
 
                     ui.add_space(25.0);
@@ -295,16 +355,19 @@ impl HidActivationDialog {
                         self.state,
                         ActivationState::WaitingForPress | ActivationState::WaitingForRelease
                     ) {
-                        ui.separator();
-                        ui.add_space(10.0);
+                        ui.add_space(20.0);
 
+                        // Close button matching device_manager_dialog style
                         let cancel_btn = egui::Button::new(
-                            egui::RichText::new(t.hid_activation_cancel()).size(14.0),
+                            egui::RichText::new(t.hid_activation_cancel())
+                                .size(15.0)
+                                .color(egui::Color32::WHITE)
+                                .strong(),
                         )
-                        .fill(egui::Color32::from_rgb(80, 80, 90))
-                        .corner_radius(10.0);
+                        .fill(egui::Color32::from_rgb(216, 191, 216))
+                        .corner_radius(15.0);
 
-                        if ui.add_sized([100.0, 35.0], cancel_btn).clicked() {
+                        if ui.add_sized([260.0, 32.0], cancel_btn).clicked() {
                             should_close = true;
                         }
                     }

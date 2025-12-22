@@ -200,6 +200,10 @@ struct TranslationCache {
     api_auto: String,
     api_xinput: String,
     api_rawinput: String,
+    reactivate_button: String,
+    all_devices_filter: String,
+    game_devices_only_filter: String,
+    no_game_devices_detected: String,
 }
 
 impl CachedTranslations {
@@ -603,6 +607,18 @@ impl CachedTranslations {
     pub fn api_rawinput(&self) -> &str {
         &self.inner.api_rawinput
     }
+    pub fn reactivate_button(&self) -> &str {
+        &self.inner.reactivate_button
+    }
+    pub fn all_devices_filter(&self) -> &str {
+        &self.inner.all_devices_filter
+    }
+    pub fn game_devices_only_filter(&self) -> &str {
+        &self.inner.game_devices_only_filter
+    }
+    pub fn no_game_devices_detected(&self) -> &str {
+        &self.inner.no_game_devices_detected
+    }
 
     // Additional main window status card
     pub fn running_status(&self) -> &str {
@@ -1003,6 +1019,12 @@ impl TranslationCache {
             api_auto: get_raw_translation(lang, RawKey::ApiAuto).to_string(),
             api_xinput: get_raw_translation(lang, RawKey::ApiXInput).to_string(),
             api_rawinput: get_raw_translation(lang, RawKey::ApiRawInput).to_string(),
+            reactivate_button: get_raw_translation(lang, RawKey::ReactivateBtn).to_string(),
+            all_devices_filter: get_raw_translation(lang, RawKey::AllDevicesFilter).to_string(),
+            game_devices_only_filter: get_raw_translation(lang, RawKey::GameDevicesOnlyFilter)
+                .to_string(),
+            no_game_devices_detected: get_raw_translation(lang, RawKey::NoGameDevicesDetected)
+                .to_string(),
         }
     }
 }
@@ -1157,6 +1179,10 @@ enum RawKey {
     ApiAuto,
     ApiXInput,
     ApiRawInput,
+    ReactivateBtn,
+    AllDevicesFilter,
+    GameDevicesOnlyFilter,
+    NoGameDevicesDetected,
 }
 
 /// Gets raw translation string without formatting.
@@ -1551,10 +1577,10 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::TraditionalChinese, RawKey::DefaultDurationLabel) => "預設時長 (毫秒):",
         (Language::Japanese, RawKey::DefaultDurationLabel) => "デフォルト持続時間 (ms):",
 
-        (Language::English, RawKey::WorkerCountLabel) => "⚡ Worker Count:",
-        (Language::SimplifiedChinese, RawKey::WorkerCountLabel) => "⚡ 连发线程数:",
-        (Language::TraditionalChinese, RawKey::WorkerCountLabel) => "⚡ 連發執行緒數:",
-        (Language::Japanese, RawKey::WorkerCountLabel) => "⚡ 連打スレッド数:",
+        (Language::English, RawKey::WorkerCountLabel) => "Worker Count:",
+        (Language::SimplifiedChinese, RawKey::WorkerCountLabel) => "连发线程数:",
+        (Language::TraditionalChinese, RawKey::WorkerCountLabel) => "連發執行緒數:",
+        (Language::Japanese, RawKey::WorkerCountLabel) => "連打スレッド数:",
 
         (Language::English, RawKey::AddNewMappingTitle) => "➕ Add New Mapping",
         (Language::SimplifiedChinese, RawKey::AddNewMappingTitle) => "➕ 添加连发映射",
@@ -1952,10 +1978,10 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::TraditionalChinese, RawKey::ThresholdLabel) => "閾值",
         (Language::Japanese, RawKey::ThresholdLabel) => "しきい値",
 
-        (Language::English, RawKey::PreferredApiLabel) => "Preferred API:",
-        (Language::SimplifiedChinese, RawKey::PreferredApiLabel) => "优先 API：",
-        (Language::TraditionalChinese, RawKey::PreferredApiLabel) => "優先 API：",
-        (Language::Japanese, RawKey::PreferredApiLabel) => "優先 API：",
+        (Language::English, RawKey::PreferredApiLabel) => "Input API:",
+        (Language::SimplifiedChinese, RawKey::PreferredApiLabel) => "输入API：",
+        (Language::TraditionalChinese, RawKey::PreferredApiLabel) => "輸入API：",
+        (Language::Japanese, RawKey::PreferredApiLabel) => "入力API：",
 
         (Language::English, RawKey::ApiAuto) => "Auto",
         (Language::SimplifiedChinese, RawKey::ApiAuto) => "自动",
@@ -1971,6 +1997,28 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::SimplifiedChinese, RawKey::ApiRawInput) => "RawInput",
         (Language::TraditionalChinese, RawKey::ApiRawInput) => "RawInput",
         (Language::Japanese, RawKey::ApiRawInput) => "RawInput",
+
+        (Language::English, RawKey::ReactivateBtn) => "🔄 Re-activate",
+        (Language::SimplifiedChinese, RawKey::ReactivateBtn) => "🔄 重新激活",
+        (Language::TraditionalChinese, RawKey::ReactivateBtn) => "🔄 重新啟用",
+        (Language::Japanese, RawKey::ReactivateBtn) => "🔄 再アクティベート",
+
+        (Language::English, RawKey::AllDevicesFilter) => "🌸 All Devices",
+        (Language::SimplifiedChinese, RawKey::AllDevicesFilter) => "🌸 全部设备",
+        (Language::TraditionalChinese, RawKey::AllDevicesFilter) => "🌸 所有裝置",
+        (Language::Japanese, RawKey::AllDevicesFilter) => "🌸 すべてのデバイス",
+
+        (Language::English, RawKey::GameDevicesOnlyFilter) => "🎮 Game Devices Only",
+        (Language::SimplifiedChinese, RawKey::GameDevicesOnlyFilter) => "🎮 仅游戏设备",
+        (Language::TraditionalChinese, RawKey::GameDevicesOnlyFilter) => "🎮 僅遊戲裝置",
+        (Language::Japanese, RawKey::GameDevicesOnlyFilter) => "🎮 ゲームデバイスのみ",
+
+        (Language::English, RawKey::NoGameDevicesDetected) => "No game devices detected",
+        (Language::SimplifiedChinese, RawKey::NoGameDevicesDetected) => "未检测到游戏设备",
+        (Language::TraditionalChinese, RawKey::NoGameDevicesDetected) => "未偵測到遊戲裝置",
+        (Language::Japanese, RawKey::NoGameDevicesDetected) => {
+            "ゲームデバイスが検出されませんでした"
+        }
     }
 }
 
@@ -2149,7 +2197,7 @@ mod tests {
             translations.default_duration_label(),
             "Default Duration (ms):"
         );
-        assert_eq!(translations.worker_count_label(), "⚡ Worker Count:");
+        assert_eq!(translations.worker_count_label(), "Worker Count:");
     }
 
     #[test]

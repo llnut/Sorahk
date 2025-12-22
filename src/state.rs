@@ -25,6 +25,17 @@ use windows::core::PWSTR;
 
 use crate::config::AppConfig;
 
+/// HID device activation request information.
+#[derive(Debug, Clone)]
+pub struct HidActivationRequest {
+    pub device_handle: isize,
+    pub device_name: String,
+    pub vid: u16,
+    pub pid: u16,
+    pub usage_page: u16,
+    pub usage: u16,
+}
+
 /// Trait for dispatching input events to worker threads.
 pub trait EventDispatcher: Send + Sync {
     fn dispatch(&self, event: InputEvent);
@@ -462,9 +473,9 @@ pub struct AppState {
     /// XInput capture mode strategy
     xinput_capture_mode: RwLock<crate::config::XInputCaptureMode>,
     /// HID device activation request sender
-    hid_activation_sender: Sender<(isize, String)>,
+    hid_activation_sender: Sender<HidActivationRequest>,
     /// HID device activation request receiver
-    hid_activation_receiver: Mutex<Receiver<(isize, String)>>,
+    hid_activation_receiver: Mutex<Receiver<HidActivationRequest>>,
     /// HID activation data sender (device_handle, data)
     hid_activation_data_sender: Sender<(isize, Vec<u8>)>,
     /// HID activation data receiver
@@ -721,6 +732,12 @@ impl AppState {
         }
     }
 
+    /// Clears activation baseline for device.
+    #[inline]
+    pub fn clear_device_baseline(&self, vid: u16, pid: u16) {
+        crate::rawinput::clear_device_baseline(vid, pid);
+    }
+
     /// Checks if Raw Input capture mode is active.
     pub fn is_raw_input_capture_active(&self) -> bool {
         self.is_capturing_raw_input.load(Ordering::Relaxed)
@@ -728,16 +745,14 @@ impl AppState {
 
     /// Sends HID device activation request.
     #[inline]
-    pub fn request_hid_activation(&self, device_handle: isize, device_name: String) {
+    pub fn request_hid_activation(&self, request: HidActivationRequest) {
         self.activating_device_handle
-            .store(device_handle, Ordering::Relaxed);
-        let _ = self
-            .hid_activation_sender
-            .send((device_handle, device_name));
+            .store(request.device_handle, Ordering::Relaxed);
+        let _ = self.hid_activation_sender.send(request);
     }
 
     /// Polls for HID device activation requests
-    pub fn poll_hid_activation_requests(&self) -> SmallVec<[(isize, String); 2]> {
+    pub fn poll_hid_activation_requests(&self) -> SmallVec<[HidActivationRequest; 2]> {
         let mut requests = SmallVec::new();
         if let Ok(receiver) = self.hid_activation_receiver.lock() {
             while let Ok(req) = receiver.try_recv() {

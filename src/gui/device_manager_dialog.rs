@@ -4,6 +4,7 @@
 //! including vibration testing, deadzone configuration, and API selection.
 
 use crate::config::DeviceApiPreference;
+use crate::gui::device_info::{get_device_model, get_hid_device_type, get_vendor_name};
 use crate::i18n::CachedTranslations;
 use eframe::egui;
 
@@ -54,19 +55,26 @@ pub struct DeviceManagerDialog {
     preference_cache: [Option<(u16, u16, DeviceApiPreference)>; 8],
     /// Cache hit counter for optimization metrics
     cache_hits: u8,
+    /// Show all HID devices including keyboard and mouse
+    show_all_hid_devices: bool,
+    /// Devices to clear activation for
+    devices_to_reactivate: Vec<(u16, u16)>,
 }
 
-/// Parse device key from "VID:PID" format.
+/// Parses VID:PID device key into numeric tuple.
+///
+/// Expects hexadecimal format "VVVV:PPPP". Returns None on parse failure.
 #[inline]
 fn parse_device_key(key: &str) -> Option<(u16, u16)> {
-    // Fast path: avoid allocation by using split_once
     let (vid_str, pid_str) = key.split_once(':')?;
     let vid = u16::from_str_radix(vid_str, 16).ok()?;
     let pid = u16::from_str_radix(pid_str, 16).ok()?;
     Some((vid, pid))
 }
 
-/// Format device key to "VID:PID" format.
+/// Formats VID:PID tuple into string key for persistence.
+///
+/// Generates uppercase hexadecimal format "VVVV:PPPP".
 #[inline]
 fn format_device_key(vid: u16, pid: u16) -> String {
     // Pre-allocate exact size (4+1+4 = 9 chars)
@@ -92,6 +100,8 @@ impl Default for DeviceManagerDialog {
             last_refresh: std::time::Instant::now() - std::time::Duration::from_secs(1),
             preference_cache: [None; 8],
             cache_hits: 0,
+            show_all_hid_devices: false,
+            devices_to_reactivate: Vec::new(),
         }
     }
 }
@@ -115,11 +125,11 @@ impl DeviceManagerDialog {
         }
     }
 
-    /// Takes changed API preferences for saving.
+    /// Extracts changed API preferences for persistence.
+    #[inline]
     pub fn take_changed_preferences(
         &mut self,
     ) -> std::collections::HashMap<String, DeviceApiPreference> {
-        // Pre-allocate exact size to avoid reallocation
         let mut result = std::collections::HashMap::with_capacity(self.changed_preferences.len());
         for ((vid, pid), pref) in self.changed_preferences.drain() {
             result.insert(format_device_key(vid, pid), pref);
@@ -127,10 +137,15 @@ impl DeviceManagerDialog {
         result
     }
 
-    /// Gets API preference with cache optimization.
-    #[inline(always)]
+    /// Extracts device reactivation requests.
+    #[inline]
+    pub fn take_devices_to_reactivate(&mut self) -> Vec<(u16, u16)> {
+        std::mem::take(&mut self.devices_to_reactivate)
+    }
+
+    /// Retrieves API preference with frame-local caching.
+    #[inline]
     fn get_preference_cached(&mut self, device_key: (u16, u16)) -> DeviceApiPreference {
-        // Check cache first (linear search is faster than HashMap for small N)
         for slot in &self.preference_cache {
             if let Some((vid, pid, pref)) = slot
                 && (*vid, *pid) == device_key
@@ -154,18 +169,16 @@ impl DeviceManagerDialog {
         pref
     }
 
-    /// Clears preference cache (call when preferences change).
-    #[inline]
+    /// Invalidates preference cache for next frame.
+    #[inline(always)]
     fn clear_preference_cache(&mut self) {
         self.preference_cache = [None; 8];
         self.cache_hits = 0;
     }
 
-    /// Refreshes the device list with throttling.
+    /// Refreshes device lists from system APIs.
     pub fn refresh_devices(&mut self) {
         let now = std::time::Instant::now();
-
-        // Throttle refresh to max once per 100ms to avoid excessive Windows API calls
         if now.duration_since(self.last_refresh) < std::time::Duration::from_millis(100) {
             return;
         }
@@ -173,18 +186,19 @@ impl DeviceManagerDialog {
         self.xinput_devices = crate::xinput::XInputHandler::enumerate_devices();
         self.hid_devices = crate::rawinput::enumerate_hid_devices();
         self.last_refresh = now;
-
-        // Clear preference cache on refresh
         self.clear_preference_cache();
     }
 
-    /// Renders the device manager dialog.
+    /// Renders device manager dialog UI.
     pub fn render(
         &mut self,
         ctx: &egui::Context,
         dark_mode: bool,
         translations: &CachedTranslations,
+        activated_devices: &std::collections::HashSet<(u16, u16)>,
     ) -> bool {
+        self.clear_preference_cache();
+
         let mut should_close = false;
         let t = translations;
 
@@ -299,9 +313,9 @@ impl DeviceManagerDialog {
                     .max_height(420.0)
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        self.render_xinput_section(ui, dark_mode, t);
+                        self.render_xinput_section(ui, dark_mode, t, activated_devices);
                         ui.add_space(15.0);
-                        self.render_hid_section(ui, dark_mode, t);
+                        self.render_hid_section(ui, dark_mode, t, activated_devices);
                     });
 
                 ui.add_space(18.0);
@@ -339,6 +353,7 @@ impl DeviceManagerDialog {
         ui: &mut egui::Ui,
         dark_mode: bool,
         t: &CachedTranslations,
+        activated_devices: &std::collections::HashSet<(u16, u16)>,
     ) {
         let section_bg = if dark_mode {
             egui::Color32::from_rgb(40, 42, 50)
@@ -383,7 +398,7 @@ impl DeviceManagerDialog {
                 } else {
                     let devices = self.xinput_devices.clone();
                     for device in &devices {
-                        self.render_xinput_device(ui, device, dark_mode, t);
+                        self.render_xinput_device(ui, device, dark_mode, t, activated_devices);
                         ui.add_space(8.0);
                     }
                 }
@@ -397,6 +412,7 @@ impl DeviceManagerDialog {
         device: &XInputDeviceInfo,
         dark_mode: bool,
         t: &CachedTranslations,
+        activated_devices: &std::collections::HashSet<(u16, u16)>,
     ) {
         let card_bg = if dark_mode {
             egui::Color32::from_rgb(48, 50, 60)
@@ -431,22 +447,34 @@ impl DeviceManagerDialog {
 
                     // Device info with cute styling
                     ui.vertical(|ui| {
+                        // Title with model name if available
+                        let title = if let Some(model) = get_device_model(device.vid, device.pid) {
+                            model.to_string()
+                        } else {
+                            device.device_type.clone()
+                        };
+
                         ui.label(
-                            egui::RichText::new(&device.device_type)
+                            egui::RichText::new(&title)
                                 .size(15.0)
                                 .strong()
                                 .color(accent_color),
                         );
+
+                        // Subtitle with vendor and technical info
+                        let mut info_parts = vec![];
+
+                        if let Some(vendor) = get_vendor_name(device.vid) {
+                            info_parts.push(format!("🏭 {}", vendor));
+                        }
+
+                        info_parts.push(format!("{} {}", t.slot_label(), device.user_index));
+                        info_parts.push(format!("{:04X}:{:04X}", device.vid, device.pid));
+
                         ui.label(
-                            egui::RichText::new(format!(
-                                "{} {} │ {:04X}:{:04X}",
-                                t.slot_label(),
-                                device.user_index,
-                                device.vid,
-                                device.pid
-                            ))
-                            .size(11.0)
-                            .color(ui.style().visuals.weak_text_color()),
+                            egui::RichText::new(info_parts.join(" │ "))
+                                .size(11.0)
+                                .color(ui.style().visuals.weak_text_color()),
                         );
                     });
 
@@ -474,6 +502,32 @@ impl DeviceManagerDialog {
                                 self.selected_device = None;
                             } else {
                                 self.selected_device = Some((device.vid, device.pid));
+                            }
+                        }
+
+                        // Reactivation button
+                        let device_key = (device.vid, device.pid);
+                        let current_pref = self.get_preference_cached(device_key);
+                        let is_activated = activated_devices.contains(&device_key);
+
+                        // Show button only for RawInput API with activation
+                        if current_pref == DeviceApiPreference::RawInput && is_activated {
+                            ui.add_space(4.0);
+
+                            let reactivate_btn = egui::Button::new(
+                                egui::RichText::new(t.reactivate_button())
+                                    .size(12.0)
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(if dark_mode {
+                                egui::Color32::from_rgb(100, 200, 150)
+                            } else {
+                                egui::Color32::from_rgb(150, 230, 180)
+                            })
+                            .corner_radius(10.0);
+
+                            if ui.add(reactivate_btn).clicked() {
+                                self.devices_to_reactivate.push(device_key);
                             }
                         }
                     });
@@ -718,7 +772,13 @@ impl DeviceManagerDialog {
     }
 
     /// Renders the HID devices section.
-    fn render_hid_section(&mut self, ui: &mut egui::Ui, dark_mode: bool, t: &CachedTranslations) {
+    fn render_hid_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        dark_mode: bool,
+        t: &CachedTranslations,
+        activated_devices: &std::collections::HashSet<(u16, u16)>,
+    ) {
         let section_bg = if dark_mode {
             egui::Color32::from_rgb(40, 42, 50)
         } else {
@@ -730,20 +790,77 @@ impl DeviceManagerDialog {
             .corner_radius(18.0)
             .inner_margin(egui::Margin::same(16))
             .show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new(t.hid_devices_title())
-                        .size(16.0)
-                        .strong()
-                        .color(if dark_mode {
-                            egui::Color32::from_rgb(200, 255, 150)
+                ui.set_min_width(ui.available_width());
+
+                // Header with title and filter toggle
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(t.hid_devices_title())
+                            .size(16.0)
+                            .strong()
+                            .color(if dark_mode {
+                                egui::Color32::from_rgb(200, 255, 150)
+                            } else {
+                                egui::Color32::from_rgb(80, 150, 90)
+                            }),
+                    );
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Cute filter toggle button
+                        let filter_bg = if self.show_all_hid_devices {
+                            if dark_mode {
+                                egui::Color32::from_rgb(120, 200, 140)
+                            } else {
+                                egui::Color32::from_rgb(150, 230, 170)
+                            }
+                        } else if dark_mode {
+                            egui::Color32::from_rgb(80, 80, 90)
                         } else {
-                            egui::Color32::from_rgb(80, 150, 90)
-                        }),
-                );
+                            egui::Color32::from_rgb(200, 200, 210)
+                        };
+
+                        let filter_text = if self.show_all_hid_devices {
+                            t.all_devices_filter()
+                        } else {
+                            t.game_devices_only_filter()
+                        };
+
+                        let filter_btn = egui::Button::new(
+                            egui::RichText::new(filter_text)
+                                .size(12.0)
+                                .color(egui::Color32::WHITE),
+                        )
+                        .fill(filter_bg)
+                        .corner_radius(12.0);
+
+                        if ui.add(filter_btn).clicked() {
+                            self.show_all_hid_devices = !self.show_all_hid_devices;
+                        }
+                    });
+                });
 
                 ui.add_space(10.0);
 
-                if self.hid_devices.is_empty() {
+                // Filter devices based on toggle state
+                let filtered_devices: Vec<_> = if self.show_all_hid_devices {
+                    self.hid_devices.clone()
+                } else {
+                    self.hid_devices
+                        .iter()
+                        .filter(|device| {
+                            // Only show gaming devices (gamepads, joysticks)
+                            matches!(
+                                (device.usage_page, device.usage),
+                                (0x0001, 0x0004) | // Joystick
+                                (0x0001, 0x0005) | // Gamepad
+                                (0x0001, 0x0008) // Multi-axis Controller
+                            )
+                        })
+                        .cloned()
+                        .collect()
+                };
+
+                if filtered_devices.is_empty() {
                     ui.vertical_centered(|ui| {
                         ui.add_space(20.0);
                         ui.label(
@@ -752,16 +869,21 @@ impl DeviceManagerDialog {
                                 .color(ui.style().visuals.weak_text_color()),
                         );
                         ui.add_space(8.0);
+                        let empty_text = if self.show_all_hid_devices {
+                            t.no_hid_devices_detected()
+                        } else {
+                            t.no_game_devices_detected()
+                        };
                         ui.label(
-                            egui::RichText::new(t.no_hid_devices_detected())
+                            egui::RichText::new(empty_text)
                                 .size(14.0)
                                 .color(ui.style().visuals.weak_text_color()),
                         );
                         ui.add_space(20.0);
                     });
                 } else {
-                    for device in self.hid_devices.clone() {
-                        self.render_hid_device(ui, &device, dark_mode);
+                    for device in filtered_devices {
+                        self.render_hid_device(ui, &device, dark_mode, activated_devices, t);
                         ui.add_space(8.0);
                     }
                 }
@@ -769,7 +891,14 @@ impl DeviceManagerDialog {
     }
 
     /// Renders a single HID device card.
-    fn render_hid_device(&mut self, ui: &mut egui::Ui, device: &HidDeviceInfo, dark_mode: bool) {
+    fn render_hid_device(
+        &mut self,
+        ui: &mut egui::Ui,
+        device: &HidDeviceInfo,
+        dark_mode: bool,
+        activated_devices: &std::collections::HashSet<(u16, u16)>,
+        t: &CachedTranslations,
+    ) {
         let card_bg = if dark_mode {
             egui::Color32::from_rgb(48, 50, 60)
         } else {
@@ -803,20 +932,70 @@ impl DeviceManagerDialog {
 
                     // Device info
                     ui.vertical(|ui| {
+                        // Title with model name if available, otherwise device name
+                        let title = if let Some(model) = get_device_model(device.vid, device.pid) {
+                            model.to_string()
+                        } else {
+                            device.device_name.clone()
+                        };
+
+                        // Add device type tag
+                        let device_type = get_hid_device_type(device.usage_page, device.usage);
+                        let display_title = if !title.is_empty() {
+                            format!("{} ✨ {}", title, device_type)
+                        } else {
+                            device_type.to_string()
+                        };
+
                         ui.label(
-                            egui::RichText::new(&device.device_name)
+                            egui::RichText::new(&display_title)
                                 .size(15.0)
                                 .strong()
                                 .color(accent_color),
                         );
+
+                        // Subtitle with vendor and technical info
+                        let mut info_parts = vec![];
+
+                        if let Some(vendor) = get_vendor_name(device.vid) {
+                            info_parts.push(format!("🏭 {}", vendor));
+                        }
+
+                        info_parts.push(format!("{:04X}:{:04X}", device.vid, device.pid));
+                        info_parts.push(format!(
+                            "Usage {:04X}:{:04X}",
+                            device.usage_page, device.usage
+                        ));
+
                         ui.label(
-                            egui::RichText::new(format!(
-                                "✨ {:04X}:{:04X} │ Usage {:04X}:{:04X}",
-                                device.vid, device.pid, device.usage_page, device.usage
-                            ))
-                            .size(11.0)
-                            .color(ui.style().visuals.weak_text_color()),
+                            egui::RichText::new(info_parts.join(" │ "))
+                                .size(11.0)
+                                .color(ui.style().visuals.weak_text_color()),
                         );
+                    });
+
+                    // Reactivation button - always use right_to_left layout for consistent width
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let device_key = (device.vid, device.pid);
+                        let is_activated = activated_devices.contains(&device_key);
+
+                        if is_activated {
+                            let reactivate_btn = egui::Button::new(
+                                egui::RichText::new(t.reactivate_button())
+                                    .size(12.0)
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(if dark_mode {
+                                egui::Color32::from_rgb(100, 200, 150)
+                            } else {
+                                egui::Color32::from_rgb(150, 230, 180)
+                            })
+                            .corner_radius(10.0);
+
+                            if ui.add(reactivate_btn).clicked() {
+                                self.devices_to_reactivate.push(device_key);
+                            }
+                        }
                     });
                 });
             });

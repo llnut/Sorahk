@@ -1440,7 +1440,16 @@ impl RawInputHandler {
             device_info.product_id
         );
 
-        self.state.request_hid_activation(handle_key, device_name);
+        let request = crate::state::HidActivationRequest {
+            device_handle: handle_key,
+            device_name,
+            vid: device_info.vendor_id,
+            pid: device_info.product_id,
+            usage_page: device_info.usage_page,
+            usage: device_info.usage,
+        };
+
+        self.state.request_hid_activation(request);
     }
 
     /// Detects HID button state changes at bit level using optimized bit operations.
@@ -1584,26 +1593,22 @@ impl RawInputHandler {
 }
 
 /// Activates a HID device with the given baseline data.
-/// Called by GUI after successful activation.
 ///
-/// Updates both runtime device states and baseline cache to support reconnection.
+/// Updates runtime device state and baseline cache for reconnection support.
+/// The caller is responsible for persisting baseline data to configuration file.
 #[inline]
 pub fn activate_hid_device(device_handle: isize, baseline_data: Vec<u8>) {
     if let Some(handler) = RAW_INPUT_HANDLER.get() {
-        // Update runtime device state (for current session)
         let _ = handler.device_states.insert_sync(
             device_handle,
             DeviceHidState::with_baseline(baseline_data.clone()),
         );
 
-        // Get device info from cache to compute stable_device_id
         if let Some(device_info) = handler
             .device_cache
             .read_sync(&device_handle, |_, v| v.clone())
         {
             let stable_device_id = RawInputHandler::generate_stable_device_id(&device_info);
-
-            // Update baseline cache (for reconnection support)
             let _ = handler
                 .config_baselines
                 .insert_sync(stable_device_id, baseline_data);
@@ -1612,16 +1617,14 @@ pub fn activate_hid_device(device_handle: isize, baseline_data: Vec<u8>) {
 }
 
 /// Resets all HID device states to baseline and clears capture states.
-/// Should be called when entering capture mode to ensure clean state.
 pub fn reset_hid_device_states() {
     if let Some(handler) = RAW_INPUT_HANDLER.get() {
         handler.reset_device_states_to_baseline();
-        // Clear all capture states to start fresh
         handler.capture_states.retain_sync(|_, _| false);
     }
 }
 
-/// Gets device info for a device handle (for saving to config).
+/// Gets device info for a device handle.
 pub fn get_device_info_for_handle(device_handle: isize) -> Option<(u16, u16, Option<String>)> {
     if let Some(handler) = RAW_INPUT_HANDLER.get()
         && let Some(device_info) = handler
@@ -1658,6 +1661,31 @@ pub fn register_device_display_info(stable_device_id: u64, info: DeviceDisplayIn
 pub fn clear_device_display_info_cache() {
     if let Some(cache) = DEVICE_DISPLAY_INFO.get() {
         cache.clear_sync();
+    }
+}
+
+/// Clears baseline data for a device identified by VID:PID.
+///
+/// Removes activation data from runtime state and configuration cache.
+#[inline]
+pub fn clear_device_baseline(vid: u16, pid: u16) {
+    if let Some(handler) = RAW_INPUT_HANDLER.get() {
+        let stable_id = RawInputHandler::hash_vid_pid(vid, pid);
+        handler.config_baselines.remove_sync(&stable_id);
+
+        let mut handles_to_remove = smallvec::SmallVec::<[isize; 4]>::new();
+
+        handler.device_cache.retain_sync(|&handle, info| {
+            if info.vendor_id == vid && info.product_id == pid {
+                handles_to_remove.push(handle);
+            }
+            true
+        });
+
+        for handle in handles_to_remove {
+            handler.device_states.remove_sync(&handle);
+            handler.capture_states.remove_sync(&handle);
+        }
     }
 }
 

@@ -4,6 +4,7 @@
 //! including the main window, dialogs, and utility functions.
 
 mod about_dialog;
+mod device_info;
 pub mod device_manager_dialog;
 mod error_dialog;
 mod fonts;
@@ -248,7 +249,7 @@ impl SorahkGui {
             .with_resizable(true)
             .with_title("Sorahk - Auto Key Press Tool")
             .with_icon(icon)
-            .with_taskbar(false);
+            .with_taskbar(true);
 
         if config.always_on_top {
             viewport = viewport.with_always_on_top();
