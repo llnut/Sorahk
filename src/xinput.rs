@@ -44,16 +44,50 @@ impl CaptureFrame {
     }
 }
 
+/// Bitset representation of combo for fast matching
+#[derive(Clone, Debug)]
+struct ComboMask {
+    required_bits: u32,
+    combo_size: u8,
+    button_ids: SmallVec<[u32; 4]>,
+}
+
+type ButtonIds = SmallVec<[u32; 2]>;
+type TwoKeyEntry = ((u32, u32), ButtonIds);
+type MultiKeyEntry = (SmallVec<[u32; 4]>, ButtonIds);
+
+/// Layered combo index for different combo sizes
+#[derive(Clone, Debug)]
+struct LayeredComboIndex {
+    single_keys: SmallVec<[(u32, ButtonIds); 16]>,
+    two_keys: SmallVec<[TwoKeyEntry; 16]>,
+    multi_keys: SmallVec<[MultiKeyEntry; 8]>,
+}
+
+impl LayeredComboIndex {
+    #[inline(always)]
+    fn new() -> Self {
+        Self {
+            single_keys: SmallVec::new(),
+            two_keys: SmallVec::new(),
+            multi_keys: SmallVec::new(),
+        }
+    }
+}
+
 /// XInput device state for change detection.
 #[derive(Clone)]
 struct XInputDeviceState {
     packet_number: u32,
     last_state: XINPUT_GAMEPAD,
-    last_button_id: Option<u64>,
     vid_pid: (u16, u16),
     capture_frames: [CaptureFrame; CAPTURE_FRAMES],
     capture_frame_count: u8,
-    active_combo: Option<Vec<u32>>,
+    active_inputs: SmallVec<[u32; MAX_INPUTS]>,
+    active_combos: SmallVec<[Vec<u32>; 4]>,
+    last_input_bits: u32,
+    combo_masks: SmallVec<[ComboMask; 16]>,
+    layered_index: LayeredComboIndex,
 }
 
 /// XInput handler for Xbox controller input.
@@ -88,11 +122,14 @@ impl XInputHandler {
                     self.device_states[user_index as usize] = Some(XInputDeviceState {
                         packet_number: state.dwPacketNumber,
                         last_state: state.Gamepad,
-                        last_button_id: None,
                         vid_pid,
                         capture_frames: std::array::from_fn(|_| CaptureFrame::new()),
                         capture_frame_count: 0,
-                        active_combo: None,
+                        active_inputs: SmallVec::new(),
+                        active_combos: SmallVec::new(),
+                        last_input_bits: 0,
+                        combo_masks: SmallVec::new(),
+                        layered_index: LayeredComboIndex::new(),
                     });
 
                     // Register device display info
@@ -119,6 +156,16 @@ impl XInputHandler {
 
         if is_paused && !is_capturing {
             return;
+        }
+
+        // Check and clear cache if configuration was reloaded
+        if unlikely(self.state.check_and_reset_xinput_cache_invalid()) {
+            for device_state in self.device_states.iter_mut().flatten() {
+                device_state.combo_masks.clear();
+                device_state.layered_index = LayeredComboIndex::new();
+                device_state.active_combos.clear();
+                device_state.last_input_bits = 0;
+            }
         }
 
         for user_index in 0..XUSER_MAX_COUNT {
@@ -153,128 +200,33 @@ impl XInputHandler {
                         Self::check_analog_sticks_fast(&gamepad, &mut current_inputs);
                         Self::check_triggers_fast(&gamepad, &mut current_inputs);
 
-                        let current_button_id = if unlikely(!current_inputs.is_empty()) {
-                            Some(Self::hash_inputs_fast(&current_inputs, stable_device_id))
-                        } else {
-                            None
-                        };
-
-                        let button_id_changed = current_button_id != device_state.last_button_id;
-
-                        if unlikely(button_id_changed) {
-                            device_state.last_button_id = current_button_id;
-                        }
+                        let inputs_changed = current_inputs != device_state.active_inputs;
 
                         device_state.packet_number = state.dwPacketNumber;
                         device_state.last_state = gamepad;
 
-                        if unlikely(button_id_changed) {
+                        if unlikely(inputs_changed) {
                             let is_capturing = self.state.is_raw_input_capture_active();
 
                             if unlikely(is_capturing) {
-                                // Capture mode: supports MostSustained and LastStable
-                                let capture_mode = self.state.get_xinput_capture_mode();
-
-                                if let Some(current_id) = current_button_id {
-                                    if (device_state.capture_frame_count as usize) < CAPTURE_FRAMES
-                                    {
-                                        let idx = device_state.capture_frame_count as usize;
-                                        let raw_inputs: SmallVec<[u32; 12]> =
-                                            current_inputs.iter().copied().collect();
-
-                                        device_state.capture_frames[idx] = CaptureFrame {
-                                            button_id: current_id,
-                                            timestamp: std::time::SystemTime::now()
-                                                .duration_since(std::time::UNIX_EPOCH)
-                                                .unwrap()
-                                                .as_millis()
-                                                as u64,
-                                            raw_inputs,
-                                        };
-                                        device_state.capture_frame_count += 1;
-                                    }
-                                } else if device_state.capture_frame_count > 0 {
-                                    // Released: select best frame based on capture mode
-                                    let best_frame_idx = match capture_mode {
-                                        crate::config::XInputCaptureMode::MostSustained => {
-                                            Self::get_most_sustained_frame_idx(
-                                                &device_state.capture_frames,
-                                                device_state.capture_frame_count,
-                                            )
-                                        }
-                                        crate::config::XInputCaptureMode::LastStable => {
-                                            Self::get_last_stable_frame_idx(
-                                                &device_state.capture_frames,
-                                                device_state.capture_frame_count,
-                                            )
-                                        }
-                                        crate::config::XInputCaptureMode::DiagonalPriority => {
-                                            Self::get_diagonal_priority_frame_idx(
-                                                &device_state.capture_frames,
-                                                device_state.capture_frame_count,
-                                            )
-                                        }
-                                    };
-
-                                    if let Some(idx) = best_frame_idx {
-                                        let frame = &device_state.capture_frames[idx];
-                                        let device_type = DeviceType::Gamepad(vid_pid.0);
-
-                                        // Extract button IDs from frame
-                                        let button_ids: Vec<u32> =
-                                            frame.raw_inputs.iter().copied().collect();
-
-                                        let device = InputDevice::XInputCombo {
-                                            device_type,
-                                            button_ids,
-                                        };
-                                        let _ =
-                                            self.state.get_raw_input_capture_sender().send(device);
-                                    }
-
-                                    // Clear capture state
-                                    device_state.capture_frame_count = 0;
-                                }
+                                Self::handle_capture_mode_xinput(
+                                    device_state,
+                                    &current_inputs,
+                                    vid_pid,
+                                    &self.state,
+                                );
                             } else if let Some(pool) = self.state.get_worker_pool() {
-                                let device_type = DeviceType::Gamepad(vid_pid.0);
-                                let button_ids: Vec<u32> = current_inputs.iter().copied().collect();
-
-                                // Check if combo state changed
-                                let combo_changed =
-                                    match (&device_state.active_combo, !button_ids.is_empty()) {
-                                        (Some(active), true) => active != &button_ids,
-                                        (Some(_), false) => true, // Released
-                                        (None, true) => true,     // New press
-                                        (None, false) => false,   // Still released
-                                    };
-
-                                if combo_changed {
-                                    // First, send release event for previous combo if it exists
-                                    if let Some(active_button_ids) =
-                                        device_state.active_combo.take()
-                                    {
-                                        let release_device = InputDevice::XInputCombo {
-                                            device_type,
-                                            button_ids: active_button_ids,
-                                        };
-                                        if self.state.get_input_mapping(&release_device).is_some() {
-                                            pool.dispatch(InputEvent::Released(release_device));
-                                        }
-                                    }
-
-                                    // Then, send press event for new combo if buttons are pressed
-                                    if !button_ids.is_empty() {
-                                        let press_device = InputDevice::XInputCombo {
-                                            device_type,
-                                            button_ids: button_ids.clone(),
-                                        };
-                                        if self.state.get_input_mapping(&press_device).is_some() {
-                                            pool.dispatch(InputEvent::Pressed(press_device));
-                                            device_state.active_combo = Some(button_ids);
-                                        }
-                                    }
-                                }
+                                Self::handle_normal_mode_xinput(
+                                    device_state,
+                                    &current_inputs,
+                                    stable_device_id,
+                                    vid_pid,
+                                    pool,
+                                    &self.state,
+                                );
                             }
+
+                            device_state.active_inputs = current_inputs;
                         }
                     }
                 } else if self.device_states[idx].is_none() {
@@ -288,11 +240,14 @@ impl XInputHandler {
                         self.device_states[idx] = Some(XInputDeviceState {
                             packet_number: state.dwPacketNumber,
                             last_state: state.Gamepad,
-                            last_button_id: None,
                             vid_pid,
                             capture_frames: std::array::from_fn(|_| CaptureFrame::new()),
                             capture_frame_count: 0,
-                            active_combo: None,
+                            active_inputs: SmallVec::new(),
+                            active_combos: SmallVec::new(),
+                            last_input_bits: 0,
+                            combo_masks: SmallVec::new(),
+                            layered_index: LayeredComboIndex::new(),
                         });
                     }
                 }
@@ -304,6 +259,382 @@ impl XInputHandler {
                 }
             }
         }
+    }
+
+    /// Handles capture mode: records frames for later selection
+    #[inline]
+    fn handle_capture_mode_xinput(
+        device_state: &mut XInputDeviceState,
+        current_inputs: &SmallVec<[u32; MAX_INPUTS]>,
+        vid_pid: (u16, u16),
+        state: &Arc<AppState>,
+    ) {
+        let capture_mode = state.get_xinput_capture_mode();
+        let current_button_id = if !current_inputs.is_empty() {
+            let stable_device_id = Self::hash_vid_pid_static(vid_pid) as u64;
+            Some(Self::hash_inputs_fast(current_inputs, stable_device_id))
+        } else {
+            None
+        };
+
+        if let Some(current_id) = current_button_id {
+            if (device_state.capture_frame_count as usize) < CAPTURE_FRAMES {
+                let idx = device_state.capture_frame_count as usize;
+                let raw_inputs: SmallVec<[u32; 12]> = current_inputs.iter().copied().collect();
+
+                device_state.capture_frames[idx] = CaptureFrame {
+                    button_id: current_id,
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as u64,
+                    raw_inputs,
+                };
+                device_state.capture_frame_count += 1;
+            }
+        } else if device_state.capture_frame_count > 0 {
+            let best_frame_idx = match capture_mode {
+                crate::config::XInputCaptureMode::MostSustained => {
+                    Self::get_most_sustained_frame_idx(
+                        &device_state.capture_frames,
+                        device_state.capture_frame_count,
+                    )
+                }
+                crate::config::XInputCaptureMode::LastStable => Self::get_last_stable_frame_idx(
+                    &device_state.capture_frames,
+                    device_state.capture_frame_count,
+                ),
+                crate::config::XInputCaptureMode::DiagonalPriority => {
+                    Self::get_diagonal_priority_frame_idx(
+                        &device_state.capture_frames,
+                        device_state.capture_frame_count,
+                    )
+                }
+            };
+
+            if let Some(idx) = best_frame_idx {
+                let frame = &device_state.capture_frames[idx];
+                let device_type = DeviceType::Gamepad(vid_pid.0);
+                let button_ids: Vec<u32> = frame.raw_inputs.iter().copied().collect();
+
+                let device = InputDevice::XInputCombo {
+                    device_type,
+                    button_ids,
+                };
+                let _ = state.get_raw_input_capture_sender().send(device);
+            }
+
+            device_state.capture_frame_count = 0;
+        }
+    }
+
+    /// Handles normal mode: finds all matching combos using optimized bitset matching
+    #[inline]
+    fn handle_normal_mode_xinput(
+        device_state: &mut XInputDeviceState,
+        current_inputs: &SmallVec<[u32; MAX_INPUTS]>,
+        _stable_device_id: u64,
+        vid_pid: (u16, u16),
+        pool: &Arc<dyn crate::state::EventDispatcher>,
+        state: &Arc<AppState>,
+    ) {
+        let device_type = DeviceType::Gamepad(vid_pid.0);
+
+        // Convert current inputs to bitset
+        let current_bits = Self::inputs_to_bitset(current_inputs);
+
+        // Early exit: no change since last frame
+        if likely(current_bits == device_state.last_input_bits) {
+            return;
+        }
+
+        // Lazy initialization: build combo masks on first use
+        if unlikely(device_state.combo_masks.is_empty()) {
+            let all_combos = state.get_xinput_combos_for_device(&device_type);
+            Self::build_combo_masks(&all_combos, &mut device_state.combo_masks);
+            Self::build_layered_index(&all_combos, &mut device_state.layered_index);
+        }
+
+        // Find all matching combos using optimized strategies
+        let mut new_active_combos = SmallVec::<[Vec<u32>; 4]>::new();
+
+        // Strategy selection based on combo count
+        if device_state.combo_masks.len() <= 8 {
+            // Small set: use bitset matching
+            Self::match_combos_bitset(
+                current_bits,
+                &device_state.combo_masks,
+                &mut new_active_combos,
+            );
+        } else if device_state.combo_masks.len() <= 16 {
+            // Medium set: use layered index
+            Self::match_combos_layered(
+                current_inputs,
+                &device_state.layered_index,
+                &mut new_active_combos,
+            );
+        } else {
+            // Large set: use AVX2 SIMD batch matching
+            #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+            {
+                Self::match_combos_simd(
+                    current_bits,
+                    &device_state.combo_masks,
+                    &mut new_active_combos,
+                );
+            }
+            #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+            {
+                Self::match_combos_bitset(
+                    current_bits,
+                    &device_state.combo_masks,
+                    &mut new_active_combos,
+                );
+            }
+        }
+
+        // Compare with previously active combos
+        let prev_active = &device_state.active_combos;
+
+        // Find newly activated combos
+        for combo in &new_active_combos {
+            if !Self::contains_combo(prev_active, combo) {
+                let device = InputDevice::XInputCombo {
+                    device_type,
+                    button_ids: combo.clone(),
+                };
+                pool.dispatch(InputEvent::Pressed(device));
+            }
+        }
+
+        // Find deactivated combos
+        for combo in prev_active {
+            if !Self::contains_combo(&new_active_combos, combo) {
+                let device = InputDevice::XInputCombo {
+                    device_type,
+                    button_ids: combo.clone(),
+                };
+                pool.dispatch(InputEvent::Released(device));
+            }
+        }
+
+        device_state.active_combos = new_active_combos;
+        device_state.last_input_bits = current_bits;
+    }
+
+    /// Converts input IDs to bitset representation
+    /// Each button gets a unique bit position (0-31 for XInput's 26 buttons)
+    #[inline(always)]
+    fn inputs_to_bitset(inputs: &[u32]) -> u32 {
+        let mut bits = 0u32;
+        for &input_id in inputs {
+            if likely(input_id < 32) {
+                bits |= 1u32 << input_id;
+            }
+        }
+        bits
+    }
+
+    /// Builds bitset masks for all combos
+    #[inline]
+    fn build_combo_masks(combos: &[Vec<u32>], masks: &mut SmallVec<[ComboMask; 16]>) {
+        masks.clear();
+        for combo in combos {
+            let required_bits = Self::inputs_to_bitset(combo);
+            masks.push(ComboMask {
+                required_bits,
+                combo_size: combo.len() as u8,
+                button_ids: combo.iter().copied().collect(),
+            });
+        }
+        // Sort by combo size (larger combos first for priority matching)
+        masks.sort_unstable_by(|a, b| b.combo_size.cmp(&a.combo_size));
+    }
+
+    /// Builds layered index for fast lookup
+    #[inline]
+    fn build_layered_index(combos: &[Vec<u32>], index: &mut LayeredComboIndex) {
+        index.single_keys.clear();
+        index.two_keys.clear();
+        index.multi_keys.clear();
+
+        for combo in combos {
+            match combo.len() {
+                1 => {
+                    let key = combo[0];
+                    if let Some(entry) = index.single_keys.iter_mut().find(|(k, _)| *k == key) {
+                        entry.1 = combo.iter().copied().collect();
+                    } else {
+                        index
+                            .single_keys
+                            .push((key, combo.iter().copied().collect()));
+                    }
+                }
+                2 => {
+                    let mut sorted = [combo[0], combo[1]];
+                    sorted.sort_unstable();
+                    let key = (sorted[0], sorted[1]);
+                    if let Some(entry) = index.two_keys.iter_mut().find(|(k, _)| *k == key) {
+                        entry.1 = combo.iter().copied().collect();
+                    } else {
+                        index.two_keys.push((key, combo.iter().copied().collect()));
+                    }
+                }
+                _ => {
+                    index.multi_keys.push((
+                        combo.iter().copied().collect(),
+                        combo.iter().copied().collect(),
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Bitset-based combo matching
+    #[inline(always)]
+    fn match_combos_bitset(
+        current_bits: u32,
+        masks: &[ComboMask],
+        matched: &mut SmallVec<[Vec<u32>; 4]>,
+    ) {
+        for mask in masks {
+            if (current_bits & mask.required_bits) == mask.required_bits {
+                matched.push(mask.button_ids.to_vec());
+            }
+        }
+    }
+
+    /// Layered index matching
+    #[inline]
+    fn match_combos_layered(
+        current_inputs: &[u32],
+        index: &LayeredComboIndex,
+        matched: &mut SmallVec<[Vec<u32>; 4]>,
+    ) {
+        // Match single keys - O(n) where n is number of pressed keys
+        for &key in current_inputs {
+            for (k, combo) in &index.single_keys {
+                if *k == key {
+                    matched.push(combo.to_vec());
+                }
+            }
+        }
+
+        // Match two-key combos - O(n²) but n ≤ 5 typically
+        if current_inputs.len() >= 2 {
+            for i in 0..current_inputs.len() {
+                for j in (i + 1)..current_inputs.len() {
+                    let mut sorted = [current_inputs[i], current_inputs[j]];
+                    sorted.sort_unstable();
+                    let key = (sorted[0], sorted[1]);
+
+                    for (k, combo) in &index.two_keys {
+                        if *k == key {
+                            matched.push(combo.to_vec());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Match multi-key combos - brute force (rare case)
+        for (combo_keys, combo) in &index.multi_keys {
+            if combo_keys.iter().all(|&key| current_inputs.contains(&key)) {
+                matched.push(combo.to_vec());
+            }
+        }
+    }
+
+    /// AVX2 batch matching
+    /// Processes 8 combos in parallel using AVX2
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[inline]
+    fn match_combos_simd(
+        current_bits: u32,
+        masks: &[ComboMask],
+        matched: &mut SmallVec<[Vec<u32>; 4]>,
+    ) {
+        use std::arch::x86_64::*;
+
+        let mut i = 0;
+        let current_vec = unsafe { _mm256_set1_epi32(current_bits as i32) };
+
+        // Process 8 masks at a time
+        while i + 8 <= masks.len() {
+            unsafe {
+                // Load 8 required_bits masks
+                let mask_bits: [i32; 8] = [
+                    masks[i].required_bits as i32,
+                    masks[i + 1].required_bits as i32,
+                    masks[i + 2].required_bits as i32,
+                    masks[i + 3].required_bits as i32,
+                    masks[i + 4].required_bits as i32,
+                    masks[i + 5].required_bits as i32,
+                    masks[i + 6].required_bits as i32,
+                    masks[i + 7].required_bits as i32,
+                ];
+
+                let masks_vec = _mm256_loadu_si256(mask_bits.as_ptr() as *const __m256i);
+
+                // Perform (current & mask) == mask check
+                let anded = _mm256_and_si256(current_vec, masks_vec);
+                let cmp = _mm256_cmpeq_epi32(anded, masks_vec);
+                let result_mask = _mm256_movemask_epi8(cmp);
+
+                // Check which combos matched (every 4 bytes = 1 result)
+                for j in 0..8 {
+                    let bit_offset = j * 4;
+                    if (result_mask & (0x0F << bit_offset)) == (0x0F << bit_offset) {
+                        matched.push(masks[i + j].button_ids.to_vec());
+                    }
+                }
+            }
+
+            i += 8;
+        }
+
+        // Handle remaining masks (< 8)
+        for mask in &masks[i..] {
+            if (current_bits & mask.required_bits) == mask.required_bits {
+                matched.push(mask.button_ids.to_vec());
+            }
+        }
+    }
+
+    /// Checks if a combo list contains a specific combo (order-independent)
+    #[inline(always)]
+    fn contains_combo(combos: &[Vec<u32>], target: &[u32]) -> bool {
+        if unlikely(combos.is_empty()) {
+            return false;
+        }
+
+        for combo in combos {
+            if likely(combo.len() == target.len()) && Self::combo_equals(combo, target) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Fast comparison of two combos (order-independent)
+    #[inline(always)]
+    fn combo_equals(a: &[u32], b: &[u32]) -> bool {
+        if unlikely(a.len() != b.len()) {
+            return false;
+        }
+
+        // Fast path for small combos
+        if likely(a.len() <= 4) {
+            return a.iter().all(|k| b.contains(k));
+        }
+
+        // For larger combos, use sorted comparison (rare case)
+        let mut a_sorted: SmallVec<[u32; 8]> = a.iter().copied().collect();
+        let mut b_sorted: SmallVec<[u32; 8]> = b.iter().copied().collect();
+        a_sorted.sort_unstable();
+        b_sorted.sort_unstable();
+        a_sorted == b_sorted
     }
 
     /// Checks button states and records active buttons.
@@ -533,68 +864,6 @@ impl XInputHandler {
         }
     }
 
-    /// Parses diagonal name to input IDs (always returns exactly 2 IDs).
-    #[inline(always)]
-    pub fn parse_diagonal_name(name: &str) -> Option<[u32; 2]> {
-        match name {
-            // Left Stick diagonals
-            "LS_RightUp" | "LS_RIGHTUP" => Some([0x10, 0x12]),
-            "LS_RightDown" | "LS_RIGHTDOWN" => Some([0x10, 0x13]),
-            "LS_LeftUp" | "LS_LEFTUP" => Some([0x11, 0x12]),
-            "LS_LeftDown" | "LS_LEFTDOWN" => Some([0x11, 0x13]),
-            // Right Stick diagonals
-            "RS_RightUp" | "RS_RIGHTUP" => Some([0x14, 0x16]),
-            "RS_RightDown" | "RS_RIGHTDOWN" => Some([0x14, 0x17]),
-            "RS_LeftUp" | "RS_LEFTUP" => Some([0x15, 0x16]),
-            "RS_LeftDown" | "RS_LEFTDOWN" => Some([0x15, 0x17]),
-            // D-Pad diagonals
-            "DPad_UpRight" | "DPAD_UPRIGHT" => Some([0x01, 0x04]),
-            "DPad_UpLeft" | "DPAD_UPLEFT" => Some([0x01, 0x03]),
-            "DPad_DownRight" | "DPAD_DOWNRIGHT" => Some([0x02, 0x04]),
-            "DPad_DownLeft" | "DPAD_DOWNLEFT" => Some([0x02, 0x03]),
-            _ => None,
-        }
-    }
-
-    /// Checks if two direction inputs form a diagonal.
-    #[inline(always)]
-    pub fn try_combine_diagonal(inputs: &[u32]) -> Option<&'static str> {
-        if inputs.len() != 2 {
-            return None;
-        }
-
-        let (a, b) = (inputs[0], inputs[1]);
-
-        // Left stick diagonals
-        match (a, b) {
-            (0x10, 0x12) | (0x12, 0x10) => return Some("LS_RightUp"),
-            (0x10, 0x13) | (0x13, 0x10) => return Some("LS_RightDown"),
-            (0x11, 0x12) | (0x12, 0x11) => return Some("LS_LeftUp"),
-            (0x11, 0x13) | (0x13, 0x11) => return Some("LS_LeftDown"),
-            _ => {}
-        }
-
-        // Right stick diagonals
-        match (a, b) {
-            (0x14, 0x16) | (0x16, 0x14) => return Some("RS_RightUp"),
-            (0x14, 0x17) | (0x17, 0x14) => return Some("RS_RightDown"),
-            (0x15, 0x16) | (0x16, 0x15) => return Some("RS_LeftUp"),
-            (0x15, 0x17) | (0x17, 0x15) => return Some("RS_LeftDown"),
-            _ => {}
-        }
-
-        // D-Pad diagonals
-        match (a, b) {
-            (0x01, 0x04) | (0x04, 0x01) => return Some("DPad_UpRight"),
-            (0x01, 0x03) | (0x03, 0x01) => return Some("DPad_UpLeft"),
-            (0x02, 0x04) | (0x04, 0x02) => return Some("DPad_DownRight"),
-            (0x02, 0x03) | (0x03, 0x02) => return Some("DPad_DownLeft"),
-            _ => {}
-        }
-
-        None
-    }
-
     /// Finds the most sustained frame index from captured frames.
     /// Prioritizes frames with more inputs (diagonal directions), then duration.
     #[inline(always)]
@@ -785,7 +1054,7 @@ impl XInputHandler {
 
     /// Generates stable device ID from VID:PID.
     #[inline(always)]
-    fn hash_vid_pid_static(vid_pid: (u16, u16)) -> u32 {
+    pub fn hash_vid_pid_static(vid_pid: (u16, u16)) -> u32 {
         use crate::util::{fnv1a_hash_u32, fnv32};
 
         let mut hash = fnv32::OFFSET_BASIS;
@@ -1217,5 +1486,347 @@ mod tests {
 
         XInputHandler::check_triggers_fast(&gamepad, &mut active);
         assert_eq!(active.len(), 0);
+    }
+
+    #[test]
+    fn test_contains_combo_true() {
+        let combos = vec![vec![0x01], vec![0x01, 0x0B], vec![0x0C, 0x0D]];
+        let target = vec![0x01, 0x0B];
+        assert!(XInputHandler::contains_combo(&combos, &target));
+    }
+
+    #[test]
+    fn test_contains_combo_false() {
+        let combos = vec![vec![0x01], vec![0x01, 0x0B]];
+        let target = vec![0x0C, 0x0D];
+        assert!(!XInputHandler::contains_combo(&combos, &target));
+    }
+
+    #[test]
+    fn test_contains_combo_order_independent() {
+        let combos = vec![vec![0x01, 0x0B, 0x0C]];
+        let target = vec![0x0C, 0x01, 0x0B]; // Different order
+        assert!(XInputHandler::contains_combo(&combos, &target));
+    }
+
+    #[test]
+    fn test_combo_equals_same_order() {
+        let a = vec![0x01, 0x0B, 0x0C];
+        let b = vec![0x01, 0x0B, 0x0C];
+        assert!(XInputHandler::combo_equals(&a, &b));
+    }
+
+    #[test]
+    fn test_combo_equals_diff_order() {
+        let a = vec![0x01, 0x0B, 0x0C];
+        let b = vec![0x0C, 0x01, 0x0B];
+        assert!(XInputHandler::combo_equals(&a, &b));
+    }
+
+    #[test]
+    fn test_combo_equals_different() {
+        let a = vec![0x01, 0x0B];
+        let b = vec![0x0C, 0x0D];
+        assert!(!XInputHandler::combo_equals(&a, &b));
+    }
+
+    #[test]
+    fn test_inputs_to_bitset() {
+        let inputs = vec![0x01, 0x0B, 0x0D]; // DPAD_UP, A, X
+        let bits = XInputHandler::inputs_to_bitset(&inputs);
+
+        assert_eq!(bits & (1 << 0x01), 1 << 0x01);
+        assert_eq!(bits & (1 << 0x0B), 1 << 0x0B);
+        assert_eq!(bits & (1 << 0x0D), 1 << 0x0D);
+        assert_eq!(bits & (1 << 0x0C), 0); // B not pressed
+    }
+
+    #[test]
+    fn test_build_combo_masks() {
+        let combos = vec![
+            vec![0x01, 0x0B], // DPAD_UP + A
+            vec![0x0C, 0x0D], // B + X
+            vec![0x0E],       // Y
+        ];
+
+        let mut masks = SmallVec::new();
+        XInputHandler::build_combo_masks(&combos, &mut masks);
+
+        assert_eq!(masks.len(), 3);
+
+        // Check first combo mask
+        let expected_bits = (1 << 0x01) | (1 << 0x0B);
+        assert_eq!(masks[0].required_bits, expected_bits);
+        assert_eq!(masks[0].combo_size, 2);
+    }
+
+    #[test]
+    fn test_match_combos_bitset() {
+        let mut masks: SmallVec<[ComboMask; 16]> = SmallVec::new();
+        masks.push(ComboMask {
+            required_bits: (1 << 0x01) | (1 << 0x0B),
+            combo_size: 2,
+            button_ids: SmallVec::from_slice(&[0x01, 0x0B]),
+        });
+        masks.push(ComboMask {
+            required_bits: 1 << 0x0C,
+            combo_size: 1,
+            button_ids: SmallVec::from_slice(&[0x0C]),
+        });
+
+        let current_bits = (1 << 0x01) | (1 << 0x0B) | (1 << 0x0C);
+        let mut matched: SmallVec<[Vec<u32>; 4]> = SmallVec::new();
+
+        XInputHandler::match_combos_bitset(current_bits, &masks, &mut matched);
+
+        // Both combos should match
+        assert_eq!(matched.len(), 2);
+        assert!(matched.contains(&vec![0x01, 0x0B]));
+        assert!(matched.contains(&vec![0x0C]));
+    }
+
+    #[test]
+    fn test_match_combos_layered() {
+        let mut index = LayeredComboIndex::new();
+
+        // Single key: A
+        index
+            .single_keys
+            .push((0x0B, SmallVec::from_slice(&[0x0B])));
+
+        // Two keys: DPAD_UP + A
+        index
+            .two_keys
+            .push(((0x01, 0x0B), SmallVec::from_slice(&[0x01, 0x0B])));
+
+        let current_inputs = vec![0x01, 0x0B]; // DPAD_UP + A
+        let mut matched = SmallVec::new();
+
+        XInputHandler::match_combos_layered(&current_inputs, &index, &mut matched);
+
+        // Both should match
+        assert_eq!(matched.len(), 2);
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[test]
+    fn test_match_combos_simd() {
+        // Create 10 combo masks
+        let mut masks: SmallVec<[ComboMask; 16]> = SmallVec::new();
+        for i in 0..10 {
+            masks.push(ComboMask {
+                required_bits: 1 << i,
+                combo_size: 1,
+                button_ids: SmallVec::from_slice(&[i]),
+            });
+        }
+
+        // Press buttons 0, 2, 4
+        let current_bits = (1 << 0) | (1 << 2) | (1 << 4);
+        let mut matched: SmallVec<[Vec<u32>; 4]> = SmallVec::new();
+
+        XInputHandler::match_combos_simd(current_bits, &masks, &mut matched);
+
+        // Should match 3 combos
+        assert_eq!(matched.len(), 3);
+        assert!(matched.contains(&vec![0]));
+        assert!(matched.contains(&vec![2]));
+        assert!(matched.contains(&vec![4]));
+    }
+
+    #[test]
+    fn test_incremental_update_no_change() {
+        // Simulate no change scenario (most common)
+        let inputs = vec![0x01, 0x0B];
+        let bits1 = XInputHandler::inputs_to_bitset(&inputs);
+        let bits2 = XInputHandler::inputs_to_bitset(&inputs);
+
+        // Bits should be identical, allowing early exit
+        assert_eq!(bits1, bits2);
+    }
+
+    #[test]
+    fn test_combo_priority_by_size() {
+        let combos = vec![
+            vec![0x01],             // Single key
+            vec![0x01, 0x0B, 0x0C], // Three keys
+            vec![0x01, 0x0B],       // Two keys
+        ];
+
+        let mut masks = SmallVec::new();
+        XInputHandler::build_combo_masks(&combos, &mut masks);
+
+        // Larger combos should come first (sorted by combo_size descending)
+        assert_eq!(masks[0].combo_size, 3);
+        assert_eq!(masks[1].combo_size, 2);
+        assert_eq!(masks[2].combo_size, 1);
+    }
+
+    // ==================== Performance Benchmarks ====================
+
+    #[test]
+    #[ignore] // Run with: cargo test --release -- --ignored --nocapture
+    fn benchmark_matching_strategies() {
+        use std::time::Instant;
+
+        // Setup: 20 combos (realistic game scenario)
+        let combos: Vec<Vec<u32>> = vec![
+            vec![0x01],             // DPAD_UP
+            vec![0x02],             // DPAD_DOWN
+            vec![0x03],             // DPAD_LEFT
+            vec![0x04],             // DPAD_RIGHT
+            vec![0x0B],             // A
+            vec![0x0C],             // B
+            vec![0x0D],             // X
+            vec![0x0E],             // Y
+            vec![0x01, 0x0B],       // UP + A
+            vec![0x01, 0x0C],       // UP + B
+            vec![0x02, 0x0B],       // DOWN + A
+            vec![0x03, 0x0D],       // LEFT + X
+            vec![0x04, 0x0E],       // RIGHT + Y
+            vec![0x01, 0x0B, 0x0D], // UP + A + X
+            vec![0x02, 0x0C, 0x0E], // DOWN + B + Y
+            vec![0x09, 0x0A],       // LB + RB
+            vec![0x18],             // LT
+            vec![0x19],             // RT
+            vec![0x10, 0x12],       // LS_Right + LS_Up
+            vec![0x14, 0x16],       // RS_Right + RS_Up
+        ];
+
+        let mut masks = SmallVec::new();
+        XInputHandler::build_combo_masks(&combos, &mut masks);
+
+        let mut layered_index = LayeredComboIndex::new();
+        XInputHandler::build_layered_index(&combos, &mut layered_index);
+
+        // Test case: pressing UP + A + X (should match 4 combos)
+        let inputs = vec![0x01, 0x0B, 0x0D];
+        let bits = XInputHandler::inputs_to_bitset(&inputs);
+
+        const ITERATIONS: usize = 100_000;
+
+        // Benchmark 1: Bitset matching
+        let start = Instant::now();
+        for _ in 0..ITERATIONS {
+            let mut matched = SmallVec::<[Vec<u32>; 4]>::new();
+            XInputHandler::match_combos_bitset(bits, &masks, &mut matched);
+        }
+        let bitset_time = start.elapsed();
+
+        // Benchmark 2: Layered index matching
+        let start = Instant::now();
+        for _ in 0..ITERATIONS {
+            let mut matched = SmallVec::<[Vec<u32>; 4]>::new();
+            XInputHandler::match_combos_layered(&inputs, &layered_index, &mut matched);
+        }
+        let layered_time = start.elapsed();
+
+        // Benchmark 3: AVX2 SIMD matching (if compiled with AVX2)
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+        let simd_time = {
+            let start = Instant::now();
+            for _ in 0..ITERATIONS {
+                let mut matched = SmallVec::<[Vec<u32>; 4]>::new();
+                XInputHandler::match_combos_simd(bits, &masks, &mut matched);
+            }
+            Some(start.elapsed())
+        };
+
+        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+        let simd_time: Option<std::time::Duration> = None;
+
+        println!("\n===== Performance Benchmark Results =====");
+        println!("Iterations: {}", ITERATIONS);
+        println!("Combos: {}", combos.len());
+        println!("Inputs: {:?}", inputs);
+        println!();
+        println!(
+            "Bitset matching:  {:?} ({:.2} ns/iter)",
+            bitset_time,
+            bitset_time.as_nanos() as f64 / ITERATIONS as f64
+        );
+        println!(
+            "Layered matching: {:?} ({:.2} ns/iter)",
+            layered_time,
+            layered_time.as_nanos() as f64 / ITERATIONS as f64
+        );
+
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+        if let Some(simd_time) = simd_time {
+            println!(
+                "AVX2 SIMD matching: {:?} ({:.2} ns/iter)",
+                simd_time,
+                simd_time.as_nanos() as f64 / ITERATIONS as f64
+            );
+        }
+
+        println!("\nSpeedup vs Layered:");
+        println!(
+            "  Bitset: {:.2}x",
+            layered_time.as_nanos() as f64 / bitset_time.as_nanos() as f64
+        );
+
+        #[cfg(target_arch = "x86_64")]
+        if let Some(simd_time) = simd_time {
+            println!(
+                "  SIMD:   {:.2}x",
+                layered_time.as_nanos() as f64 / simd_time.as_nanos() as f64
+            );
+        }
+
+        println!("=========================================\n");
+    }
+
+    #[test]
+    #[ignore]
+    fn benchmark_incremental_update() {
+        use std::time::Instant;
+
+        let inputs = vec![0x01, 0x0B, 0x0D];
+        let bits = XInputHandler::inputs_to_bitset(&inputs);
+
+        const ITERATIONS: usize = 1_000_000;
+
+        // Scenario 1: No change (95% of frames in typical gameplay)
+        let start = Instant::now();
+        let mut last_bits = bits;
+        for _ in 0..ITERATIONS {
+            let current_bits = bits; // Same as last frame
+            if current_bits == last_bits {
+                continue; // Early exit
+            }
+            last_bits = current_bits;
+        }
+        let no_change_time = start.elapsed();
+
+        // Scenario 2: Always changing (worst case, 5% of frames)
+        let start = Instant::now();
+        let mut last_bits = bits;
+        for i in 0..ITERATIONS {
+            let current_bits = bits ^ (i as u32 & 1); // Toggle a bit
+            if current_bits == last_bits {
+                continue;
+            }
+            last_bits = current_bits;
+            // Would do full matching here
+        }
+        let always_change_time = start.elapsed();
+
+        println!("\n===== Incremental Update Benchmark =====");
+        println!(
+            "No change (95%):  {:?} ({:.2} ns/iter)",
+            no_change_time,
+            no_change_time.as_nanos() as f64 / ITERATIONS as f64
+        );
+        println!(
+            "Changed (5%):     {:?} ({:.2} ns/iter)",
+            always_change_time,
+            always_change_time.as_nanos() as f64 / ITERATIONS as f64
+        );
+        println!(
+            "Speedup: {:.2}x for static frames",
+            always_change_time.as_nanos() as f64 / no_change_time.as_nanos() as f64
+        );
+        println!("=========================================\n");
     }
 }

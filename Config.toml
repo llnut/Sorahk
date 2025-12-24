@@ -20,6 +20,7 @@ xinput_capture_mode = "DiagonalPriority"  # XInput capture mode: "DiagonalPriori
                                           # DiagonalPriority: Prioritizes diagonal stick directions over straight directions
                                           # MostSustained: Captures the most sustained input pattern
                                           # LastStable: Captures the last stable input before release
+                                          # Note: Compile with RUSTFLAGS="-C target-feature=+avx2" for AVX2 optimizations
 
 # ─── Control Settings ───
 switch_key = "DELETE"        # Reserved key to toggle SoraHK behavior

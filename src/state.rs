@@ -68,7 +68,7 @@ pub enum InputDevice {
     /// Format: [modifier1, modifier2, ..., main_key]
     /// The last element is always the main key, others are modifiers
     KeyCombo(Vec<u32>),
-    /// XInput gamepad input with readable button names
+    /// XInput gamepad combo
     /// Format: (device_type, button_ids)
     XInputCombo {
         device_type: DeviceType,
@@ -101,55 +101,17 @@ impl std::fmt::Display for InputDevice {
                     _ => "XINPUT",
                 };
 
-                // Try to combine directions into diagonal first
-                let mut dir_inputs = SmallVec::<[u32; 4]>::new();
-                let mut other_inputs = SmallVec::<[u32; 8]>::new();
-
-                for &id in button_ids {
-                    if crate::xinput::XInputHandler::is_direction_input(id) {
-                        dir_inputs.push(id);
-                    } else {
-                        other_inputs.push(id);
-                    }
-                }
-
-                // Format as GAMEPAD_VID_buttons
                 write!(f, "{}_{:04X}_", prefix, vid)?;
 
-                // Write button names directly without intermediate Vec
-                let mut first = true;
-
-                if dir_inputs.len() == 2 {
-                    if let Some(diagonal_name) =
-                        crate::xinput::XInputHandler::try_combine_diagonal(&dir_inputs)
-                    {
-                        write!(f, "{}", diagonal_name)?;
-                        first = false;
-                    } else {
-                        for &id in &dir_inputs {
-                            if !first {
-                                write!(f, "+")?;
-                            }
-                            write!(f, "{}", crate::xinput::XInputHandler::input_id_to_name(id))?;
-                            first = false;
-                        }
-                    }
-                } else {
-                    for &id in &dir_inputs {
-                        if !first {
-                            write!(f, "+")?;
-                        }
-                        write!(f, "{}", crate::xinput::XInputHandler::input_id_to_name(id))?;
-                        first = false;
-                    }
-                }
-
-                for &id in &other_inputs {
-                    if !first {
+                for (i, &input_id) in button_ids.iter().enumerate() {
+                    if i > 0 {
                         write!(f, "+")?;
                     }
-                    write!(f, "{}", crate::xinput::XInputHandler::input_id_to_name(id))?;
-                    first = false;
+                    write!(
+                        f,
+                        "{}",
+                        crate::xinput::XInputHandler::input_id_to_name(input_id)
+                    )?;
                 }
 
                 Ok(())
@@ -448,7 +410,7 @@ pub struct AppState {
     notification_sender: OnceLock<Sender<NotificationEvent>>,
     /// Process whitelist (empty means all processes enabled)
     process_whitelist: Mutex<Vec<String>>,
-    /// Cached foreground process name with timestamp (RwLock for optimized reads)
+    /// Cached foreground process name with timestamp
     cached_process_info: RwLock<(Option<String>, Instant)>,
     /// Currently pressed keys for combo detection
     pressed_keys: scc::HashSet<u32>,
@@ -462,6 +424,9 @@ pub struct AppState {
     /// Cached combo key index for efficient combo matching
     /// Maps main key to all combos that end with that key
     cached_combo_index: scc::HashMap<u32, Vec<InputDevice>>,
+    /// Cached XInput combo index for subset matching
+    /// Maps device_type to all combo button_ids for that device
+    cached_xinput_combos: scc::HashMap<DeviceType, Vec<Vec<u32>>>,
     /// Raw Input capture event sender for GUI
     raw_input_capture_sender: Sender<InputDevice>,
     /// Raw Input capture event receiver for GUI
@@ -482,6 +447,8 @@ pub struct AppState {
     hid_activation_data_receiver: Mutex<Receiver<(isize, Vec<u8>)>>,
     /// Currently activating device handle
     activating_device_handle: std::sync::atomic::AtomicIsize,
+    /// XInput cache invalidation flag
+    xinput_cache_invalid: AtomicBool,
 }
 
 impl AppState {
@@ -504,11 +471,12 @@ impl AppState {
             let _ = input_mappings.insert_sync(k, v);
         }
 
-        // Initialize cached data structures for performance optimization
+        // Initialize cached data structures
         let cached_turbo_keyboard: [AtomicBool; 256] =
             std::array::from_fn(|_| AtomicBool::new(true));
         let cached_turbo_other = scc::HashMap::new();
         let cached_combo_index: scc::HashMap<u32, Vec<InputDevice>> = scc::HashMap::new();
+        let cached_xinput_combos: scc::HashMap<DeviceType, Vec<Vec<u32>>> = scc::HashMap::new();
 
         for mapping in config.mappings.iter() {
             if let Some(device) = Self::input_name_to_device(&mapping.trigger_key) {
@@ -527,6 +495,19 @@ impl AppState {
                             combos.push(device.clone());
                             let _ = cached_combo_index.upsert_sync(last_key, combos);
                         }
+                        let _ =
+                            cached_turbo_other.insert_sync(device.clone(), mapping.turbo_enabled);
+                    }
+                    InputDevice::XInputCombo {
+                        device_type,
+                        button_ids,
+                    } => {
+                        let mut combos = cached_xinput_combos
+                            .get_sync(device_type)
+                            .map(|v| v.get().clone())
+                            .unwrap_or_default();
+                        combos.push(button_ids.clone());
+                        let _ = cached_xinput_combos.upsert_sync(*device_type, combos);
                         let _ =
                             cached_turbo_other.insert_sync(device.clone(), mapping.turbo_enabled);
                     }
@@ -563,6 +544,7 @@ impl AppState {
             cached_turbo_keyboard,
             cached_turbo_other,
             cached_combo_index,
+            cached_xinput_combos,
             raw_input_capture_sender,
             raw_input_capture_receiver: Mutex::new(raw_input_capture_receiver),
             is_capturing_raw_input: AtomicBool::new(false),
@@ -577,6 +559,7 @@ impl AppState {
             hid_activation_data_sender,
             hid_activation_data_receiver: Mutex::new(hid_activation_data_receiver),
             activating_device_handle: std::sync::atomic::AtomicIsize::new(-1),
+            xinput_cache_invalid: AtomicBool::new(false),
         })
     }
 
@@ -618,6 +601,7 @@ impl AppState {
         // Update cached data structures
         self.cached_turbo_other.clear_sync();
         self.cached_combo_index.clear_sync();
+        self.cached_xinput_combos.clear_sync();
 
         // Reset keyboard turbo cache to default
         for i in 0..256 {
@@ -643,6 +627,21 @@ impl AppState {
 
                             let _ = self.cached_combo_index.upsert_sync(last_key, combos);
                         }
+                        let _ = self
+                            .cached_turbo_other
+                            .insert_sync(device, mapping.turbo_enabled);
+                    }
+                    InputDevice::XInputCombo {
+                        device_type,
+                        button_ids,
+                    } => {
+                        let mut combos = self
+                            .cached_xinput_combos
+                            .get_sync(device_type)
+                            .map(|v| v.get().clone())
+                            .unwrap_or_default();
+                        combos.push(button_ids.clone());
+                        let _ = self.cached_xinput_combos.upsert_sync(*device_type, combos);
                         let _ = self
                             .cached_turbo_other
                             .insert_sync(device, mapping.turbo_enabled);
@@ -675,6 +674,9 @@ impl AppState {
             pool.clear_cache();
         }
 
+        // Signal XInput to invalidate device-level caches
+        self.xinput_cache_invalid.store(true, Ordering::Release);
+
         Ok(())
     }
 
@@ -691,6 +693,12 @@ impl AppState {
     /// Gets the Raw Input capture sender for GUI key capture mode.
     pub fn get_raw_input_capture_sender(&self) -> &Sender<InputDevice> {
         &self.raw_input_capture_sender
+    }
+
+    /// Checks and resets XInput cache invalidation flag.
+    #[inline(always)]
+    pub fn check_and_reset_xinput_cache_invalid(&self) -> bool {
+        self.xinput_cache_invalid.swap(false, Ordering::Acquire)
     }
 
     /// Gets the current Raw Input capture mode.
@@ -885,6 +893,16 @@ impl AppState {
     #[inline(always)]
     pub fn get_input_mapping(&self, device: &InputDevice) -> Option<InputMappingInfo> {
         self.input_mappings.read_sync(device, |_, v| v.clone())
+    }
+
+    /// Gets all XInputCombo button_ids for a specific device type
+    /// Used for subset matching in runtime (cached for performance)
+    #[inline(always)]
+    pub fn get_xinput_combos_for_device(&self, device_type: &DeviceType) -> Vec<Vec<u32>> {
+        self.cached_xinput_combos
+            .get_sync(device_type)
+            .map(|v| v.get().clone())
+            .unwrap_or_default()
     }
 
     /// Check turbo_enabled state from cache (hot path)
@@ -1093,6 +1111,11 @@ impl AppState {
         unsafe {
             match action {
                 OutputAction::KeyboardKey(scancode) => {
+                    let mut press_flags = KEYEVENTF_SCANCODE;
+                    if Self::is_extended_scancode(scancode) {
+                        press_flags |= KEYEVENTF_EXTENDEDKEY;
+                    }
+
                     // Press the key
                     let mut input = INPUT {
                         r#type: INPUT_KEYBOARD,
@@ -1100,7 +1123,7 @@ impl AppState {
                             ki: KEYBDINPUT {
                                 wVk: VIRTUAL_KEY(0),
                                 wScan: scancode,
-                                dwFlags: KEYEVENTF_SCANCODE,
+                                dwFlags: press_flags,
                                 time: 0,
                                 dwExtraInfo: SIMULATED_EVENT_MARKER,
                             },
@@ -1111,7 +1134,7 @@ impl AppState {
                     std::thread::sleep(std::time::Duration::from_millis(duration));
 
                     // Release the key
-                    input.Anonymous.ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+                    input.Anonymous.ki.dwFlags = press_flags | KEYEVENTF_KEYUP;
                     SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
                 }
                 OutputAction::MouseButton(button) => {
@@ -1211,13 +1234,18 @@ impl AppState {
                 OutputAction::KeyCombo(scancodes) => {
                     // Press all keys in sequence (modifiers first, then main key)
                     for &scancode in scancodes.iter() {
+                        let mut flags = KEYEVENTF_SCANCODE;
+                        if Self::is_extended_scancode(scancode) {
+                            flags |= KEYEVENTF_EXTENDEDKEY;
+                        }
+
                         let input = INPUT {
                             r#type: INPUT_KEYBOARD,
                             Anonymous: INPUT_0 {
                                 ki: KEYBDINPUT {
                                     wVk: VIRTUAL_KEY(0),
                                     wScan: scancode,
-                                    dwFlags: KEYEVENTF_SCANCODE,
+                                    dwFlags: flags,
                                     time: 0,
                                     dwExtraInfo: SIMULATED_EVENT_MARKER,
                                 },
@@ -1233,13 +1261,18 @@ impl AppState {
 
                     // Release all keys in reverse order (main key first, then modifiers)
                     for &scancode in scancodes.iter().rev() {
+                        let mut flags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+                        if Self::is_extended_scancode(scancode) {
+                            flags |= KEYEVENTF_EXTENDEDKEY;
+                        }
+
                         let input = INPUT {
                             r#type: INPUT_KEYBOARD,
                             Anonymous: INPUT_0 {
                                 ki: KEYBDINPUT {
                                     wVk: VIRTUAL_KEY(0),
                                     wScan: scancode,
-                                    dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                                    dwFlags: flags,
                                     time: 0,
                                     dwExtraInfo: SIMULATED_EVENT_MARKER,
                                 },
@@ -1271,18 +1304,45 @@ impl AppState {
         }
     }
 
+    /// Checks if a scancode requires KEYEVENTF_EXTENDEDKEY flag
+    #[inline(always)]
+    fn is_extended_scancode(scancode: u16) -> bool {
+        const EXTENDED_KEYS_BITMAP: u128 = (1u128 << 0x1D)
+            | (1u128 << 0x38)
+            | (1u128 << 0x47)
+            | (1u128 << 0x48)
+            | (1u128 << 0x49)
+            | (1u128 << 0x4B)
+            | (1u128 << 0x4D)
+            | (1u128 << 0x4F)
+            | (1u128 << 0x50)
+            | (1u128 << 0x51)
+            | (1u128 << 0x52)
+            | (1u128 << 0x53)
+            | (1u128 << 0x5B)
+            | (1u128 << 0x5C);
+
+        scancode < 128 && (EXTENDED_KEYS_BITMAP & (1u128 << scancode)) != 0
+    }
+
     /// Simulates only the press event for an action
+    #[inline(always)]
     pub fn simulate_press(&self, action: &OutputAction) {
         unsafe {
             match action {
                 OutputAction::KeyboardKey(scancode) => {
+                    let mut flags = KEYEVENTF_SCANCODE;
+                    if Self::is_extended_scancode(*scancode) {
+                        flags |= KEYEVENTF_EXTENDEDKEY;
+                    }
+
                     let input = INPUT {
                         r#type: INPUT_KEYBOARD,
                         Anonymous: INPUT_0 {
                             ki: KEYBDINPUT {
                                 wVk: VIRTUAL_KEY(0),
                                 wScan: *scancode,
-                                dwFlags: KEYEVENTF_SCANCODE,
+                                dwFlags: flags,
                                 time: 0,
                                 dwExtraInfo: SIMULATED_EVENT_MARKER,
                             },
@@ -1329,13 +1389,18 @@ impl AppState {
                 }
                 OutputAction::KeyCombo(scancodes) => {
                     for &scancode in scancodes.iter() {
+                        let mut flags = KEYEVENTF_SCANCODE;
+                        if Self::is_extended_scancode(scancode) {
+                            flags |= KEYEVENTF_EXTENDEDKEY;
+                        }
+
                         let input = INPUT {
                             r#type: INPUT_KEYBOARD,
                             Anonymous: INPUT_0 {
                                 ki: KEYBDINPUT {
                                     wVk: VIRTUAL_KEY(0),
                                     wScan: scancode,
-                                    dwFlags: KEYEVENTF_SCANCODE,
+                                    dwFlags: flags,
                                     time: 0,
                                     dwExtraInfo: SIMULATED_EVENT_MARKER,
                                 },
@@ -1358,17 +1423,23 @@ impl AppState {
     }
 
     /// Simulates only the release event for an action
+    #[inline(always)]
     pub fn simulate_release(&self, action: &OutputAction) {
         unsafe {
             match action {
                 OutputAction::KeyboardKey(scancode) => {
+                    let mut flags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+                    if Self::is_extended_scancode(*scancode) {
+                        flags |= KEYEVENTF_EXTENDEDKEY;
+                    }
+
                     let input = INPUT {
                         r#type: INPUT_KEYBOARD,
                         Anonymous: INPUT_0 {
                             ki: KEYBDINPUT {
                                 wVk: VIRTUAL_KEY(0),
                                 wScan: *scancode,
-                                dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                                dwFlags: flags,
                                 time: 0,
                                 dwExtraInfo: SIMULATED_EVENT_MARKER,
                             },
@@ -1415,13 +1486,18 @@ impl AppState {
                 }
                 OutputAction::KeyCombo(scancodes) => {
                     for &scancode in scancodes.iter().rev() {
+                        let mut flags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+                        if Self::is_extended_scancode(scancode) {
+                            flags |= KEYEVENTF_EXTENDEDKEY;
+                        }
+
                         let input = INPUT {
                             r#type: INPUT_KEYBOARD,
                             Anonymous: INPUT_0 {
                                 ki: KEYBDINPUT {
                                     wVk: VIRTUAL_KEY(0),
                                     wScan: scancode,
-                                    dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                                    dwFlags: flags,
                                     time: 0,
                                     dwExtraInfo: SIMULATED_EVENT_MARKER,
                                 },
@@ -1444,6 +1520,7 @@ impl AppState {
     }
 
     /// Collects press INPUT events from actions into a buffer
+    #[inline(always)]
     fn collect_press_inputs(
         &self,
         actions: &SmallVec<[OutputAction; 4]>,
@@ -1452,13 +1529,18 @@ impl AppState {
         for action in actions.iter() {
             match action {
                 OutputAction::KeyboardKey(scancode) => {
+                    let mut flags = KEYEVENTF_SCANCODE;
+                    if Self::is_extended_scancode(*scancode) {
+                        flags |= KEYEVENTF_EXTENDEDKEY;
+                    }
+
                     inputs.push(INPUT {
                         r#type: INPUT_KEYBOARD,
                         Anonymous: INPUT_0 {
                             ki: KEYBDINPUT {
                                 wVk: VIRTUAL_KEY(0),
                                 wScan: *scancode,
-                                dwFlags: KEYEVENTF_SCANCODE,
+                                dwFlags: flags,
                                 time: 0,
                                 dwExtraInfo: SIMULATED_EVENT_MARKER,
                             },
@@ -1497,13 +1579,18 @@ impl AppState {
                 }
                 OutputAction::KeyCombo(scancodes) => {
                     for &scancode in scancodes.iter() {
+                        let mut flags = KEYEVENTF_SCANCODE;
+                        if Self::is_extended_scancode(scancode) {
+                            flags |= KEYEVENTF_EXTENDEDKEY;
+                        }
+
                         inputs.push(INPUT {
                             r#type: INPUT_KEYBOARD,
                             Anonymous: INPUT_0 {
                                 ki: KEYBDINPUT {
                                     wVk: VIRTUAL_KEY(0),
                                     wScan: scancode,
-                                    dwFlags: KEYEVENTF_SCANCODE,
+                                    dwFlags: flags,
                                     time: 0,
                                     dwExtraInfo: SIMULATED_EVENT_MARKER,
                                 },
@@ -1523,6 +1610,7 @@ impl AppState {
     }
 
     /// Collects release INPUT events from actions into a buffer
+    #[inline(always)]
     fn collect_release_inputs(
         &self,
         actions: &SmallVec<[OutputAction; 4]>,
@@ -1531,13 +1619,18 @@ impl AppState {
         for action in actions.iter() {
             match action {
                 OutputAction::KeyboardKey(scancode) => {
+                    let mut flags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+                    if Self::is_extended_scancode(*scancode) {
+                        flags |= KEYEVENTF_EXTENDEDKEY;
+                    }
+
                     inputs.push(INPUT {
                         r#type: INPUT_KEYBOARD,
                         Anonymous: INPUT_0 {
                             ki: KEYBDINPUT {
                                 wVk: VIRTUAL_KEY(0),
                                 wScan: *scancode,
-                                dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                                dwFlags: flags,
                                 time: 0,
                                 dwExtraInfo: SIMULATED_EVENT_MARKER,
                             },
@@ -1576,13 +1669,18 @@ impl AppState {
                 }
                 OutputAction::KeyCombo(scancodes) => {
                     for &scancode in scancodes.iter().rev() {
+                        let mut flags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+                        if Self::is_extended_scancode(scancode) {
+                            flags |= KEYEVENTF_EXTENDEDKEY;
+                        }
+
                         inputs.push(INPUT {
                             r#type: INPUT_KEYBOARD,
                             Anonymous: INPUT_0 {
                                 ki: KEYBDINPUT {
                                     wVk: VIRTUAL_KEY(0),
                                     wScan: scancode,
-                                    dwFlags: KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                                    dwFlags: flags,
                                     time: 0,
                                     dwExtraInfo: SIMULATED_EVENT_MARKER,
                                 },
@@ -1641,10 +1739,6 @@ impl AppState {
     }
 
     /// Check if current foreground process is in whitelist (empty whitelist = all allowed)
-    ///
-    /// Performance optimization: caches process name for 50ms to avoid expensive Windows API calls
-    /// - Cache hit: ~50ns (just check timestamp and clone Arc)
-    /// - Cache miss: ~5µs (Windows API call)
     #[inline]
     fn is_process_whitelisted(&self) -> bool {
         let whitelist = self.process_whitelist.lock().unwrap();
@@ -1655,9 +1749,7 @@ impl AppState {
         const CACHE_DURATION_MS: u64 = 50;
         let now = Instant::now();
 
-        // Optimized cache access using RwLock
         let process_name = {
-            // Fast path: read-only access (most common case)
             let cache = self.cached_process_info.read().unwrap();
             let (cached_name, cached_time) = &*cache;
 
@@ -1667,11 +1759,7 @@ impl AppState {
             } else {
                 // Cache miss: need refresh
                 drop(cache);
-
-                // Query Windows API
                 let new_name = Self::get_foreground_process_name();
-
-                // Write lock only when updating
                 let mut cache = self.cached_process_info.write().unwrap();
                 *cache = (new_name.clone(), now);
 
@@ -1679,7 +1767,7 @@ impl AppState {
             }
         };
 
-        // Check if process is in whitelist (case-insensitive comparison)
+        // Check if process is in whitelist
         if let Some(name) = process_name {
             whitelist.iter().any(|p| p.to_lowercase() == name)
         } else {
@@ -1694,7 +1782,7 @@ impl AppState {
         let mut should_block = false;
         let switch_key = self.get_switch_key();
 
-        // Handle switch key first (always works even when paused) - unlikely path
+        // Handle switch key first (always works even when paused)
         if unlikely(vk_code == switch_key && matches!(message, WM_KEYUP | WM_SYSKEYUP)) {
             let was_paused = self.toggle_paused();
             // Clear all state when toggling
@@ -1710,14 +1798,14 @@ impl AppState {
             return true;
         }
 
-        // Only process if not paused and in whitelisted process - likely active
+        // Only process if not paused and in whitelisted process
         if unlikely(self.is_paused() || !self.is_process_whitelisted()) {
             return should_block;
         }
 
         match message {
             WM_KEYDOWN | WM_SYSKEYDOWN => {
-                // Check if this key is in an active combo - unlikely for most keys
+                // Check if this key is in an active combo
                 if unlikely(self.is_in_active_combo(vk_code)) {
                     // Check if this is a main key of a combo with turbo disabled
                     let is_main_key_no_turbo = self.is_main_key_in_active_combo_no_turbo(vk_code);
@@ -1726,7 +1814,6 @@ impl AppState {
                         // Block repeat events for modifiers and turbo-enabled combo main keys
                         return true;
                     }
-                    // If it's a main key with turbo disabled, allow repeat (fall through)
                 }
 
                 // First-time key press: add to pressed_keys
@@ -1822,7 +1909,7 @@ impl AppState {
         should_block
     }
 
-    /// Find a matching key combo from currently pressed keys (optimized lookup)
+    /// Find a matching key combo from currently pressed keys
     /// Supports multiple combos simultaneously (e.g., LALT+1, LALT+2, LALT+3 all active)
     #[inline]
     fn find_matching_combo(
@@ -1833,10 +1920,10 @@ impl AppState {
         // Fast path: use lock-free read
         self.cached_combo_index
             .read_sync(&main_key, |_, combos| {
-                // Iterate through potential combos (usually small list)
+                // Iterate through potential combos
                 for device in combos {
                     if let InputDevice::KeyCombo(combo_keys) = device {
-                        // Check if all combo keys are pressed (fast path optimization)
+                        // Check if all combo keys are pressed
                         let all_pressed = combo_keys.iter().all(|&k| pressed_keys.contains(&k));
                         if likely(all_pressed) {
                             return Some(device.clone());
@@ -2151,7 +2238,7 @@ impl AppState {
     /// - "HID_0001_045E_0B05_ABC123" (HID with serial)
     /// - "HID_0001_045E_0B05_DEV12345678" (HID without serial)
     ///
-    /// Parse XInput combo format (e.g., "GAMEPAD_045E_A", "GAMEPAD_045E_LS_RightUp+A")
+    /// Parse XInput format (e.g., "GAMEPAD_045E_A" or "GAMEPAD_045E_DPad_Right+X+Y")
     fn parse_xinput_combo(input: &str) -> Option<InputDevice> {
         let mut parts = input.split('_');
 
@@ -2179,19 +2266,12 @@ impl AppState {
         let button_str = button_part.join("_");
         let mut button_ids = SmallVec::<[u32; 8]>::new();
 
-        // Split by '+' to get individual button names
+        // Split by '+' to support combinations like "DPad_Right+X+Y"
         for button_name in button_str.split('+') {
             let button_name = button_name.trim();
-            // Try to parse as diagonal first
-            if let Some(diagonal_ids) =
-                crate::xinput::XInputHandler::parse_diagonal_name(button_name)
-            {
-                button_ids.push(diagonal_ids[0]);
-                button_ids.push(diagonal_ids[1]);
-            } else if let Some(id) = crate::xinput::XInputHandler::name_to_input_id(button_name) {
-                button_ids.push(id);
+            if let Some(input_id) = crate::xinput::XInputHandler::name_to_input_id(button_name) {
+                button_ids.push(input_id);
             } else {
-                // Unknown button name, fall through to GenericDevice parsing
                 return None;
             }
         }

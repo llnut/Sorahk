@@ -152,7 +152,7 @@ pub struct DeviceDisplayInfo {
     pub serial_number: Option<String>,
 }
 
-/// Cached device information with optimized memory layout.
+/// Cached device information
 #[derive(Debug, Clone)]
 struct CachedDeviceInfo {
     device_type: DeviceType,
@@ -310,17 +310,18 @@ impl DeviceCaptureState {
             return false;
         }
 
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
         {
-            if is_x86_feature_detected!("avx2") {
-                return Self::is_equal_avx2(a, b);
-            }
+            return Self::is_equal_avx2(a, b);
         }
 
-        a == b
+        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+        {
+            a == b
+        }
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[inline(always)]
     fn is_equal_avx2(a: &[u8], b: &[u8]) -> bool {
         use std::arch::x86_64::*;

@@ -308,7 +308,8 @@ impl AppConfig {
              xinput_capture_mode = \"{}\"  # XInput capture mode: \"DiagonalPriority\", \"MostSustained\", \"LastStable\"\n\
                                            # DiagonalPriority: Prioritizes diagonal stick directions over straight directions\n\
                                            # MostSustained: Captures the most sustained input pattern\n\
-                                           # LastStable: Captures the last stable input before release\n\n\
+                                           # LastStable: Captures the last stable input before release\n\
+                                           # Note: Compile with RUSTFLAGS=\"-C target-feature=+avx2\" for AVX2 optimizations\n\n\
              # ─── Control Settings ───   \n\
              switch_key = \"{}\"       # Reserved key to toggle SoraHK behavior\n\n\
              # ─── Process Whitelist ───\n\

@@ -113,7 +113,6 @@ impl crate::state::EventDispatcher for WorkerPool {
                     device_type,
                     button_ids,
                 } => {
-                    // Hash device type and first button id for distribution
                     let first_button_id = button_ids.first().copied().unwrap_or(0);
                     Self::hash_generic_device(device_type, first_button_id as u64)
                         % self.worker_count
@@ -121,10 +120,7 @@ impl crate::state::EventDispatcher for WorkerPool {
                 InputDevice::GenericDevice {
                     device_type,
                     button_id,
-                } => {
-                    // Hash device type and button id for distribution
-                    Self::hash_generic_device(device_type, *button_id) % self.worker_count
-                }
+                } => Self::hash_generic_device(device_type, *button_id) % self.worker_count,
             };
             let _ = self.workers[worker_idx].send(event);
         }

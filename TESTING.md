@@ -68,12 +68,12 @@ tests/
 | Module | Primary Focus |
 |--------|---------------|
 | **config.rs** | Configuration loading, saving, validation, error handling, TOML serialization, multiple target keys management (add, remove, clear, set operations) |
-| **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings (keyboard, mouse, HID devices), combo key parsing (including numpad and OEM keys), device type parsing (gamepad, joystick), mouse scroll direction parsing, output action handling (keyboard, mouse buttons, mouse movement, mouse scroll, multiple actions), state management, thread safety, atomic operations, lock-free concurrent data structures, batch INPUT event processing |
+| **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings (keyboard, mouse, HID devices), combo key parsing (including numpad and OEM keys), device type parsing (gamepad, joystick), mouse scroll direction parsing, output action handling (keyboard, mouse buttons, mouse movement, mouse scroll, multiple actions), state management, thread safety, atomic operations, lock-free concurrent data structures, batch INPUT event processing, extended scancode bitmap detection |
 | **i18n.rs** | Multi-language translations, formatting functions, translation completeness |
 | **keyboard.rs** | Worker pool creation, worker distribution stability, mapping cache retrieval |
 | **mouse.rs** | Mouse button handling, message parsing, event processing |
 | **rawinput.rs** | FNV-1a hash algorithm, device ID generation, VID/PID parsing, button counting, HID baseline management, combo key capture logic |
-| **xinput.rs** | VID/PID hash generation, button state detection, analog stick direction mapping, trigger state detection, input combination hashing, deadzone filtering |
+| **xinput.rs** | VID/PID hash generation, button state detection, analog stick direction mapping, trigger state detection, input combination hashing, deadzone filtering, combo mask building, bitset matching, layered index matching, AVX2 SIMD batch matching (compile-time), extended scancode detection |
 | **gui/utils.rs** | Key string conversion, icon loading |
 | **gui/types.rs** | KeyCaptureMode enum |
 | **tray.rs** | XML escaping for notifications, utility functions, constants |
@@ -99,7 +99,7 @@ Run `cargo test -- --list` to see all available test functions.
 - HID device baseline establishment and persistence
 - HID combo key capture logic (frame selection, button counting)
 - Device ID parsing and validation (VID/PID/Serial format)
-- XInput controller input logic
+- XInput combo mask building and bitset matching
 - GUI utility functions and type definitions
 - Multi-language translation system
 - Worker pool and event distribution

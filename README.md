@@ -515,15 +515,22 @@ cd Sorahk
 # Build standard release version
 cargo build --release
 
-# Build with AVX2 optimization (optional, for better performance)
-RUSTFLAGS="-C target-feature=+avx2" cargo build --release
+# Build with AVX2 optimizations (requires AVX2 support)
+# Windows (PowerShell):
+$env:RUSTFLAGS="-C target-feature=+avx2"; cargo build --release
+
+# Windows (CMD):
+set RUSTFLAGS=-C target-feature=+avx2 && cargo build --release
+
+# Or use target-cpu=native for automatic CPU feature detection
+$env:RUSTFLAGS="-C target-cpu=native"; cargo build --release
 
 # The executable will be at: target\release\sorahk.exe
 ```
 
 **Note**: Pre-built releases include both versions:
 - `sorahk-x.y.z-$target.zip` - Standard (compatible with all x86_64 CPUs)
-- `sorahk-avx2-x.y.z-$target.zip` - AVX2-optimized (requires AVX2 support)
+- `sorahk-avx2-x.y.z-$target.zip` - AVX2-optimized (Intel 2013+ / AMD 2015+ CPUs)
 
 ---
 

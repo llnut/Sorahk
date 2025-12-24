@@ -79,7 +79,7 @@ impl DeviceOwnership {
     /// Claims device ownership. Returns true if claimed, false if owned by higher priority source or doesn't match preference.
     #[inline(always)]
     pub fn claim_device(&self, vid_pid: (u16, u16), source: InputSource) -> bool {
-        // Check if source matches user preference (hot path optimization)
+        // Check if source matches user preference
         if crate::util::unlikely(!self.matches_preference(vid_pid, &source)) {
             return false;
         }
