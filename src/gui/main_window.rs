@@ -283,7 +283,7 @@ impl eframe::App for SorahkGui {
             }
         }
 
-        // Handle keyboard input
+        // Handle switch key
         self.handle_keyboard_input(ctx);
 
         // Render main content
@@ -312,6 +312,10 @@ impl SorahkGui {
                 if !self.show_close_dialog {
                     self.show_close_dialog = true;
                     self.dialog_highlight_until = None;
+                    // Restore window when showing close dialog
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 } else {
                     self.dialog_highlight_until =
                         Some(std::time::Instant::now() + std::time::Duration::from_millis(500));
@@ -475,20 +479,58 @@ impl SorahkGui {
         });
     }
 
-    /// Handles global hotkey input events.
+    /// Handles switch key input events.
     fn handle_keyboard_input(&mut self, ctx: &egui::Context) {
         ctx.input(|i| {
-            if let Some(switch_key) = string_to_key(&self.config.switch_key)
-                && i.key_pressed(switch_key)
-            {
-                let was_paused = self.app_state.toggle_paused();
-                if let Some(sender) = self.app_state.get_notification_sender() {
-                    let msg = if was_paused {
-                        "Sorahk activiting"
-                    } else {
-                        "Sorahk paused"
-                    };
-                    let _ = sender.send(NotificationEvent::Info(msg.to_string()));
+            // Handle combo keys (e.g., "LCTRL+Q")
+            if self.config.switch_key.contains('+') {
+                let parts: Vec<&str> = self.config.switch_key.split('+').collect();
+                if parts.len() >= 2 {
+                    // Check modifiers and regular keys
+                    let mut has_ctrl = false;
+                    let mut has_shift = false;
+                    let mut has_alt = false;
+                    let mut regular_keys = Vec::new();
+
+                    for part in parts.iter() {
+                        let p = part.trim().to_uppercase();
+                        match p.as_str() {
+                            "LCTRL" | "RCTRL" | "CTRL" => has_ctrl = true,
+                            "LSHIFT" | "RSHIFT" | "SHIFT" => has_shift = true,
+                            "LALT" | "RALT" | "ALT" => has_alt = true,
+                            _ => {
+                                if let Some(key) = string_to_key(part.trim()) {
+                                    regular_keys.push(key);
+                                }
+                            }
+                        }
+                    }
+
+                    // Check if any regular key was just released
+                    for key in &regular_keys {
+                        if i.key_pressed(*key) {
+                            // Check modifiers match
+                            let mods_match = (!has_ctrl || i.modifiers.ctrl)
+                                && (!has_shift || i.modifiers.shift)
+                                && (!has_alt || i.modifiers.alt);
+
+                            // Check other regular keys are still down
+                            let others_down =
+                                regular_keys.iter().all(|k| k == key || i.key_down(*k));
+
+                            if mods_match && others_down {
+                                self.app_state.handle_switch_key_toggle();
+                                return;
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Single key
+                if let Some(switch_key) = string_to_key(&self.config.switch_key)
+                    && i.key_pressed(switch_key)
+                {
+                    self.app_state.handle_switch_key_toggle();
                 }
             }
         });

@@ -377,6 +377,37 @@ pub struct InputMappingInfo {
     pub turbo_enabled: bool,
 }
 
+/// Cache for switch key detection with lock-free fast paths
+pub struct SwitchKeyCache {
+    pub keyboard_vk: AtomicU32,
+    pub xinput_button_mask: AtomicU32,
+    pub xinput_device_hash: AtomicU32,
+    pub generic_button_id: AtomicU64,
+    pub full_device: RwLock<Option<InputDevice>>,
+}
+
+impl SwitchKeyCache {
+    #[inline(always)]
+    const fn new() -> Self {
+        Self {
+            keyboard_vk: AtomicU32::new(0),
+            xinput_button_mask: AtomicU32::new(0),
+            xinput_device_hash: AtomicU32::new(0),
+            generic_button_id: AtomicU64::new(0),
+            full_device: RwLock::new(None),
+        }
+    }
+
+    #[inline(always)]
+    fn clear(&self) {
+        self.keyboard_vk.store(0, Ordering::Relaxed);
+        self.xinput_button_mask.store(0, Ordering::Relaxed);
+        self.xinput_device_hash.store(0, Ordering::Relaxed);
+        self.generic_button_id.store(0, Ordering::Relaxed);
+        *self.full_device.write().unwrap() = None;
+    }
+}
+
 /// Central application state manager.
 ///
 /// Manages all runtime state including configuration, key mappings,
@@ -386,8 +417,8 @@ pub struct AppState {
     show_tray_icon: AtomicBool,
     /// Notification display flag
     show_notifications: AtomicBool,
-    /// Toggle hotkey virtual key code (atomic for lock-free access in hot path)
-    switch_key: AtomicU32,
+    /// Switch key cache for fast combo key detection
+    pub switch_key_cache: SwitchKeyCache,
     /// Application exit flag
     pub should_exit: Arc<AtomicBool>,
     /// Key repeat pause state
@@ -458,8 +489,8 @@ impl AppState {
     ///
     /// Returns an error if the toggle key name is invalid or key mappings cannot be created.
     pub fn new(config: AppConfig) -> anyhow::Result<Self> {
-        let switch_key = Self::key_name_to_vk(&config.switch_key)
-            .ok_or_else(|| anyhow::anyhow!("Invalid switch key: {}", config.switch_key))?;
+        let switch_key_cache = SwitchKeyCache::new();
+        Self::update_switch_key_cache(&switch_key_cache, &config.switch_key)?;
 
         let input_mappings_map = Self::create_input_mappings(&config)?;
 
@@ -526,7 +557,7 @@ impl AppState {
         Ok(Self {
             show_tray_icon: AtomicBool::new(config.show_tray_icon),
             show_notifications: AtomicBool::new(config.show_notifications),
-            switch_key: AtomicU32::new(switch_key),
+            switch_key_cache,
             should_exit: Arc::new(AtomicBool::new(false)),
             is_paused: AtomicBool::new(false),
             show_window_requested: AtomicBool::new(false),
@@ -569,11 +600,7 @@ impl AppState {
     ///
     /// Returns an error if the new toggle key is invalid or mappings cannot be created.
     pub fn reload_config(&self, config: AppConfig) -> anyhow::Result<()> {
-        // Update switch key
-        let new_switch_key = Self::key_name_to_vk(&config.switch_key)
-            .ok_or_else(|| anyhow::anyhow!("Invalid switch key: {}", config.switch_key))?;
-
-        self.switch_key.store(new_switch_key, Ordering::Relaxed);
+        Self::update_switch_key_cache(&self.switch_key_cache, &config.switch_key)?;
 
         // Update show_tray_icon and show_notifications
         self.show_tray_icon
@@ -919,9 +946,19 @@ impl AppState {
         }
     }
 
-    #[inline(always)]
-    pub fn get_switch_key(&self) -> u32 {
-        self.switch_key.load(Ordering::Relaxed)
+    #[inline]
+    pub fn handle_switch_key_toggle(&self) {
+        let was_paused = self.toggle_paused();
+        self.active_combo_triggers.clear_sync();
+
+        if let Some(sender) = self.notification_sender.get() {
+            let msg = if was_paused {
+                "Sorahk activating".to_string()
+            } else {
+                "Sorahk paused".to_string()
+            };
+            let _ = sender.send(NotificationEvent::Info(msg));
+        }
     }
 
     /// Check if a key is a modifier key
@@ -1780,25 +1817,41 @@ impl AppState {
     #[inline]
     pub fn handle_key_event(&self, message: u32, vk_code: u32) -> bool {
         let mut should_block = false;
-        let switch_key = self.get_switch_key();
 
-        // Handle switch key first (always works even when paused)
-        if unlikely(vk_code == switch_key && matches!(message, WM_KEYUP | WM_SYSKEYUP)) {
-            let was_paused = self.toggle_paused();
-            // Clear all state when toggling
-            self.pressed_keys.clear_sync();
-            self.active_combo_triggers.clear_sync();
-            if was_paused {
-                if let Some(sender) = self.notification_sender.get() {
-                    let _ = sender.send(NotificationEvent::Info("Sorahk activiting".to_string()));
-                }
-            } else if let Some(sender) = self.notification_sender.get() {
-                let _ = sender.send(NotificationEvent::Info("Sorahk paused".to_string()));
+        if matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN) {
+            let _ = self.pressed_keys.insert_sync(vk_code);
+
+            let kb_vk = self.switch_key_cache.keyboard_vk.load(Ordering::Relaxed);
+
+            if kb_vk != 0 && vk_code == kb_vk {
+                self.handle_switch_key_toggle();
+                return true;
             }
-            return true;
+
+            if kb_vk == 0
+                && let Some(device) = self.switch_key_cache.full_device.read().unwrap().as_ref()
+                && let InputDevice::KeyCombo(keys) = device
+                && keys.contains(&vk_code)
+            {
+                let mut all_pressed = true;
+                for k in keys.iter() {
+                    if !self.pressed_keys.contains_sync(k) {
+                        all_pressed = false;
+                        break;
+                    }
+                }
+
+                if all_pressed {
+                    self.handle_switch_key_toggle();
+                    return true;
+                }
+            }
         }
 
-        // Only process if not paused and in whitelisted process
+        if matches!(message, WM_KEYUP | WM_SYSKEYUP) {
+            let _ = self.pressed_keys.remove_sync(&vk_code);
+        }
+
         if unlikely(self.is_paused() || !self.is_process_whitelisted()) {
             return should_block;
         }
@@ -1816,11 +1869,6 @@ impl AppState {
                     }
                 }
 
-                // First-time key press: add to pressed_keys
-                let _ = self.pressed_keys.insert_sync(vk_code);
-
-                // Try to match combo key first, then single key
-                // Create snapshot for combo matching
                 let mut pressed_snapshot: std::collections::HashSet<u32> =
                     std::collections::HashSet::with_capacity(16);
                 self.pressed_keys.iter_sync(|key| {
@@ -1839,20 +1887,16 @@ impl AppState {
                     });
 
                 if let Some(device) = matched_device {
-                    // check if already active first (most common case on first press)
                     let already_active = self.is_combo_active(&device);
 
                     if already_active {
-                        // For mappings with turbo disabled, allow Windows repeat (applies to both single keys and combos)
                         let allow_repeat = !self.is_turbo_enabled(&device);
 
                         if !allow_repeat {
                             return true;
                         }
-                        // If allow_repeat=true, fall through to dispatch
                     }
 
-                    // Handle combo key: always suppress physical modifiers to avoid interference
                     if let InputDevice::KeyCombo(_) = &device {
                         let mut modifiers: SmallVec<[u32; 8]> = SmallVec::new();
                         self.pressed_keys.iter_sync(|key| {
@@ -1862,13 +1906,10 @@ impl AppState {
                             true
                         });
 
-                        // Always release physical modifiers and track combo
-                        // This prevents physical modifiers from interfering with simulated output
                         self.release_modifiers_once(&modifiers);
                         self.add_active_combo(device.clone(), modifiers.clone());
                     }
 
-                    // Dispatch event to worker
                     if let Some(pool) = self.worker_pool.get() {
                         pool.dispatch(InputEvent::Pressed(device));
                         should_block = true;
@@ -1877,13 +1918,8 @@ impl AppState {
             }
 
             WM_KEYUP | WM_SYSKEYUP => {
-                // Remove from pressed_keys
-                let _ = self.pressed_keys.remove_sync(&vk_code);
-
-                // Check which combos are no longer valid (keys released)
                 let removed_combos = self.cleanup_released_combos();
 
-                // Stop all removed combos
                 if !removed_combos.is_empty()
                     && let Some(pool) = self.worker_pool.get()
                 {
@@ -1893,7 +1929,6 @@ impl AppState {
                     should_block = true;
                 }
 
-                // Also check for single key release (may coexist with combo)
                 let device = self.find_device_for_release(vk_code);
                 if let Some(dev) = device
                     && let Some(pool) = self.worker_pool.get()
@@ -2052,6 +2087,58 @@ impl AppState {
         }
 
         Ok(input_mappings)
+    }
+
+    /// Parse and cache switch key configuration
+    #[inline]
+    fn update_switch_key_cache(cache: &SwitchKeyCache, key_name: &str) -> anyhow::Result<()> {
+        cache.clear();
+
+        let device = Self::input_name_to_device(key_name)
+            .ok_or_else(|| anyhow::anyhow!("Invalid switch key: {}", key_name))?;
+
+        match &device {
+            InputDevice::Keyboard(vk) => {
+                cache.keyboard_vk.store(*vk, Ordering::Relaxed);
+            }
+            InputDevice::XInputCombo {
+                device_type,
+                button_ids,
+            } => {
+                let mask = Self::inputs_to_bitset(button_ids);
+                cache.xinput_button_mask.store(mask, Ordering::Relaxed);
+
+                let hash = Self::hash_device_type(device_type);
+                cache.xinput_device_hash.store(hash, Ordering::Relaxed);
+            }
+            InputDevice::GenericDevice { button_id, .. } => {
+                cache.generic_button_id.store(*button_id, Ordering::Relaxed);
+            }
+            InputDevice::KeyCombo(_) | InputDevice::Mouse(_) => {}
+        }
+
+        *cache.full_device.write().unwrap() = Some(device);
+        Ok(())
+    }
+
+    /// Convert button IDs to bitmask
+    #[inline(always)]
+    fn inputs_to_bitset(inputs: &[u32]) -> u32 {
+        inputs
+            .iter()
+            .fold(0u32, |acc, &id| if id < 32 { acc | (1 << id) } else { acc })
+    }
+
+    /// Compute device type hash for comparison
+    #[inline(always)]
+    pub fn hash_device_type(device_type: &DeviceType) -> u32 {
+        match device_type {
+            DeviceType::Gamepad(vid) => (*vid as u32) ^ 0x01000000,
+            DeviceType::Joystick(vid) => (*vid as u32) ^ 0x02000000,
+            DeviceType::HidDevice { usage_page, usage } => {
+                (*usage_page as u32) ^ ((*usage as u32) << 16)
+            }
+        }
     }
 
     fn key_name_to_vk(key_name: &str) -> Option<u32> {
@@ -2910,7 +2997,10 @@ mod tests {
 
         // Initial state
         assert!(!state.is_paused());
-        assert_eq!(state.get_switch_key(), 0x2E); // DELETE
+        assert_eq!(
+            state.switch_key_cache.keyboard_vk.load(Ordering::Relaxed),
+            0x2E
+        ); // DELETE
 
         // Create new config
         let mut new_config = AppConfig::default();
@@ -2922,7 +3012,10 @@ mod tests {
         state.reload_config(new_config).unwrap();
 
         // Verify changes
-        assert_eq!(state.get_switch_key(), 0x7A); // F11
+        assert_eq!(
+            state.switch_key_cache.keyboard_vk.load(Ordering::Relaxed),
+            0x7A
+        ); // F11
         assert!(!state.show_tray_icon());
         assert_eq!(state.input_timeout(), 50);
     }

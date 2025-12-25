@@ -7,7 +7,7 @@ use crate::input_ownership::{DeviceOwnership, InputSource};
 use crate::state::{AppState, DeviceType, InputDevice, InputEvent};
 use crate::util::{likely, unlikely};
 use smallvec::SmallVec;
-use std::sync::Arc;
+use std::sync::{Arc, atomic::Ordering};
 use windows::Win32::UI::Input::XboxController::*;
 
 /// XInput gamepad VID (Microsoft)
@@ -150,14 +150,6 @@ impl XInputHandler {
 
     /// Polls all XInput devices for state changes.
     pub fn poll(&mut self) {
-        // Continue polling in capture mode even when paused
-        let is_capturing = self.state.is_raw_input_capture_active();
-        let is_paused = self.state.is_paused();
-
-        if is_paused && !is_capturing {
-            return;
-        }
-
         // Check and clear cache if configuration was reloaded
         if unlikely(self.state.check_and_reset_xinput_cache_invalid()) {
             for device_state in self.device_states.iter_mut().flatten() {
@@ -182,52 +174,44 @@ impl XInputHandler {
             0 => {
                 let idx = user_index as usize;
 
-                let needs_update = if let Some(device_state) = &self.device_states[idx] {
-                    state.dwPacketNumber != device_state.packet_number
-                } else {
-                    false
-                };
+                if let Some(device_state) = &mut self.device_states[idx] {
+                    let vid_pid = device_state.vid_pid;
+                    let stable_device_id = Self::hash_vid_pid_static(vid_pid) as u64;
+                    let gamepad = state.Gamepad;
 
-                if likely(needs_update) {
-                    if let Some(device_state) = &mut self.device_states[idx] {
-                        let vid_pid = device_state.vid_pid;
-                        let stable_device_id = Self::hash_vid_pid_static(vid_pid) as u64;
-                        let gamepad = state.Gamepad;
+                    let mut current_inputs = SmallVec::<[u32; MAX_INPUTS]>::new();
 
-                        let mut current_inputs = SmallVec::<[u32; MAX_INPUTS]>::new();
+                    Self::check_buttons_fast(&gamepad, &mut current_inputs);
+                    Self::check_analog_sticks_fast(&gamepad, &mut current_inputs);
+                    Self::check_triggers_fast(&gamepad, &mut current_inputs);
 
-                        Self::check_buttons_fast(&gamepad, &mut current_inputs);
-                        Self::check_analog_sticks_fast(&gamepad, &mut current_inputs);
-                        Self::check_triggers_fast(&gamepad, &mut current_inputs);
+                    let inputs_changed = current_inputs != device_state.active_inputs;
 
-                        let inputs_changed = current_inputs != device_state.active_inputs;
+                    device_state.packet_number = state.dwPacketNumber;
+                    device_state.last_state = gamepad;
 
-                        device_state.packet_number = state.dwPacketNumber;
-                        device_state.last_state = gamepad;
+                    if unlikely(inputs_changed) {
+                        let is_capturing = self.state.is_raw_input_capture_active();
 
-                        if unlikely(inputs_changed) {
-                            let is_capturing = self.state.is_raw_input_capture_active();
-
-                            if unlikely(is_capturing) {
-                                Self::handle_capture_mode_xinput(
-                                    device_state,
-                                    &current_inputs,
-                                    vid_pid,
-                                    &self.state,
-                                );
-                            } else if let Some(pool) = self.state.get_worker_pool() {
-                                Self::handle_normal_mode_xinput(
-                                    device_state,
-                                    &current_inputs,
-                                    stable_device_id,
-                                    vid_pid,
-                                    pool,
-                                    &self.state,
-                                );
-                            }
-
-                            device_state.active_inputs = current_inputs;
+                        if unlikely(is_capturing) {
+                            Self::handle_capture_mode_xinput(
+                                device_state,
+                                &current_inputs,
+                                vid_pid,
+                                &self.state,
+                            );
+                        } else if let Some(pool) = self.state.get_worker_pool() {
+                            Self::handle_normal_mode_xinput(
+                                device_state,
+                                &current_inputs,
+                                stable_device_id,
+                                vid_pid,
+                                pool,
+                                &self.state,
+                            );
                         }
+
+                        device_state.active_inputs = current_inputs;
                     }
                 } else if self.device_states[idx].is_none() {
                     let vid_pid =
@@ -340,27 +324,48 @@ impl XInputHandler {
     ) {
         let device_type = DeviceType::Gamepad(vid_pid.0);
 
-        // Convert current inputs to bitset
         let current_bits = Self::inputs_to_bitset(current_inputs);
 
-        // Early exit: no change since last frame
+        let xinput_mask = state
+            .switch_key_cache
+            .xinput_button_mask
+            .load(Ordering::Relaxed);
+        if unlikely(xinput_mask != 0) {
+            let device_hash = state
+                .switch_key_cache
+                .xinput_device_hash
+                .load(Ordering::Relaxed);
+            let current_device_hash = AppState::hash_device_type(&device_type);
+
+            if likely(device_hash == current_device_hash) {
+                let switch_active = (current_bits & xinput_mask) == xinput_mask;
+                let was_active = (device_state.last_input_bits & xinput_mask) == xinput_mask;
+
+                if unlikely(!was_active && switch_active) {
+                    state.handle_switch_key_toggle();
+                }
+            }
+        }
+
         if likely(current_bits == device_state.last_input_bits) {
             return;
         }
 
-        // Lazy initialization: build combo masks on first use
+        // Check paused state after switch key detection
+        if unlikely(state.is_paused()) {
+            device_state.last_input_bits = current_bits;
+            return;
+        }
+
         if unlikely(device_state.combo_masks.is_empty()) {
             let all_combos = state.get_xinput_combos_for_device(&device_type);
             Self::build_combo_masks(&all_combos, &mut device_state.combo_masks);
             Self::build_layered_index(&all_combos, &mut device_state.layered_index);
         }
 
-        // Find all matching combos using optimized strategies
         let mut new_active_combos = SmallVec::<[Vec<u32>; 4]>::new();
 
-        // Strategy selection based on combo count
         if device_state.combo_masks.len() <= 8 {
-            // Small set: use bitset matching
             Self::match_combos_bitset(
                 current_bits,
                 &device_state.combo_masks,

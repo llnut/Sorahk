@@ -57,7 +57,7 @@ impl MouseScrollDialog {
             .title_bar(false)
             .collapsible(false)
             .resizable(false)
-            .fixed_size([320.0, 280.0])
+            .fixed_size([320.0, 380.0])
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .frame(
                 egui::Frame::window(&ctx.style())
@@ -99,6 +99,25 @@ impl MouseScrollDialog {
 
                     if up_btn.clicked() {
                         self.selected_direction = Some("SCROLL_UP".to_string());
+                        should_close = true;
+                    }
+
+                    ui.add_space(15.0);
+
+                    // Middle Mouse Button
+                    let middle_btn = render_scroll_button(
+                        ui,
+                        "🖱",
+                        t.mouse_middle_button(),
+                        dark_mode,
+                        button_bg,
+                        button_hover_bg,
+                        text_color,
+                        text_hover_color,
+                    );
+
+                    if middle_btn.clicked() {
+                        self.selected_direction = Some("MBUTTON".to_string());
                         should_close = true;
                     }
 

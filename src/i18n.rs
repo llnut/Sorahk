@@ -155,6 +155,7 @@ struct TranslationCache {
     mouse_scroll_direction_label: String,
     mouse_scroll_up: String,
     mouse_scroll_down: String,
+    mouse_middle_button: String,
     set_mouse_scroll_direction_hover: String,
     speed_label: String,
     rawinput_capture_mode_label: String,
@@ -471,6 +472,9 @@ impl CachedTranslations {
     }
     pub fn mouse_scroll_down(&self) -> &str {
         &self.inner.mouse_scroll_down
+    }
+    pub fn mouse_middle_button(&self) -> &str {
+        &self.inner.mouse_middle_button
     }
     pub fn set_mouse_scroll_direction_hover(&self) -> &str {
         &self.inner.set_mouse_scroll_direction_hover
@@ -928,6 +932,7 @@ impl TranslationCache {
             .to_string(),
             mouse_scroll_up: get_raw_translation(lang, RawKey::MouseScrollUp).to_string(),
             mouse_scroll_down: get_raw_translation(lang, RawKey::MouseScrollDown).to_string(),
+            mouse_middle_button: get_raw_translation(lang, RawKey::MouseMiddleButton).to_string(),
 
             // Hover hints
             set_mouse_scroll_direction_hover: get_raw_translation(
@@ -1135,6 +1140,7 @@ enum RawKey {
     MouseScrollDirectionLabel,
     MouseScrollUp,
     MouseScrollDown,
+    MouseMiddleButton,
     SetMouseScrollDirectionHover,
     SpeedLabel,
     RawInputCaptureModeLabel,
@@ -1286,10 +1292,10 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::AboutDescriptionLine1) => "軽量で高効率な自動連打ツール",
 
         // About Description Line 2
-        (Language::English, RawKey::AboutDescriptionLine2) => "with a beautiful interface",
-        (Language::SimplifiedChinese, RawKey::AboutDescriptionLine2) => "拥有漂亮的界面",
-        (Language::TraditionalChinese, RawKey::AboutDescriptionLine2) => "擁有漂亮的介面",
-        (Language::Japanese, RawKey::AboutDescriptionLine2) => "美しいインターフェース",
+        (Language::English, RawKey::AboutDescriptionLine2) => "with a clean interface",
+        (Language::SimplifiedChinese, RawKey::AboutDescriptionLine2) => "拥有简洁的界面",
+        (Language::TraditionalChinese, RawKey::AboutDescriptionLine2) => "擁有簡潔的介面",
+        (Language::Japanese, RawKey::AboutDescriptionLine2) => "シンプルなインターフェース",
 
         // Running
         (Language::English, RawKey::Running) => "Running",
@@ -1776,6 +1782,11 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::SimplifiedChinese, RawKey::MouseScrollDown) => "向下滚动",
         (Language::TraditionalChinese, RawKey::MouseScrollDown) => "向下滾動",
         (Language::Japanese, RawKey::MouseScrollDown) => "下にスクロール",
+
+        (Language::English, RawKey::MouseMiddleButton) => "Middle Button",
+        (Language::SimplifiedChinese, RawKey::MouseMiddleButton) => "鼠标中键",
+        (Language::TraditionalChinese, RawKey::MouseMiddleButton) => "滑鼠中鍵",
+        (Language::Japanese, RawKey::MouseMiddleButton) => "ミドルボタン",
 
         // Hover hints
         (Language::English, RawKey::SetMouseScrollDirectionHover) => "Set mouse scroll direction",

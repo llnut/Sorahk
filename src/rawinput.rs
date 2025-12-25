@@ -30,7 +30,7 @@
 
 use smallvec::SmallVec;
 use std::cell::UnsafeCell;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, atomic::Ordering};
 use std::time::Instant;
 use windows::Win32::Foundation::{GetLastError, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -1062,11 +1062,6 @@ impl RawInputHandler {
                 }
             }
 
-            // Fast paused check (only for activated devices)
-            if unlikely(self.state.is_paused()) {
-                return false;
-            }
-
             // Detect button changes using baseline comparison
             let changes = self.detect_hid_changes(
                 handle_key,
@@ -1074,6 +1069,30 @@ impl RawInputHandler {
                 stable_device_id,
                 device_info.device_type,
             );
+
+            // Check switch key first (before paused check)
+            if likely(!changes.is_empty()) {
+                let switch_button_id = self
+                    .state
+                    .switch_key_cache
+                    .generic_button_id
+                    .load(Ordering::Relaxed);
+
+                // Check for switch key toggle
+                if unlikely(switch_button_id != 0) {
+                    for (button_id, is_pressed) in &changes {
+                        if *button_id == switch_button_id && *is_pressed {
+                            self.state.handle_switch_key_toggle();
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            // Fast paused check (only for activated devices)
+            if unlikely(self.state.is_paused()) {
+                return false;
+            }
 
             // Dispatch events for each button change
             if likely(!changes.is_empty())
@@ -1688,6 +1707,9 @@ pub fn clear_device_baseline(vid: u16, pid: u16) {
             handler.capture_states.remove_sync(&handle);
         }
     }
+
+    // Release device ownership to allow re-claiming
+    crate::input_manager::release_device_ownership((vid, pid));
 }
 
 /// Enumerates all HID devices currently connected.

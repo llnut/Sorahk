@@ -45,10 +45,12 @@ impl DeviceOwnership {
         }
     }
 
-    /// Sets API preference for a device.
+    /// Sets API preference for a device and releases current ownership.
     #[inline(always)]
     pub fn set_preference(&self, vid_pid: (u16, u16), preference: DeviceApiPreference) {
         let _ = self.preferences.insert_sync(vid_pid, preference);
+        // Release ownership to allow re-claiming with new preference
+        self.owners.remove_sync(&vid_pid);
     }
 
     /// Checks if source matches device preference.

@@ -199,10 +199,9 @@ impl SorahkGui {
                 }
                 // Exit capture mode and clear capture state
                 self.key_capture_mode = KeyCaptureMode::None;
-                // Flag will be cleared after capture completes, used to ignore button click on next frame
-                self.just_captured_input = true;
                 self.capture_pressed_keys.clear();
                 self.app_state.set_raw_input_capture_mode(false);
+                self.just_captured_input = false;
             } else {
                 // In capture mode but no input captured yet - clear the flag after first frame
                 if self.just_captured_input {
@@ -212,10 +211,7 @@ impl SorahkGui {
         } else {
             // Not in capture mode: ensure state is clean
             self.capture_pressed_keys.clear();
-            // Clear flag when not in capture mode
-            if self.just_captured_input {
-                self.just_captured_input = false;
-            }
+            self.just_captured_input = false;
         }
 
         let dialog_bg = if self.dark_mode {
