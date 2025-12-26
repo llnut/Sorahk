@@ -60,10 +60,13 @@ const HID_USAGE_MULTI_AXIS: u16 = 0x08;
 /// Minimum valid HID report size in bytes.
 const MIN_HID_DATA_SIZE: usize = 10;
 
-/// Skip HID report bytes
+/// Skip first bytes of HID report during processing.
 const SKIP_BYTES: usize = 5;
 
+/// Maximum capture frames stored per device.
 const DEVICE_CAPTURE_FRAMES: usize = 32;
+
+/// Size of each frame buffer in bytes.
 const FRAME_BUFFER_SIZE: usize = 256;
 
 thread_local! {

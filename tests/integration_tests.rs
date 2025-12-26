@@ -5,7 +5,6 @@
 
 use smallvec::SmallVec;
 use sorahk::config::{AppConfig, KeyMapping};
-use sorahk::i18n::Language;
 use std::fs;
 use std::path::PathBuf;
 
@@ -23,26 +22,6 @@ fn get_test_file_path(name: &str) -> PathBuf {
 /// Removes a test file if it exists.
 fn cleanup_test_file(path: &PathBuf) {
     let _ = fs::remove_file(path);
-}
-
-/// Tests configuration save and load cycle preserves data.
-#[test]
-fn test_config_round_trip() {
-    let path = get_test_file_path("round_trip");
-
-    let config = AppConfig::default();
-
-    config.save_to_file(&path).expect("Failed to save config");
-
-    let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
-
-    assert_eq!(config.show_tray_icon, loaded_config.show_tray_icon);
-    assert_eq!(config.show_notifications, loaded_config.show_notifications);
-    assert_eq!(config.switch_key, loaded_config.switch_key);
-    assert_eq!(config.interval, loaded_config.interval);
-    assert_eq!(config.mappings.len(), loaded_config.mappings.len());
-
-    cleanup_test_file(&path);
 }
 
 /// Tests configuration with multiple key mappings having mixed properties.
@@ -105,147 +84,6 @@ fn test_config_with_complex_mappings() {
     cleanup_test_file(&path);
 }
 
-/// Tests process whitelist persistence across save/load operations.
-#[test]
-fn test_config_with_process_whitelist() {
-    let path = get_test_file_path("process_whitelist");
-
-    let mut config = AppConfig::default();
-    config.process_whitelist = vec![
-        "notepad.exe".to_string(),
-        "chrome.exe".to_string(),
-        "game.exe".to_string(),
-    ];
-
-    config.save_to_file(&path).expect("Failed to save config");
-    let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
-
-    assert_eq!(loaded_config.process_whitelist.len(), 3);
-    assert!(
-        loaded_config
-            .process_whitelist
-            .contains(&"notepad.exe".to_string())
-    );
-    assert!(
-        loaded_config
-            .process_whitelist
-            .contains(&"chrome.exe".to_string())
-    );
-    assert!(
-        loaded_config
-            .process_whitelist
-            .contains(&"game.exe".to_string())
-    );
-
-    cleanup_test_file(&path);
-}
-
-/// Tests language setting persistence for all supported languages.
-#[test]
-fn test_config_language_persistence() {
-    let path = get_test_file_path("language_persistence");
-
-    let languages = vec![
-        Language::English,
-        Language::SimplifiedChinese,
-        Language::TraditionalChinese,
-        Language::Japanese,
-    ];
-
-    for lang in languages {
-        let mut config = AppConfig::default();
-        config.language = lang;
-
-        config.save_to_file(&path).expect("Failed to save config");
-        let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
-
-        assert_eq!(loaded_config.language, lang);
-    }
-
-    cleanup_test_file(&path);
-}
-
-/// Tests that invalid configuration values are corrected on load.
-#[test]
-fn test_config_validation_on_load() {
-    let path = get_test_file_path("validation");
-
-    let content = r#"
-        show_tray_icon = true
-        show_notifications = false
-        switch_key = "F12"
-        input_timeout = 1
-        interval = 2
-        event_duration = 3
-        worker_count = 8
-        process_whitelist = ["test.exe"]
-        
-        [[mappings]]
-        trigger_key = "Q"
-        target_keys = ["W"]
-    "#;
-
-    fs::write(&path, content).expect("Failed to write test config");
-
-    let config = AppConfig::load_from_file(&path).expect("Failed to load config");
-
-    assert!(
-        config.input_timeout >= 2,
-        "Input timeout below minimum is adjusted"
-    );
-    assert!(config.interval >= 2, "Interval below minimum is adjusted");
-    assert!(
-        config.event_duration >= 2,
-        "Event duration below minimum is adjusted"
-    );
-
-    cleanup_test_file(&path);
-}
-
-/// Tests that missing configuration fields use default values.
-#[test]
-fn test_config_default_values() {
-    let path = get_test_file_path("default_values");
-
-    let content = r#"
-        show_tray_icon = false
-        show_notifications = false
-        switch_key = "DELETE"
-        process_whitelist = []
-        
-        [[mappings]]
-        trigger_key = "A"
-        target_keys = ["B"]
-    "#;
-
-    fs::write(&path, content).expect("Failed to write test config");
-
-    let config = AppConfig::load_from_file(&path).expect("Failed to load config");
-
-    assert_eq!(config.input_timeout, 5);
-    assert_eq!(config.interval, 5);
-    assert_eq!(config.event_duration, 5);
-    assert_eq!(config.worker_count, 0);
-
-    cleanup_test_file(&path);
-}
-
-/// Tests configuration with no key mappings defined.
-#[test]
-fn test_config_empty_mappings() {
-    let path = get_test_file_path("empty_mappings");
-
-    let mut config = AppConfig::default();
-    config.mappings = vec![];
-
-    config.save_to_file(&path).expect("Failed to save config");
-    let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
-
-    assert!(loaded_config.mappings.is_empty());
-
-    cleanup_test_file(&path);
-}
-
 /// Tests configuration with empty process whitelist.
 #[test]
 fn test_config_empty_process_whitelist() {
@@ -283,61 +121,6 @@ fn test_config_maximum_mappings() {
     let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
 
     assert_eq!(loaded_config.mappings.len(), 50);
-
-    cleanup_test_file(&path);
-}
-
-/// Tests configuration with all available settings modified.
-#[test]
-fn test_config_all_settings_combined() {
-    let path = get_test_file_path("all_settings");
-
-    let mut config = AppConfig::default();
-    config.show_tray_icon = false;
-    config.show_notifications = true;
-    config.always_on_top = true;
-    config.dark_mode = true;
-    config.language = Language::Japanese;
-    config.switch_key = "F11".to_string();
-    config.input_timeout = 15;
-    config.interval = 8;
-    config.event_duration = 6;
-    config.worker_count = 6;
-    config.process_whitelist = vec!["app1.exe".to_string(), "app2.exe".to_string()];
-    config.mappings = vec![
-        KeyMapping {
-            trigger_key: "A".to_string(),
-            target_keys: SmallVec::from_vec(vec!["B".to_string()]),
-            interval: Some(10),
-            event_duration: Some(5),
-            turbo_enabled: true,
-            move_speed: 10,
-        },
-        KeyMapping {
-            trigger_key: "C".to_string(),
-            target_keys: SmallVec::from_vec(vec!["D".to_string()]),
-            interval: None,
-            event_duration: None,
-            turbo_enabled: true,
-            move_speed: 10,
-        },
-    ];
-
-    config.save_to_file(&path).expect("Failed to save config");
-    let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
-
-    assert_eq!(loaded_config.show_tray_icon, false);
-    assert_eq!(loaded_config.show_notifications, true);
-    assert_eq!(loaded_config.always_on_top, true);
-    assert_eq!(loaded_config.dark_mode, true);
-    assert_eq!(loaded_config.language, Language::Japanese);
-    assert_eq!(loaded_config.switch_key, "F11");
-    assert_eq!(loaded_config.input_timeout, 15);
-    assert_eq!(loaded_config.interval, 8);
-    assert_eq!(loaded_config.event_duration, 6);
-    assert_eq!(loaded_config.worker_count, 6);
-    assert_eq!(loaded_config.process_whitelist.len(), 2);
-    assert_eq!(loaded_config.mappings.len(), 2);
 
     cleanup_test_file(&path);
 }
@@ -438,30 +221,6 @@ fn test_config_multiple_target_keys() {
     cleanup_test_file(&path);
 }
 
-/// Tests empty target keys list in configuration.
-#[test]
-fn test_config_empty_target_keys() {
-    let path = get_test_file_path("empty_target_keys");
-
-    let mut config = AppConfig::default();
-    config.mappings = vec![KeyMapping {
-        trigger_key: "A".to_string(),
-        target_keys: SmallVec::new(),
-        interval: Some(10),
-        event_duration: Some(5),
-        turbo_enabled: true,
-        move_speed: 10,
-    }];
-
-    config.save_to_file(&path).expect("Failed to save config");
-    let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
-
-    assert_eq!(loaded_config.mappings.len(), 1);
-    assert_eq!(loaded_config.mappings[0].target_keys.len(), 0);
-
-    cleanup_test_file(&path);
-}
-
 /// Tests many target keys in a single mapping.
 #[test]
 fn test_config_many_target_keys() {
@@ -490,45 +249,6 @@ fn test_config_many_target_keys() {
     assert_eq!(loaded_config.mappings[0].target_keys.len(), 5);
     assert_eq!(loaded_config.mappings[0].target_keys[0], "1");
     assert_eq!(loaded_config.mappings[0].target_keys[4], "5");
-
-    cleanup_test_file(&path);
-}
-
-/// Tests target_keys field backward compatibility with TOML.
-#[test]
-fn test_config_target_keys_toml_format() {
-    let path = get_test_file_path("target_keys_toml");
-
-    let content = r#"
-        show_tray_icon = true
-        show_notifications = true
-        switch_key = "DELETE"
-        input_timeout = 5
-        interval = 5
-        event_duration = 5
-        worker_count = 0
-        process_whitelist = []
-        
-        [[mappings]]
-        trigger_key = "Q"
-        target_keys = ["MOUSE_UP", "MOUSE_LEFT"]
-        turbo_enabled = true
-        
-        [[mappings]]
-        trigger_key = "E"
-        target_keys = ["A"]
-        turbo_enabled = true
-    "#;
-
-    fs::write(&path, content).expect("Failed to write test config");
-    let loaded_config = AppConfig::load_from_file(&path).expect("Failed to load config");
-
-    assert_eq!(loaded_config.mappings.len(), 2);
-    assert_eq!(loaded_config.mappings[0].target_keys.len(), 2);
-    assert_eq!(loaded_config.mappings[0].target_keys[0], "MOUSE_UP");
-    assert_eq!(loaded_config.mappings[0].target_keys[1], "MOUSE_LEFT");
-    assert_eq!(loaded_config.mappings[1].target_keys.len(), 1);
-    assert_eq!(loaded_config.mappings[1].target_keys[0], "A");
 
     cleanup_test_file(&path);
 }

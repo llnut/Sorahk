@@ -38,7 +38,7 @@ anyhow = "1.0.100"
 eframe = { version = "0.33.3", default-features = false, features = ["default_fonts", "glow"] }
 ico = "0.5.0"
 rfd = { version = "0.16.0", default-features = false }
-scc = "3.4.7"
+scc = "3.4.8"
 smallvec = { version = "1.15.1", features = ["serde"] }
 
 [profile.release]
