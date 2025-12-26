@@ -462,7 +462,7 @@ impl DeviceManagerDialog {
                         );
 
                         // Subtitle with vendor and technical info
-                        let mut info_parts = vec![];
+                        let mut info_parts = Vec::with_capacity(4);
 
                         if let Some(vendor) = get_vendor_name(device.vid) {
                             info_parts.push(format!("🏭 {}", vendor));

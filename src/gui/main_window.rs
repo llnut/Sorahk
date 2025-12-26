@@ -593,7 +593,6 @@ impl SorahkGui {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(10.0);
 
-                let theme_icon = if self.dark_mode { "☀" } else { "🌙" };
                 let theme_text = if self.dark_mode {
                     t.dark_theme()
                 } else {
@@ -601,7 +600,7 @@ impl SorahkGui {
                 };
 
                 let theme_btn = egui::Button::new(
-                    egui::RichText::new(format!("{}  {}", theme_icon, theme_text))
+                    egui::RichText::new(theme_text)
                         .size(13.0)
                         .color(egui::Color32::WHITE),
                 )

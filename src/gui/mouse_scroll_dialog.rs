@@ -77,18 +77,17 @@ impl MouseScrollDialog {
 
                     // Title
                     ui.label(
-                        egui::RichText::new(format!("🎡 {} 🎡", t.mouse_scroll_direction_label()))
+                        egui::RichText::new(t.mouse_scroll_direction_label())
                             .size(20.0)
                             .strong()
                             .color(title_color),
                     );
 
-                    ui.add_space(30.0);
+                    ui.add_space(25.0);
 
                     // Scroll Up button
                     let up_btn = render_scroll_button(
                         ui,
-                        "⬆",
                         t.mouse_scroll_up(),
                         dark_mode,
                         button_bg,
@@ -102,12 +101,11 @@ impl MouseScrollDialog {
                         should_close = true;
                     }
 
-                    ui.add_space(15.0);
+                    ui.add_space(8.0);
 
                     // Middle Mouse Button
                     let middle_btn = render_scroll_button(
                         ui,
-                        "🖱",
                         t.mouse_middle_button(),
                         dark_mode,
                         button_bg,
@@ -121,12 +119,11 @@ impl MouseScrollDialog {
                         should_close = true;
                     }
 
-                    ui.add_space(15.0);
+                    ui.add_space(8.0);
 
                     // Scroll Down button
                     let down_btn = render_scroll_button(
                         ui,
-                        "⬇",
                         t.mouse_scroll_down(),
                         dark_mode,
                         button_bg,
@@ -140,7 +137,7 @@ impl MouseScrollDialog {
                         should_close = true;
                     }
 
-                    ui.add_space(25.0);
+                    ui.add_space(20.0);
 
                     // Cancel button
                     if ui
@@ -168,10 +165,8 @@ impl MouseScrollDialog {
 }
 
 /// Render a scroll direction button with hover effects
-#[allow(clippy::too_many_arguments)]
 fn render_scroll_button(
     ui: &mut egui::Ui,
-    icon: &str,
     label: &str,
     dark_mode: bool,
     button_bg: egui::Color32,
@@ -212,7 +207,7 @@ fn render_scroll_button(
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            format!("{} {}", icon, label),
+            label,
             egui::FontId::proportional(16.0),
             fg_color,
         );

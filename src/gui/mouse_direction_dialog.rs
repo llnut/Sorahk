@@ -77,7 +77,7 @@ impl MouseDirectionDialog {
 
                     // Title
                     ui.label(
-                        egui::RichText::new(format!("✨ {} ✨", t.mouse_move_direction_label()))
+                        egui::RichText::new(t.mouse_move_direction_label())
                             .size(20.0)
                             .strong()
                             .color(title_color),
@@ -94,7 +94,6 @@ impl MouseDirectionDialog {
                                 // Row 1: Up-Left, Up, Up-Right
                                 if render_direction_button(
                                     ui,
-                                    "↖",
                                     t.mouse_move_up_left(),
                                     dark_mode,
                                     button_bg,
@@ -109,7 +108,6 @@ impl MouseDirectionDialog {
                                 }
                                 if render_direction_button(
                                     ui,
-                                    "↑",
                                     t.mouse_move_up(),
                                     dark_mode,
                                     button_bg,
@@ -124,7 +122,6 @@ impl MouseDirectionDialog {
                                 }
                                 if render_direction_button(
                                     ui,
-                                    "↗",
                                     t.mouse_move_up_right(),
                                     dark_mode,
                                     button_bg,
@@ -142,7 +139,6 @@ impl MouseDirectionDialog {
                                 // Row 2: Left, (Center), Right
                                 if render_direction_button(
                                     ui,
-                                    "←",
                                     t.mouse_move_left(),
                                     dark_mode,
                                     button_bg,
@@ -171,7 +167,6 @@ impl MouseDirectionDialog {
 
                                 if render_direction_button(
                                     ui,
-                                    "→",
                                     t.mouse_move_right(),
                                     dark_mode,
                                     button_bg,
@@ -189,7 +184,6 @@ impl MouseDirectionDialog {
                                 // Row 3: Down-Left, Down, Down-Right
                                 if render_direction_button(
                                     ui,
-                                    "↙",
                                     t.mouse_move_down_left(),
                                     dark_mode,
                                     button_bg,
@@ -204,7 +198,6 @@ impl MouseDirectionDialog {
                                 }
                                 if render_direction_button(
                                     ui,
-                                    "↓",
                                     t.mouse_move_down(),
                                     dark_mode,
                                     button_bg,
@@ -219,7 +212,6 @@ impl MouseDirectionDialog {
                                 }
                                 if render_direction_button(
                                     ui,
-                                    "↘",
                                     t.mouse_move_down_right(),
                                     dark_mode,
                                     button_bg,
@@ -264,10 +256,8 @@ impl MouseDirectionDialog {
 }
 
 /// Renders a direction button with consistent styling
-#[allow(clippy::too_many_arguments)]
 fn render_direction_button(
     ui: &mut egui::Ui,
-    icon: &str,
     label: &str,
     dark_mode: bool,
     button_bg: egui::Color32,
@@ -308,7 +298,7 @@ fn render_direction_button(
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            format!("{}\n{}", icon, label),
+            label,
             egui::FontId::proportional(13.0),
             fg_color,
         );

@@ -1201,16 +1201,16 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::AppTitle) => "🌸 Sorahk ~ 自動連打ツール ~",
 
         // Dark
-        (Language::English, RawKey::Dark) => "Dark",
-        (Language::SimplifiedChinese, RawKey::Dark) => "深色",
-        (Language::TraditionalChinese, RawKey::Dark) => "深色",
-        (Language::Japanese, RawKey::Dark) => "ダーク",
+        (Language::English, RawKey::Dark) => "🌙  Dark",
+        (Language::SimplifiedChinese, RawKey::Dark) => "🌙  深色",
+        (Language::TraditionalChinese, RawKey::Dark) => "🌙  深色",
+        (Language::Japanese, RawKey::Dark) => "🌙  ダーク",
 
         // Light
-        (Language::English, RawKey::Light) => "Light",
-        (Language::SimplifiedChinese, RawKey::Light) => "浅色",
-        (Language::TraditionalChinese, RawKey::Light) => "淺色",
-        (Language::Japanese, RawKey::Light) => "ライト",
+        (Language::English, RawKey::Light) => "☀  Light",
+        (Language::SimplifiedChinese, RawKey::Light) => "☀  浅色",
+        (Language::TraditionalChinese, RawKey::Light) => "☀  淺色",
+        (Language::Japanese, RawKey::Light) => "☀  ライト",
 
         // Paused
         (Language::English, RawKey::Paused) => "Paused",
@@ -1717,50 +1717,50 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::HidActivationCancel) => "✖ キャンセル",
 
         // Mouse Movement
-        (Language::English, RawKey::MouseMoveDirectionLabel) => "Direction:",
-        (Language::SimplifiedChinese, RawKey::MouseMoveDirectionLabel) => "移动方向:",
-        (Language::TraditionalChinese, RawKey::MouseMoveDirectionLabel) => "移動方向:",
-        (Language::Japanese, RawKey::MouseMoveDirectionLabel) => "移動方向:",
+        (Language::English, RawKey::MouseMoveDirectionLabel) => "✨ Direction ✨",
+        (Language::SimplifiedChinese, RawKey::MouseMoveDirectionLabel) => "✨ 移动方向 ✨",
+        (Language::TraditionalChinese, RawKey::MouseMoveDirectionLabel) => "✨ 移動方向 ✨",
+        (Language::Japanese, RawKey::MouseMoveDirectionLabel) => "✨ 移動方向 ✨",
 
-        (Language::English, RawKey::MouseMoveUp) => "↑ Up",
-        (Language::SimplifiedChinese, RawKey::MouseMoveUp) => "↑ 向上",
-        (Language::TraditionalChinese, RawKey::MouseMoveUp) => "↑ 向上",
-        (Language::Japanese, RawKey::MouseMoveUp) => "↑ 上",
+        (Language::English, RawKey::MouseMoveUp) => "↑\n↑ Up",
+        (Language::SimplifiedChinese, RawKey::MouseMoveUp) => "↑\n↑ 向上",
+        (Language::TraditionalChinese, RawKey::MouseMoveUp) => "↑\n↑ 向上",
+        (Language::Japanese, RawKey::MouseMoveUp) => "↑\n↑ 上",
 
-        (Language::English, RawKey::MouseMoveDown) => "↓ Down",
-        (Language::SimplifiedChinese, RawKey::MouseMoveDown) => "↓ 向下",
-        (Language::TraditionalChinese, RawKey::MouseMoveDown) => "↓ 向下",
-        (Language::Japanese, RawKey::MouseMoveDown) => "↓ 下",
+        (Language::English, RawKey::MouseMoveDown) => "↓\n↓ Down",
+        (Language::SimplifiedChinese, RawKey::MouseMoveDown) => "↓\n↓ 向下",
+        (Language::TraditionalChinese, RawKey::MouseMoveDown) => "↓\n↓ 向下",
+        (Language::Japanese, RawKey::MouseMoveDown) => "↓\n↓ 下",
 
-        (Language::English, RawKey::MouseMoveLeft) => "← Left",
-        (Language::SimplifiedChinese, RawKey::MouseMoveLeft) => "← 向左",
-        (Language::TraditionalChinese, RawKey::MouseMoveLeft) => "← 向左",
-        (Language::Japanese, RawKey::MouseMoveLeft) => "← 左",
+        (Language::English, RawKey::MouseMoveLeft) => "←\n← Left",
+        (Language::SimplifiedChinese, RawKey::MouseMoveLeft) => "←\n← 向左",
+        (Language::TraditionalChinese, RawKey::MouseMoveLeft) => "←\n← 向左",
+        (Language::Japanese, RawKey::MouseMoveLeft) => "←\n← 左",
 
-        (Language::English, RawKey::MouseMoveRight) => "→ Right",
-        (Language::SimplifiedChinese, RawKey::MouseMoveRight) => "→ 向右",
-        (Language::TraditionalChinese, RawKey::MouseMoveRight) => "→ 向右",
-        (Language::Japanese, RawKey::MouseMoveRight) => "→ 右",
+        (Language::English, RawKey::MouseMoveRight) => "→\n→ Right",
+        (Language::SimplifiedChinese, RawKey::MouseMoveRight) => "→\n→ 向右",
+        (Language::TraditionalChinese, RawKey::MouseMoveRight) => "→\n→ 向右",
+        (Language::Japanese, RawKey::MouseMoveRight) => "→\n→ 右",
 
-        (Language::English, RawKey::MouseMoveUpLeft) => "↖ Up-Left",
-        (Language::SimplifiedChinese, RawKey::MouseMoveUpLeft) => "↖ 左上",
-        (Language::TraditionalChinese, RawKey::MouseMoveUpLeft) => "↖ 左上",
-        (Language::Japanese, RawKey::MouseMoveUpLeft) => "↖ 左上",
+        (Language::English, RawKey::MouseMoveUpLeft) => "↖\n↖ Up-Left",
+        (Language::SimplifiedChinese, RawKey::MouseMoveUpLeft) => "↖\n↖ 左上",
+        (Language::TraditionalChinese, RawKey::MouseMoveUpLeft) => "↖\n↖ 左上",
+        (Language::Japanese, RawKey::MouseMoveUpLeft) => "↖\n↖ 左上",
 
-        (Language::English, RawKey::MouseMoveUpRight) => "↗ Up-Right",
-        (Language::SimplifiedChinese, RawKey::MouseMoveUpRight) => "↗ 右上",
-        (Language::TraditionalChinese, RawKey::MouseMoveUpRight) => "↗ 右上",
-        (Language::Japanese, RawKey::MouseMoveUpRight) => "↗ 右上",
+        (Language::English, RawKey::MouseMoveUpRight) => "↗\n↗ Up-Right",
+        (Language::SimplifiedChinese, RawKey::MouseMoveUpRight) => "↗\n↗ 右上",
+        (Language::TraditionalChinese, RawKey::MouseMoveUpRight) => "↗\n↗ 右上",
+        (Language::Japanese, RawKey::MouseMoveUpRight) => "↗\n↗ 右上",
 
-        (Language::English, RawKey::MouseMoveDownLeft) => "↙ Down-Left",
-        (Language::SimplifiedChinese, RawKey::MouseMoveDownLeft) => "↙ 左下",
-        (Language::TraditionalChinese, RawKey::MouseMoveDownLeft) => "↙ 左下",
-        (Language::Japanese, RawKey::MouseMoveDownLeft) => "↙ 左下",
+        (Language::English, RawKey::MouseMoveDownLeft) => "↙\n↙ Down-Left",
+        (Language::SimplifiedChinese, RawKey::MouseMoveDownLeft) => "↙\n↙ 左下",
+        (Language::TraditionalChinese, RawKey::MouseMoveDownLeft) => "↙\n↙ 左下",
+        (Language::Japanese, RawKey::MouseMoveDownLeft) => "↙\n↙ 左下",
 
-        (Language::English, RawKey::MouseMoveDownRight) => "↘ Down-Right",
-        (Language::SimplifiedChinese, RawKey::MouseMoveDownRight) => "↘ 右下",
-        (Language::TraditionalChinese, RawKey::MouseMoveDownRight) => "↘ 右下",
-        (Language::Japanese, RawKey::MouseMoveDownRight) => "↘ 右下",
+        (Language::English, RawKey::MouseMoveDownRight) => "↘\n↘ Down-Right",
+        (Language::SimplifiedChinese, RawKey::MouseMoveDownRight) => "↘\n↘ 右下",
+        (Language::TraditionalChinese, RawKey::MouseMoveDownRight) => "↘\n↘ 右下",
+        (Language::Japanese, RawKey::MouseMoveDownRight) => "↘\n↘ 右下",
 
         (Language::English, RawKey::SetMouseDirectionHover) => "Set mouse movement direction",
         (Language::SimplifiedChinese, RawKey::SetMouseDirectionHover) => "设置鼠标移动方向",
@@ -1768,25 +1768,25 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::SetMouseDirectionHover) => "マウス移動方向を設定",
 
         // Mouse Scroll
-        (Language::English, RawKey::MouseScrollDirectionLabel) => "Scroll Direction",
-        (Language::SimplifiedChinese, RawKey::MouseScrollDirectionLabel) => "滚动方向",
-        (Language::TraditionalChinese, RawKey::MouseScrollDirectionLabel) => "滾動方向",
-        (Language::Japanese, RawKey::MouseScrollDirectionLabel) => "スクロール方向",
+        (Language::English, RawKey::MouseScrollDirectionLabel) => "🎡 Scroll Direction 🎡",
+        (Language::SimplifiedChinese, RawKey::MouseScrollDirectionLabel) => "🎡 滚动方向 🎡",
+        (Language::TraditionalChinese, RawKey::MouseScrollDirectionLabel) => "🎡 滾動方向 🎡",
+        (Language::Japanese, RawKey::MouseScrollDirectionLabel) => "🎡 スクロール方向 🎡",
 
-        (Language::English, RawKey::MouseScrollUp) => "Scroll Up",
-        (Language::SimplifiedChinese, RawKey::MouseScrollUp) => "向上滚动",
-        (Language::TraditionalChinese, RawKey::MouseScrollUp) => "向上滾動",
-        (Language::Japanese, RawKey::MouseScrollUp) => "上にスクロール",
+        (Language::English, RawKey::MouseScrollUp) => "⬆ Scroll Up",
+        (Language::SimplifiedChinese, RawKey::MouseScrollUp) => "⬆ 向上滚动",
+        (Language::TraditionalChinese, RawKey::MouseScrollUp) => "⬆ 向上滾動",
+        (Language::Japanese, RawKey::MouseScrollUp) => "⬆ 上にスクロール",
 
-        (Language::English, RawKey::MouseScrollDown) => "Scroll Down",
-        (Language::SimplifiedChinese, RawKey::MouseScrollDown) => "向下滚动",
-        (Language::TraditionalChinese, RawKey::MouseScrollDown) => "向下滾動",
-        (Language::Japanese, RawKey::MouseScrollDown) => "下にスクロール",
+        (Language::English, RawKey::MouseScrollDown) => "⬇ Scroll Down",
+        (Language::SimplifiedChinese, RawKey::MouseScrollDown) => "⬇ 向下滚动",
+        (Language::TraditionalChinese, RawKey::MouseScrollDown) => "⬇ 向下滾動",
+        (Language::Japanese, RawKey::MouseScrollDown) => "⬇ 下にスクロール",
 
-        (Language::English, RawKey::MouseMiddleButton) => "Middle Button",
-        (Language::SimplifiedChinese, RawKey::MouseMiddleButton) => "鼠标中键",
-        (Language::TraditionalChinese, RawKey::MouseMiddleButton) => "滑鼠中鍵",
-        (Language::Japanese, RawKey::MouseMiddleButton) => "ミドルボタン",
+        (Language::English, RawKey::MouseMiddleButton) => "🖱 Middle Button",
+        (Language::SimplifiedChinese, RawKey::MouseMiddleButton) => "🖱 鼠标中键",
+        (Language::TraditionalChinese, RawKey::MouseMiddleButton) => "🖱 滑鼠中鍵",
+        (Language::Japanese, RawKey::MouseMiddleButton) => "🖱 ミドルボタン",
 
         // Hover hints
         (Language::English, RawKey::SetMouseScrollDirectionHover) => "Set mouse scroll direction",
@@ -2068,8 +2068,8 @@ mod tests {
         assert!(translations.app_title().contains("Sorahk"));
         assert_eq!(translations.settings_button(), "⚙  Settings");
         assert_eq!(translations.about_button(), "❤  About");
-        assert_eq!(translations.dark_theme(), "Dark");
-        assert_eq!(translations.light_theme(), "Light");
+        assert_eq!(translations.dark_theme(), "🌙  Dark");
+        assert_eq!(translations.light_theme(), "☀  Light");
         assert_eq!(translations.paused_status(), "Paused");
         assert_eq!(translations.running_status(), "Running");
     }
@@ -2081,8 +2081,8 @@ mod tests {
         assert!(translations.app_title().contains("Sorahk"));
         assert_eq!(translations.settings_button(), "⚙  设置");
         assert_eq!(translations.about_button(), "❤  关于");
-        assert_eq!(translations.dark_theme(), "深色");
-        assert_eq!(translations.light_theme(), "浅色");
+        assert_eq!(translations.dark_theme(), "🌙  深色");
+        assert_eq!(translations.light_theme(), "☀  浅色");
         assert_eq!(translations.paused_status(), "已暂停");
         assert_eq!(translations.running_status(), "连发中");
     }
@@ -2094,8 +2094,8 @@ mod tests {
         assert!(translations.app_title().contains("Sorahk"));
         assert_eq!(translations.settings_button(), "⚙  設定");
         assert_eq!(translations.about_button(), "❤  關於");
-        assert_eq!(translations.dark_theme(), "深色");
-        assert_eq!(translations.light_theme(), "淺色");
+        assert_eq!(translations.dark_theme(), "🌙  深色");
+        assert_eq!(translations.light_theme(), "☀  淺色");
         assert_eq!(translations.paused_status(), "已暫停");
         assert_eq!(translations.running_status(), "連發中");
     }
@@ -2107,8 +2107,8 @@ mod tests {
         assert!(translations.app_title().contains("Sorahk"));
         assert_eq!(translations.settings_button(), "⚙  設定");
         assert_eq!(translations.about_button(), "❤  概要");
-        assert_eq!(translations.dark_theme(), "ダーク");
-        assert_eq!(translations.light_theme(), "ライト");
+        assert_eq!(translations.dark_theme(), "🌙  ダーク");
+        assert_eq!(translations.light_theme(), "☀  ライト");
         assert_eq!(translations.paused_status(), "一時停止中");
         assert_eq!(translations.running_status(), "連打中");
     }
