@@ -1871,16 +1871,16 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::DiagonalHintTitle) => "🌸 ✨ 斜め入力の使用法 ✨ 🌸",
 
         (Language::English, RawKey::DiagonalHint) => {
-            "To trigger two cardinal directions with a diagonal input, create a separate mapping for the diagonal direction and add target keys for both cardinal directions"
+            "For RawInput devices: Diagonal inputs don't automatically trigger both cardinal directions. To trigger both ↑ and → with ↗, create a separate mapping for ↗ with both target keys"
         }
         (Language::SimplifiedChinese, RawKey::DiagonalHint) => {
-            "若需使用斜方向触发两个直方向的效果，请单独设置斜方向映射规则并添加两个直方向的所有目标键"
+            "RawInput设备的斜向输入需单独配置。例如：若要 ↗ 同时触发 ↑ 和 →，需为 ↗ 单独添加包含两个直向目标键的映射规则"
         }
         (Language::TraditionalChinese, RawKey::DiagonalHint) => {
-            "若需使用斜方向觸發兩個直方向的效果，請單獨設定斜方向映射規則並新增兩個直方向的所有目標鍵"
+            "RawInput裝置的斜向輸入需單獨配置。例如：若要 ↗ 同時觸發 ↑ 和 →，需為 ↗ 單獨新增包含兩個直向目標鍵的映射規則"
         }
         (Language::Japanese, RawKey::DiagonalHint) => {
-            "斜め入力で2つの直交方向を同時にトリガーする場合は、斜め方向の個別マッピングを作成し、両直交方向のターゲットキーを追加してください"
+            "RawInput デバイス：斜め入力は個別設定が必要です。例：↗ で ↑ と → を同時トリガーするには、↗ に両方向の対象キーを含むマッピングを作成します"
         }
 
         // Device Manager Dialog
