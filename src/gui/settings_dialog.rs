@@ -1859,6 +1859,9 @@ impl SorahkGui {
                     // Update GUI's config
                     self.config = temp_config.clone();
 
+                    // Re-parse switch key after configuration update
+                    self.parsed_switch_key = Self::parse_switch_key(&self.config.switch_key);
+
                     // Apply theme change immediately
                     if dark_mode_changed {
                         self.dark_mode = self.config.dark_mode;

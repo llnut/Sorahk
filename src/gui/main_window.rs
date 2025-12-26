@@ -2,7 +2,6 @@
 
 use crate::gui::SorahkGui;
 use crate::gui::about_dialog::render_about_dialog;
-use crate::gui::utils::string_to_key;
 use crate::state::NotificationEvent;
 use eframe::egui;
 
@@ -479,61 +478,73 @@ impl SorahkGui {
         });
     }
 
-    /// Handles switch key input events.
-    fn handle_keyboard_input(&mut self, ctx: &egui::Context) {
-        ctx.input(|i| {
-            // Handle combo keys (e.g., "LCTRL+Q")
-            if self.config.switch_key.contains('+') {
-                let parts: Vec<&str> = self.config.switch_key.split('+').collect();
-                if parts.len() >= 2 {
-                    // Check modifiers and regular keys
-                    let mut has_ctrl = false;
-                    let mut has_shift = false;
-                    let mut has_alt = false;
-                    let mut regular_keys = Vec::new();
+    /// Handles switch key input detection using GetAsyncKeyState.
+    #[inline]
+    fn handle_keyboard_input(&mut self, _ctx: &egui::Context) {
+        use crate::gui::ParsedSwitchKey;
+        use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
-                    for part in parts.iter() {
-                        let p = part.trim().to_uppercase();
-                        match p.as_str() {
-                            "LCTRL" | "RCTRL" | "CTRL" => has_ctrl = true,
-                            "LSHIFT" | "RSHIFT" | "SHIFT" => has_shift = true,
-                            "LALT" | "RALT" | "ALT" => has_alt = true,
-                            _ => {
-                                if let Some(key) = string_to_key(part.trim()) {
-                                    regular_keys.push(key);
-                                }
-                            }
-                        }
+        unsafe {
+            match &self.parsed_switch_key {
+                ParsedSwitchKey::None => (),
+
+                ParsedSwitchKey::Single(vk) => {
+                    let is_pressed = GetAsyncKeyState(*vk as i32) < 0;
+                    let vk_bit = Self::vk_to_bit(*vk);
+                    let was_pressed = (self.last_vk_state & vk_bit) != 0;
+
+                    if is_pressed && !was_pressed {
+                        self.last_vk_state |= vk_bit;
+                        self.app_state.handle_switch_key_toggle();
+                    } else if !is_pressed {
+                        self.last_vk_state &= !vk_bit;
+                    }
+                }
+
+                ParsedSwitchKey::Combo { modifiers, keys } => {
+                    let has_ctrl = (modifiers & 0b001) != 0;
+                    let has_shift = (modifiers & 0b010) != 0;
+                    let has_alt = (modifiers & 0b100) != 0;
+
+                    let ctrl_pressed =
+                        !has_ctrl || GetAsyncKeyState(0xA2) < 0 || GetAsyncKeyState(0xA3) < 0;
+                    let shift_pressed =
+                        !has_shift || GetAsyncKeyState(0xA0) < 0 || GetAsyncKeyState(0xA1) < 0;
+                    let alt_pressed =
+                        !has_alt || GetAsyncKeyState(0xA4) < 0 || GetAsyncKeyState(0xA5) < 0;
+
+                    if crate::util::unlikely(!ctrl_pressed || !shift_pressed || !alt_pressed) {
+                        return;
                     }
 
-                    // Check if any regular key was just released
-                    for key in &regular_keys {
-                        if i.key_pressed(*key) {
-                            // Check modifiers match
-                            let mods_match = (!has_ctrl || i.modifiers.ctrl)
-                                && (!has_shift || i.modifiers.shift)
-                                && (!has_alt || i.modifiers.alt);
+                    for &vk in keys {
+                        let is_pressed = GetAsyncKeyState(vk as i32) < 0;
+                        let vk_bit = Self::vk_to_bit(vk);
+                        let was_pressed = (self.last_vk_state & vk_bit) != 0;
 
-                            // Check other regular keys are still down
-                            let others_down =
-                                regular_keys.iter().all(|k| k == key || i.key_down(*k));
+                        if is_pressed && !was_pressed {
+                            self.last_vk_state |= vk_bit;
 
-                            if mods_match && others_down {
+                            let all_down = keys.iter().all(|&k| GetAsyncKeyState(k as i32) < 0);
+
+                            if all_down {
                                 self.app_state.handle_switch_key_toggle();
                                 return;
                             }
+                        } else if !is_pressed {
+                            self.last_vk_state &= !vk_bit;
                         }
                     }
                 }
-            } else {
-                // Single key
-                if let Some(switch_key) = string_to_key(&self.config.switch_key)
-                    && i.key_pressed(switch_key)
-                {
-                    self.app_state.handle_switch_key_toggle();
-                }
             }
-        });
+        }
+    }
+
+    /// Convert VK code to bit position using modulo mapping.
+    /// Uses 16 bits to track key states with collision handling.
+    #[inline(always)]
+    fn vk_to_bit(vk: u32) -> u16 {
+        1u16 << (vk % 16)
     }
 
     /// Renders the main content panel with all UI components.
@@ -1151,3 +1162,4 @@ impl SorahkGui {
         ui.end_row();
     }
 }
+

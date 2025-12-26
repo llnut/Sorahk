@@ -2,76 +2,93 @@
 
 use eframe::egui;
 
-/// Converts virtual key code string to egui::Key.
-pub fn string_to_key(key_name: &str) -> Option<egui::Key> {
+/// Converts key name string to Windows VK code.
+pub fn string_to_vk(key_name: &str) -> Option<u32> {
     let key_upper = key_name.to_uppercase();
     match key_upper.as_str() {
-        "A" => Some(egui::Key::A),
-        "B" => Some(egui::Key::B),
-        "C" => Some(egui::Key::C),
-        "D" => Some(egui::Key::D),
-        "E" => Some(egui::Key::E),
-        "F" => Some(egui::Key::F),
-        "G" => Some(egui::Key::G),
-        "H" => Some(egui::Key::H),
-        "I" => Some(egui::Key::I),
-        "J" => Some(egui::Key::J),
-        "K" => Some(egui::Key::K),
-        "L" => Some(egui::Key::L),
-        "M" => Some(egui::Key::M),
-        "N" => Some(egui::Key::N),
-        "O" => Some(egui::Key::O),
-        "P" => Some(egui::Key::P),
-        "Q" => Some(egui::Key::Q),
-        "R" => Some(egui::Key::R),
-        "S" => Some(egui::Key::S),
-        "T" => Some(egui::Key::T),
-        "U" => Some(egui::Key::U),
-        "V" => Some(egui::Key::V),
-        "W" => Some(egui::Key::W),
-        "X" => Some(egui::Key::X),
-        "Y" => Some(egui::Key::Y),
-        "Z" => Some(egui::Key::Z),
-        "0" => Some(egui::Key::Num0),
-        "1" => Some(egui::Key::Num1),
-        "2" => Some(egui::Key::Num2),
-        "3" => Some(egui::Key::Num3),
-        "4" => Some(egui::Key::Num4),
-        "5" => Some(egui::Key::Num5),
-        "6" => Some(egui::Key::Num6),
-        "7" => Some(egui::Key::Num7),
-        "8" => Some(egui::Key::Num8),
-        "9" => Some(egui::Key::Num9),
-        "F1" => Some(egui::Key::F1),
-        "F2" => Some(egui::Key::F2),
-        "F3" => Some(egui::Key::F3),
-        "F4" => Some(egui::Key::F4),
-        "F5" => Some(egui::Key::F5),
-        "F6" => Some(egui::Key::F6),
-        "F7" => Some(egui::Key::F7),
-        "F8" => Some(egui::Key::F8),
-        "F9" => Some(egui::Key::F9),
-        "F10" => Some(egui::Key::F10),
-        "F11" => Some(egui::Key::F11),
-        "F12" => Some(egui::Key::F12),
-        "DELETE" => Some(egui::Key::Delete),
-        "INSERT" => Some(egui::Key::Insert),
-        "HOME" => Some(egui::Key::Home),
-        "END" => Some(egui::Key::End),
-        "PAGEUP" => Some(egui::Key::PageUp),
-        "PAGEDOWN" => Some(egui::Key::PageDown),
-        "SPACE" => Some(egui::Key::Space),
-        "TAB" => Some(egui::Key::Tab),
-        "ESCAPE" | "ESC" => Some(egui::Key::Escape),
-        "RETURN" | "ENTER" => Some(egui::Key::Enter),
-        "BACK" | "BACKSPACE" => Some(egui::Key::Backspace),
-        "LEFT" => Some(egui::Key::ArrowLeft),
-        "RIGHT" => Some(egui::Key::ArrowRight),
-        "UP" => Some(egui::Key::ArrowUp),
-        "DOWN" => Some(egui::Key::ArrowDown),
+        // A-Z (0x41-0x5A)
+        "A" => Some(0x41),
+        "B" => Some(0x42),
+        "C" => Some(0x43),
+        "D" => Some(0x44),
+        "E" => Some(0x45),
+        "F" => Some(0x46),
+        "G" => Some(0x47),
+        "H" => Some(0x48),
+        "I" => Some(0x49),
+        "J" => Some(0x4A),
+        "K" => Some(0x4B),
+        "L" => Some(0x4C),
+        "M" => Some(0x4D),
+        "N" => Some(0x4E),
+        "O" => Some(0x4F),
+        "P" => Some(0x50),
+        "Q" => Some(0x51),
+        "R" => Some(0x52),
+        "S" => Some(0x53),
+        "T" => Some(0x54),
+        "U" => Some(0x55),
+        "V" => Some(0x56),
+        "W" => Some(0x57),
+        "X" => Some(0x58),
+        "Y" => Some(0x59),
+        "Z" => Some(0x5A),
+        // 0-9 (0x30-0x39)
+        "0" => Some(0x30),
+        "1" => Some(0x31),
+        "2" => Some(0x32),
+        "3" => Some(0x33),
+        "4" => Some(0x34),
+        "5" => Some(0x35),
+        "6" => Some(0x36),
+        "7" => Some(0x37),
+        "8" => Some(0x38),
+        "9" => Some(0x39),
+        // F1-F24 (0x70-0x87)
+        "F1" => Some(0x70),
+        "F2" => Some(0x71),
+        "F3" => Some(0x72),
+        "F4" => Some(0x73),
+        "F5" => Some(0x74),
+        "F6" => Some(0x75),
+        "F7" => Some(0x76),
+        "F8" => Some(0x77),
+        "F9" => Some(0x78),
+        "F10" => Some(0x79),
+        "F11" => Some(0x7A),
+        "F12" => Some(0x7B),
+        "F13" => Some(0x7C),
+        "F14" => Some(0x7D),
+        "F15" => Some(0x7E),
+        "F16" => Some(0x7F),
+        "F17" => Some(0x80),
+        "F18" => Some(0x81),
+        "F19" => Some(0x82),
+        "F20" => Some(0x83),
+        "F21" => Some(0x84),
+        "F22" => Some(0x85),
+        "F23" => Some(0x86),
+        "F24" => Some(0x87),
+        // Navigation and editing keys
+        "DELETE" => Some(0x2E),
+        "INSERT" => Some(0x2D),
+        "HOME" => Some(0x24),
+        "END" => Some(0x23),
+        "PAGEUP" => Some(0x21),
+        "PAGEDOWN" => Some(0x22),
+        "SPACE" => Some(0x20),
+        "TAB" => Some(0x09),
+        "ESCAPE" | "ESC" => Some(0x1B),
+        "RETURN" | "ENTER" => Some(0x0D),
+        "BACK" | "BACKSPACE" => Some(0x08),
+        "LEFT" => Some(0x25),
+        "UP" => Some(0x26),
+        "RIGHT" => Some(0x27),
+        "DOWN" => Some(0x28),
         _ => None,
     }
 }
+
 
 /// Loads embedded application icon.
 pub fn create_icon() -> egui::IconData {
@@ -103,74 +120,56 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_string_to_key_letters() {
-        assert_eq!(string_to_key("A"), Some(egui::Key::A));
-        assert_eq!(string_to_key("a"), Some(egui::Key::A)); // Case insensitive
-        assert_eq!(string_to_key("Z"), Some(egui::Key::Z));
-        assert_eq!(string_to_key("m"), Some(egui::Key::M));
+    fn test_string_to_vk_letters() {
+        assert_eq!(string_to_vk("A"), Some(0x41));
+        assert_eq!(string_to_vk("Z"), Some(0x5A));
+        assert_eq!(string_to_vk("m"), Some(0x4D)); // Case insensitive
     }
 
     #[test]
-    fn test_string_to_key_numbers() {
-        assert_eq!(string_to_key("0"), Some(egui::Key::Num0));
-        assert_eq!(string_to_key("5"), Some(egui::Key::Num5));
-        assert_eq!(string_to_key("9"), Some(egui::Key::Num9));
+    fn test_string_to_vk_numbers() {
+        assert_eq!(string_to_vk("0"), Some(0x30));
+        assert_eq!(string_to_vk("5"), Some(0x35));
+        assert_eq!(string_to_vk("9"), Some(0x39));
     }
 
     #[test]
-    fn test_string_to_key_function_keys() {
-        assert_eq!(string_to_key("F1"), Some(egui::Key::F1));
-        assert_eq!(string_to_key("f6"), Some(egui::Key::F6)); // Case insensitive
-        assert_eq!(string_to_key("F12"), Some(egui::Key::F12));
+    fn test_string_to_vk_function_keys_f1_to_f24() {
+        // F1-F12
+        assert_eq!(string_to_vk("F1"), Some(0x70));
+        assert_eq!(string_to_vk("F12"), Some(0x7B));
+        // F13-F24
+        assert_eq!(string_to_vk("F13"), Some(0x7C));
+        assert_eq!(string_to_vk("F24"), Some(0x87));
+        // Case insensitive
+        assert_eq!(string_to_vk("f14"), Some(0x7D));
     }
 
     #[test]
-    fn test_string_to_key_special_keys() {
-        assert_eq!(string_to_key("SPACE"), Some(egui::Key::Space));
-        assert_eq!(string_to_key("space"), Some(egui::Key::Space));
-        assert_eq!(string_to_key("TAB"), Some(egui::Key::Tab));
-        assert_eq!(string_to_key("ESCAPE"), Some(egui::Key::Escape));
-        assert_eq!(string_to_key("ESC"), Some(egui::Key::Escape)); // Alias
+    fn test_string_to_vk_special_keys() {
+        assert_eq!(string_to_vk("DELETE"), Some(0x2E));
+        assert_eq!(string_to_vk("INSERT"), Some(0x2D));
+        assert_eq!(string_to_vk("HOME"), Some(0x24));
+        assert_eq!(string_to_vk("SPACE"), Some(0x20));
+        assert_eq!(string_to_vk("ENTER"), Some(0x0D));
+        assert_eq!(string_to_vk("RETURN"), Some(0x0D)); // Alias
+        assert_eq!(string_to_vk("delete"), Some(0x2E)); // Case insensitive
     }
 
     #[test]
-    fn test_string_to_key_enter_aliases() {
-        assert_eq!(string_to_key("RETURN"), Some(egui::Key::Enter));
-        assert_eq!(string_to_key("ENTER"), Some(egui::Key::Enter));
-        assert_eq!(string_to_key("enter"), Some(egui::Key::Enter));
+    fn test_string_to_vk_navigation_keys() {
+        assert_eq!(string_to_vk("UP"), Some(0x26));
+        assert_eq!(string_to_vk("DOWN"), Some(0x28));
+        assert_eq!(string_to_vk("LEFT"), Some(0x25));
+        assert_eq!(string_to_vk("RIGHT"), Some(0x27));
     }
 
     #[test]
-    fn test_string_to_key_backspace_aliases() {
-        assert_eq!(string_to_key("BACK"), Some(egui::Key::Backspace));
-        assert_eq!(string_to_key("BACKSPACE"), Some(egui::Key::Backspace));
-        assert_eq!(string_to_key("backspace"), Some(egui::Key::Backspace));
-    }
-
-    #[test]
-    fn test_string_to_key_navigation_keys() {
-        assert_eq!(string_to_key("UP"), Some(egui::Key::ArrowUp));
-        assert_eq!(string_to_key("DOWN"), Some(egui::Key::ArrowDown));
-        assert_eq!(string_to_key("LEFT"), Some(egui::Key::ArrowLeft));
-        assert_eq!(string_to_key("RIGHT"), Some(egui::Key::ArrowRight));
-        assert_eq!(string_to_key("HOME"), Some(egui::Key::Home));
-        assert_eq!(string_to_key("END"), Some(egui::Key::End));
-    }
-
-    #[test]
-    fn test_string_to_key_invalid() {
-        assert_eq!(string_to_key("INVALID"), None);
-        assert_eq!(string_to_key(""), None);
-        assert_eq!(string_to_key("F13"), None); // Not supported
-        assert_eq!(string_to_key("ABC"), None);
-    }
-
-    #[test]
-    fn test_case_insensitivity() {
-        assert_eq!(string_to_key("space"), string_to_key("SPACE"));
-        assert_eq!(string_to_key("escape"), string_to_key("ESCAPE"));
-        assert_eq!(string_to_key("f5"), string_to_key("F5"));
-        assert_eq!(string_to_key("delete"), string_to_key("DELETE"));
+    fn test_string_to_vk_unsupported() {
+        assert_eq!(string_to_vk("INVALID"), None);
+        assert_eq!(string_to_vk(""), None);
+        assert_eq!(string_to_vk("F25"), None);
+        assert_eq!(string_to_vk("ABC"), None);
     }
 
     #[test]

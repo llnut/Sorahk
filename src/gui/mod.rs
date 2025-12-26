@@ -21,9 +21,26 @@ use crate::gui::types::KeyCaptureMode;
 use crate::i18n::CachedTranslations;
 use crate::state::AppState;
 use eframe::egui;
+use smallvec::SmallVec;
 use std::sync::Arc;
 
 pub use error_dialog::show_error;
+
+/// Pre-parsed switch key configuration.
+#[derive(Clone, Debug)]
+enum ParsedSwitchKey {
+    /// No switch key configured
+    None,
+    /// Single key
+    Single(u32),
+    /// Key combination with modifiers
+    Combo {
+        /// Modifier flags: bit0=ctrl, bit1=shift, bit2=alt
+        modifiers: u8,
+        /// Main keys (VK codes)
+        keys: SmallVec<[u32; 4]>,
+    },
+}
 
 /// Main GUI application structure.
 ///
@@ -33,7 +50,7 @@ pub struct SorahkGui {
     app_state: Arc<AppState>,
     /// Application configuration
     config: AppConfig,
-    /// Cached translations for high-performance rendering
+    /// Cached translations for rendering
     translations: CachedTranslations,
     /// Close confirmation dialog visibility
     show_close_dialog: bool,
@@ -87,6 +104,10 @@ pub struct SorahkGui {
     capture_pressed_keys: std::collections::HashSet<u32>,
     /// Keys that were pressed when capture mode started (noise baseline)
     capture_initial_pressed: std::collections::HashSet<u32>,
+    /// Pre-parsed switch key configuration
+    parsed_switch_key: ParsedSwitchKey,
+    /// VK key states for switch key detection (16 bits using modulo mapping)
+    last_vk_state: u16,
     /// Close dialog highlight expiration time
     dialog_highlight_until: Option<std::time::Instant>,
     /// Pause state before entering settings
@@ -108,6 +129,7 @@ impl SorahkGui {
         let translations = CachedTranslations::new(config.language);
         let cached_dark_visuals = Self::create_dark_visuals();
         let cached_light_visuals = Self::create_light_visuals();
+        let parsed_switch_key = Self::parse_switch_key(&config.switch_key);
 
         Self {
             app_state,
@@ -140,6 +162,8 @@ impl SorahkGui {
             just_captured_input: false,
             capture_pressed_keys: std::collections::HashSet::new(),
             capture_initial_pressed: std::collections::HashSet::new(),
+            parsed_switch_key,
+            last_vk_state: 0,
             was_paused_before_settings: None,
             duplicate_mapping_error: None,
             duplicate_process_error: None,
@@ -151,6 +175,43 @@ impl SorahkGui {
     /// Updates the cached translations for the given language.
     fn update_translations(&mut self, language: crate::i18n::Language) {
         self.translations = CachedTranslations::new(language);
+    }
+
+    /// Parse switch key configuration during initialization.
+    fn parse_switch_key(switch_key: &str) -> ParsedSwitchKey {
+        use crate::gui::utils::string_to_vk;
+
+        if switch_key.is_empty() {
+            return ParsedSwitchKey::None;
+        }
+
+        if !switch_key.contains('+') {
+            if let Some(vk) = string_to_vk(switch_key) {
+                return ParsedSwitchKey::Single(vk);
+            }
+            return ParsedSwitchKey::None;
+        }
+
+        // Combo key - parse modifiers and keys
+        let parts: Vec<&str> = switch_key.split('+').collect();
+        let mut modifiers = 0u8;
+        let mut keys = SmallVec::new();
+
+        for part in parts {
+            let p = part.trim().to_uppercase();
+            match p.as_str() {
+                "LCTRL" | "RCTRL" | "CTRL" => modifiers |= 0b001,
+                "LSHIFT" | "RSHIFT" | "SHIFT" => modifiers |= 0b010,
+                "LALT" | "RALT" | "ALT" => modifiers |= 0b100,
+                _ => {
+                    if let Some(vk) = string_to_vk(part.trim()) {
+                        keys.push(vk);
+                    }
+                }
+            }
+        }
+
+        ParsedSwitchKey::Combo { modifiers, keys }
     }
 
     /// Creates dark theme visuals configuration.
