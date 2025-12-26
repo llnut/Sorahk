@@ -40,6 +40,26 @@ impl Language {
             Language::Japanese => "日本語",
         }
     }
+
+    /// Convert Language to u8 for atomic storage
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Language::English => 0,
+            Language::SimplifiedChinese => 1,
+            Language::TraditionalChinese => 2,
+            Language::Japanese => 3,
+        }
+    }
+
+    /// Convert u8 to Language
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Language::SimplifiedChinese,
+            2 => Language::TraditionalChinese,
+            3 => Language::Japanese,
+            _ => Language::English,
+        }
+    }
 }
 
 /// Cached translations for high-performance rendering.
@@ -205,6 +225,16 @@ struct TranslationCache {
     all_devices_filter: String,
     game_devices_only_filter: String,
     no_game_devices_detected: String,
+
+    // Tray Icon
+    tray_activate: String,
+    tray_pause: String,
+    tray_show_window: String,
+    tray_about: String,
+    tray_exit: String,
+    tray_notification_launched: String,
+    tray_notification_activated: String,
+    tray_notification_paused: String,
 }
 
 impl CachedTranslations {
@@ -721,6 +751,32 @@ impl CachedTranslations {
     pub fn format_worker_count(&self, count: usize) -> String {
         format!("{} {}", self.inner.worker_count_label, count)
     }
+
+    // Tray Icon
+    pub fn tray_activate(&self) -> &str {
+        &self.inner.tray_activate
+    }
+    pub fn tray_pause(&self) -> &str {
+        &self.inner.tray_pause
+    }
+    pub fn tray_show_window(&self) -> &str {
+        &self.inner.tray_show_window
+    }
+    pub fn tray_about(&self) -> &str {
+        &self.inner.tray_about
+    }
+    pub fn tray_exit(&self) -> &str {
+        &self.inner.tray_exit
+    }
+    pub fn tray_notification_launched(&self) -> &str {
+        &self.inner.tray_notification_launched
+    }
+    pub fn tray_notification_activated(&self) -> &str {
+        &self.inner.tray_notification_activated
+    }
+    pub fn tray_notification_paused(&self) -> &str {
+        &self.inner.tray_notification_paused
+    }
 }
 
 impl TranslationCache {
@@ -1030,6 +1086,22 @@ impl TranslationCache {
                 .to_string(),
             no_game_devices_detected: get_raw_translation(lang, RawKey::NoGameDevicesDetected)
                 .to_string(),
+
+            // Tray Icon
+            tray_activate: get_raw_translation(lang, RawKey::TrayActivate).to_string(),
+            tray_pause: get_raw_translation(lang, RawKey::TrayPause).to_string(),
+            tray_show_window: get_raw_translation(lang, RawKey::TrayShowWindow).to_string(),
+            tray_about: get_raw_translation(lang, RawKey::TrayAbout).to_string(),
+            tray_exit: get_raw_translation(lang, RawKey::TrayExit).to_string(),
+            tray_notification_launched: get_raw_translation(lang, RawKey::TrayNotificationLaunched)
+                .to_string(),
+            tray_notification_activated: get_raw_translation(
+                lang,
+                RawKey::TrayNotificationActivated,
+            )
+            .to_string(),
+            tray_notification_paused: get_raw_translation(lang, RawKey::TrayNotificationPaused)
+                .to_string(),
         }
     }
 }
@@ -1189,6 +1261,16 @@ enum RawKey {
     AllDevicesFilter,
     GameDevicesOnlyFilter,
     NoGameDevicesDetected,
+
+    // Tray Icon
+    TrayActivate,
+    TrayPause,
+    TrayShowWindow,
+    TrayAbout,
+    TrayExit,
+    TrayNotificationLaunched,
+    TrayNotificationActivated,
+    TrayNotificationPaused,
 }
 
 /// Gets raw translation string without formatting.
@@ -2030,6 +2112,58 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::NoGameDevicesDetected) => {
             "ゲームデバイスが検出されませんでした"
         }
+
+        // Tray Icon - Activate
+        (Language::English, RawKey::TrayActivate) => "✓ Activate Sorahk",
+        (Language::SimplifiedChinese, RawKey::TrayActivate) => "✓ 激活 Sorahk",
+        (Language::TraditionalChinese, RawKey::TrayActivate) => "✓ 啟用 Sorahk",
+        (Language::Japanese, RawKey::TrayActivate) => "✓ Sorahkを有効化",
+
+        // Tray Icon - Pause
+        (Language::English, RawKey::TrayPause) => "⏸ Pause Sorahk",
+        (Language::SimplifiedChinese, RawKey::TrayPause) => "⏸ 暂停 Sorahk",
+        (Language::TraditionalChinese, RawKey::TrayPause) => "⏸ 暫停 Sorahk",
+        (Language::Japanese, RawKey::TrayPause) => "⏸ Sorahkを一時停止",
+
+        // Tray Icon - Show Window
+        (Language::English, RawKey::TrayShowWindow) => "✨ Show Window",
+        (Language::SimplifiedChinese, RawKey::TrayShowWindow) => "✨ 显示窗口",
+        (Language::TraditionalChinese, RawKey::TrayShowWindow) => "✨ 顯示視窗",
+        (Language::Japanese, RawKey::TrayShowWindow) => "✨ ウィンドウを表示",
+
+        // Tray Icon - About
+        (Language::English, RawKey::TrayAbout) => "❤ About",
+        (Language::SimplifiedChinese, RawKey::TrayAbout) => "❤ 关于",
+        (Language::TraditionalChinese, RawKey::TrayAbout) => "❤ 關於",
+        (Language::Japanese, RawKey::TrayAbout) => "❤ バージョン情報",
+
+        // Tray Icon - Exit
+        (Language::English, RawKey::TrayExit) => "🚪 Exit Program",
+        (Language::SimplifiedChinese, RawKey::TrayExit) => "🚪 退出程序",
+        (Language::TraditionalChinese, RawKey::TrayExit) => "🚪 結束程式",
+        (Language::Japanese, RawKey::TrayExit) => "🚪 プログラムを終了",
+
+        // Tray Icon - Notification Launched
+        (Language::English, RawKey::TrayNotificationLaunched) => {
+            "Sorahk is running in the background"
+        }
+        (Language::SimplifiedChinese, RawKey::TrayNotificationLaunched) => "Sorahk 正在后台运行",
+        (Language::TraditionalChinese, RawKey::TrayNotificationLaunched) => "Sorahk 正在背景執行",
+        (Language::Japanese, RawKey::TrayNotificationLaunched) => {
+            "Sorahkはバックグラウンドで実行中です"
+        }
+
+        // Tray Icon - Notification Activated
+        (Language::English, RawKey::TrayNotificationActivated) => "Sorahk activated",
+        (Language::SimplifiedChinese, RawKey::TrayNotificationActivated) => "Sorahk 已激活",
+        (Language::TraditionalChinese, RawKey::TrayNotificationActivated) => "Sorahk 已啟用",
+        (Language::Japanese, RawKey::TrayNotificationActivated) => "Sorahkが有効になりました",
+
+        // Tray Icon - Notification Paused
+        (Language::English, RawKey::TrayNotificationPaused) => "Sorahk paused",
+        (Language::SimplifiedChinese, RawKey::TrayNotificationPaused) => "Sorahk 已暂停",
+        (Language::TraditionalChinese, RawKey::TrayNotificationPaused) => "Sorahk 已暫停",
+        (Language::Japanese, RawKey::TrayNotificationPaused) => "Sorahkが一時停止しました",
     }
 }
 

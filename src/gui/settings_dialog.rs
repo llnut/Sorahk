@@ -1866,8 +1866,7 @@ impl SorahkGui {
 
                     if language_changed {
                         self.update_translations(self.config.language);
-                        use crate::gui::fonts;
-                        fonts::load_fonts(ctx, self.config.language);
+                        crate::gui::fonts::load_fonts(ctx, self.config.language);
                     }
 
                     // Apply always_on_top change immediately

@@ -84,7 +84,10 @@ fn main() -> Result<()> {
         thread::spawn(move || {
             let mut tray =
                 TrayIcon::new(tray_state.should_exit.clone()).expect("Failed to create tray icon");
-            let _ = tray.show_info("Sorahk launched", "Sorahk is running in the background");
+            let language = tray_state.language();
+            let translations = crate::i18n::CachedTranslations::new(language);
+            let msg = translations.tray_notification_launched().to_string();
+            let _ = tray.show_info(&msg);
             let _ = tray.run_message_loop();
         });
     }

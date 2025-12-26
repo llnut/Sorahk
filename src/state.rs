@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
@@ -24,6 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::PWSTR;
 
 use crate::config::AppConfig;
+use crate::i18n::Language;
 
 /// HID device activation request information.
 #[derive(Debug, Clone)]
@@ -413,6 +414,8 @@ impl SwitchKeyCache {
 /// Manages all runtime state including configuration, key mappings,
 /// worker threads, and process filtering.
 pub struct AppState {
+    /// Current UI language
+    language: AtomicU8,
     /// Tray icon visibility flag
     show_tray_icon: AtomicBool,
     /// Notification display flag
@@ -555,6 +558,7 @@ impl AppState {
         let (hid_activation_data_sender, hid_activation_data_receiver) = mpsc::channel();
 
         Ok(Self {
+            language: AtomicU8::new(config.language.to_u8()),
             show_tray_icon: AtomicBool::new(config.show_tray_icon),
             show_notifications: AtomicBool::new(config.show_notifications),
             switch_key_cache,
@@ -601,6 +605,10 @@ impl AppState {
     /// Returns an error if the new toggle key is invalid or mappings cannot be created.
     pub fn reload_config(&self, config: AppConfig) -> anyhow::Result<()> {
         Self::update_switch_key_cache(&self.switch_key_cache, &config.switch_key)?;
+
+        // Update language
+        self.language
+            .store(config.language.to_u8(), Ordering::Relaxed);
 
         // Update show_tray_icon and show_notifications
         self.show_tray_icon
@@ -875,6 +883,12 @@ impl AppState {
     /// Returns whether notifications should be displayed.
     pub fn show_notifications(&self) -> bool {
         self.show_notifications.load(Ordering::Relaxed)
+    }
+
+    /// Returns the current UI language.
+    #[inline(always)]
+    pub fn language(&self) -> Language {
+        Language::from_u8(self.language.load(Ordering::Relaxed))
     }
 
     /// Requests the main window to be shown.

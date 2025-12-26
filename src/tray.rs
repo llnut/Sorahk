@@ -1,3 +1,11 @@
+//! Tray icon implementation with i18n support.
+//!
+//! This module provides system tray functionality with the following features:
+//! - Cached UTF-16 string conversions using SmallVec
+//! - Inline functions for frequently called code paths
+//! - Pre-allocated string buffers to reduce allocations
+//! - AVX2 SIMD instructions for XML escaping when available
+
 use windows::{
     Data::Xml::Dom::XmlDocument,
     UI::Notifications::{ToastNotification, ToastNotificationManager},
@@ -12,30 +20,76 @@ use windows::{
 };
 
 use anyhow::{Result, anyhow};
-
+use smallvec::SmallVec;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::channel;
-//use std::thread;
 
+use crate::i18n::{CachedTranslations, Language};
 use crate::state::{NotificationEvent, get_global_state};
-//use crate::about::AboutWindow;
 
 const TRAY_MESSAGE_ID: u32 = WM_APP + 1;
 const AUMID: &str = "Sorahk.AutoKeyPress";
 
+/// Cache for UTF-16 encoded strings
+struct Utf16Cache {
+    tooltip: SmallVec<[u16; 64]>,
+    title: SmallVec<[u16; 128]>,
+    message: SmallVec<[u16; 256]>,
+}
+
+impl Utf16Cache {
+    #[inline]
+    fn new() -> Self {
+        Self {
+            tooltip: SmallVec::new(),
+            title: SmallVec::new(),
+            message: SmallVec::new(),
+        }
+    }
+
+    #[inline(always)]
+    fn encode_tooltip(&mut self, text: &str) -> &[u16] {
+        self.tooltip.clear();
+        self.tooltip.extend(text.encode_utf16());
+        self.tooltip.push(0);
+        &self.tooltip
+    }
+
+    #[inline(always)]
+    fn encode_title(&mut self, text: &str) -> &[u16] {
+        self.title.clear();
+        self.title.extend(text.encode_utf16());
+        self.title.push(0);
+        &self.title
+    }
+
+    #[inline(always)]
+    fn encode_message(&mut self, text: &str) -> &[u16] {
+        self.message.clear();
+        self.message.extend(text.encode_utf16());
+        self.message.push(0);
+        &self.message
+    }
+}
+
 pub struct TrayIcon {
     nid: NOTIFYICONDATAW,
     should_exit: Arc<AtomicBool>,
+    utf16_cache: Utf16Cache,
+    translations: CachedTranslations,
+    last_language: u8,
 }
 
 impl TrayIcon {
-    /// Create new tray icon
+    /// Create new tray icon with i18n support
     pub fn new(should_exit: Arc<AtomicBool>) -> Result<Self> {
+        let state = get_global_state().ok_or(anyhow!("Failed to get app state"))?;
+        let language = state.language();
+        let language_u8 = language.to_u8();
+        let translations = CachedTranslations::new(language);
         let window_class = w!("SorahkWindowClass");
         let instance = unsafe { GetModuleHandleW(None)? };
 
-        // Try to load embedded icon for window class
         let window_icon = unsafe {
             #[allow(clippy::manual_dangling_ptr)]
             let embedded = LoadIconW(Some(instance.into()), PCWSTR::from_raw(1 as *const u16));
@@ -64,7 +118,6 @@ impl TrayIcon {
             return Err(Error::new(E_FAIL, "Failed to register window class").into());
         }
 
-        // Create a hidden message window
         let hwnd = unsafe {
             CreateWindowExW(
                 WINDOW_EX_STYLE::default(),
@@ -82,21 +135,17 @@ impl TrayIcon {
             )
         }?;
 
-        // Load embedded icon (ID: 1) or fallback to system icon
         let initial_icon = unsafe {
-            // Try to load embedded icon from resources
             #[allow(clippy::manual_dangling_ptr)]
             let embedded_icon = LoadIconW(Some(instance.into()), PCWSTR::from_raw(1 as *const u16));
-
-            // If embedded icon fails, use system default
             if let Ok(icon) = embedded_icon {
                 icon
             } else {
                 LoadIconW::<PCWSTR>(None, IDI_APPLICATION)?
             }
         };
-        // Set the tray icon data
-        let mut nid = NOTIFYICONDATAW {
+
+        let nid = NOTIFYICONDATAW {
             cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: hwnd,
             uID: 1,
@@ -106,24 +155,70 @@ impl TrayIcon {
             ..Default::default()
         };
 
-        // Set the tooltip text
-        Self::set_tooltip(&mut nid, "Sorahk");
+        let mut instance = Self {
+            nid,
+            should_exit,
+            utf16_cache: Utf16Cache::new(),
+            translations,
+            last_language: language_u8,
+        };
 
-        // Add the tray icon
-        let _ = unsafe { Shell_NotifyIconW(NIM_ADD, &nid) };
+        let tooltip = instance.translations.app_title();
+        let tooltip_utf16 = instance.utf16_cache.encode_tooltip(tooltip);
+        let copy_len = tooltip_utf16.len().min(instance.nid.szTip.len());
+        instance.nid.szTip[..copy_len].copy_from_slice(&tooltip_utf16[..copy_len]);
 
-        // Register AUMID for Toast notifications
+        unsafe {
+            let _ = Shell_NotifyIconW(NIM_ADD, &instance.nid);
+        }
+
         let _ = Self::register_aumid();
 
-        Ok(Self { nid, should_exit })
+        Ok(instance)
     }
 
-    /// Register AUMID in the registry for Toast notifications
+    /// Check and update translations if language changed
+    #[inline]
+    fn check_and_update_language(&mut self) {
+        if let Some(state) = get_global_state() {
+            let current_language = state.language().to_u8();
+
+            if crate::util::unlikely(current_language != self.last_language) {
+                self.last_language = current_language;
+                let language = Language::from_u8(current_language);
+                self.translations = CachedTranslations::new(language);
+
+                let _ = self.update_tooltip();
+            }
+        }
+    }
+
+    /// Update tray icon tooltip
+    fn update_tooltip(&mut self) -> Result<()> {
+        let tooltip = self.translations.app_title();
+        let tooltip_utf16 = self.utf16_cache.encode_tooltip(tooltip);
+        let copy_len = tooltip_utf16.len().min(self.nid.szTip.len());
+        self.nid.szTip[..copy_len].copy_from_slice(&tooltip_utf16[..copy_len]);
+
+        unsafe {
+            let original_flags = self.nid.uFlags;
+            self.nid.uFlags = NIF_TIP | NIF_SHOWTIP;
+            let result = Shell_NotifyIconW(NIM_MODIFY, &self.nid);
+            self.nid.uFlags = original_flags;
+
+            if !result.as_bool() {
+                return Err(anyhow!("Failed to update tooltip"));
+            }
+        }
+
+        Ok(())
+    }
+
+    #[inline]
     fn register_aumid() -> Result<()> {
         unsafe {
-            // Registry path: HKEY_CURRENT_USER\Software\Classes\AppUserModelId\{AUMID}
             let registry_path = format!("Software\\Classes\\AppUserModelId\\{}", AUMID);
-            let registry_path_wide: Vec<u16> = registry_path
+            let registry_path_wide: SmallVec<[u16; 128]> = registry_path
                 .encode_utf16()
                 .chain(std::iter::once(0))
                 .collect();
@@ -142,12 +237,11 @@ impl TrayIcon {
             );
 
             if result.is_err() {
-                return Err(anyhow!("Failed to create registry key: {:?}", result));
+                return Err(anyhow!("Failed to create registry key"));
             }
 
-            // Set DisplayName
             let display_name = "Sorahk - Auto Keypress Tool";
-            let display_name_wide: Vec<u16> = display_name
+            let display_name_wide: SmallVec<[u16; 64]> = display_name
                 .encode_utf16()
                 .chain(std::iter::once(0))
                 .collect();
@@ -156,7 +250,7 @@ impl TrayIcon {
                 display_name_wide.len() * 2,
             );
 
-            let result = RegSetValueExW(
+            let _ = RegSetValueExW(
                 hkey,
                 w!("DisplayName"),
                 Some(0),
@@ -164,40 +258,28 @@ impl TrayIcon {
                 Some(display_name_bytes),
             );
 
-            if result.is_err() {
-                let _ = RegCloseKey(hkey);
-                return Err(anyhow!("Failed to set DisplayName: {:?}", result));
-            }
-
-            // Set IconUri to the executable path (Windows will extract icon from exe)
             if let Ok(exe_path) = std::env::current_exe() {
-                let icon_uri = exe_path.to_string_lossy().to_string();
-                let icon_uri_wide: Vec<u16> =
+                let icon_uri = exe_path.to_string_lossy();
+                let icon_uri_wide: SmallVec<[u16; 256]> =
                     icon_uri.encode_utf16().chain(std::iter::once(0)).collect();
                 let icon_uri_bytes = std::slice::from_raw_parts(
                     icon_uri_wide.as_ptr() as *const u8,
                     icon_uri_wide.len() * 2,
                 );
 
-                let result =
-                    RegSetValueExW(hkey, w!("IconUri"), Some(0), REG_SZ, Some(icon_uri_bytes));
-
-                // Continue anyway, DisplayName is more important
-                let _ = result;
+                let _ = RegSetValueExW(hkey, w!("IconUri"), Some(0), REG_SZ, Some(icon_uri_bytes));
             }
 
-            // Close registry key
             let _ = RegCloseKey(hkey);
-
             Ok(())
         }
     }
 
-    /// Unregister AUMID from registry (cleanup)
+    #[inline]
     fn unregister_aumid() -> Result<()> {
         unsafe {
             let registry_path = format!("Software\\Classes\\AppUserModelId\\{}", AUMID);
-            let registry_path_wide: Vec<u16> = registry_path
+            let registry_path_wide: SmallVec<[u16; 128]> = registry_path
                 .encode_utf16()
                 .chain(std::iter::once(0))
                 .collect();
@@ -210,118 +292,25 @@ impl TrayIcon {
             if result.is_ok() {
                 Ok(())
             } else {
-                Err(anyhow!("Failed to unregister AUMID: {:?}", result))
+                Err(anyhow!("Failed to unregister AUMID"))
             }
         }
     }
 
-    /// Set new tray icon
-    #[allow(unused)]
-    pub fn set_icon(&mut self, icon: HICON) -> Result<()> {
-        self.nid.hIcon = icon;
-
-        // Make sure the icon flags is set
-        self.nid.uFlags |= NIF_ICON;
-        // Update tray icon
-        if !unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.nid).into() } {
-            return Err(anyhow!("Failed to set icon"));
-        }
-        Ok(())
-    }
-
-    /// Set the tray icon by using system predefined icons
-    #[allow(unused)]
-    pub fn set_system_icon(&mut self, icon_id: PCWSTR) -> Result<()> {
-        let icon = unsafe { LoadIconW(None, icon_id)? };
-        self.set_icon(icon)
-    }
-
-    /// Load icon from file (supports ICO files)
-    #[allow(unused)]
-    pub fn set_icon_from_file(&mut self, file_path: &str) -> Result<()> {
-        let wide_path: Vec<u16> = file_path.encode_utf16().chain(std::iter::once(0)).collect();
-        let path = PCWSTR::from_raw(wide_path.as_ptr());
-        let icon = unsafe {
-            LoadImageW(
-                None,
-                path,
-                IMAGE_ICON,
-                0, // default size
-                0,
-                LR_LOADFROMFILE | LR_DEFAULTSIZE,
-            )?
-        };
-        self.set_icon(HICON(icon.0))
-    }
-
-    /// Load icon from app resources
-    #[allow(unused)]
-    pub fn set_icon_from_resource(
-        &mut self,
-        instance: HINSTANCE,
-        resource_name: PCWSTR,
-    ) -> Result<()> {
-        let icon = unsafe {
-            LoadImageW(
-                Some(instance),
-                resource_name,
-                IMAGE_ICON,
-                0,
-                0,
-                LR_DEFAULTSIZE,
-            )?
-        };
-        self.set_icon(HICON(icon.0))
-    }
-
-    /// Create simple color icons (for dynamically generating icons)
-    #[allow(unused)]
-    pub fn set_color_icon(&mut self, red: u8, green: u8, blue: u8) -> Result<()> {
-        let icon = self.create_solid_color_icon(red, green, blue)?;
-        self.set_icon(icon)
-    }
-
-    /// Create a monochrome icon
-    fn create_solid_color_icon(&self, red: u8, green: u8, blue: u8) -> Result<HICON> {
-        // Here, the implementation is simplified. In practical applications, more complex icon creation logic may be required
-        // Use system-predefined icons as examples. In practical applications, custom icons can be created using GDI+ or other libraries
-        // Select different system icons based on color (simplified implementation)
-        let icon_id = match (red, green, blue) {
-            (255, 0, 0) => IDI_ERROR,     // red -> error icon
-            (255, 255, 0) => IDI_WARNING, // yellow -> warning icon
-            (0, 255, 0) => IDI_ASTERISK,  // green -> info icon
-            _ => IDI_APPLICATION,         // default icon
-        };
-
-        unsafe { Ok(LoadIconW(None, icon_id)?) }
-    }
-
-    /// Set tooltip text for tray icon
-    fn set_tooltip(nid: &mut NOTIFYICONDATAW, tooltip: &str) {
-        let tip_wide: Vec<u16> = tooltip.encode_utf16().chain(std::iter::once(0)).collect();
-        let copy_len = tip_wide.len().min(nid.szTip.len());
-        nid.szTip[..copy_len].copy_from_slice(&tip_wide[..copy_len]);
-    }
-
-    /// Show notification using modern Windows Toast Notifications (Windows 10+)
-    /// This supports multiple notifications and automatic updates
-    pub fn show_notification(
+    #[inline(always)]
+    fn show_notification(
         &mut self,
         title: &str,
         message: &str,
         icon_type: NOTIFY_ICON_INFOTIP_FLAGS,
     ) -> Result<()> {
-        // Try Toast notification with registered AUMID
         match Self::show_toast_notification(title, message) {
             Ok(_) => Ok(()),
-            Err(_) => {
-                // Fallback to legacy Shell_NotifyIcon if Toast fails
-                self.show_legacy_notification(title, message, icon_type)
-            }
+            Err(_) => self.show_legacy_notification(title, message, icon_type),
         }
     }
 
-    /// Modern Toast Notification implementation (Windows 10+)
+    #[inline]
     fn show_toast_notification(title: &str, message: &str) -> Result<()> {
         let toast_xml = format!(
             r#"<?xml version="1.0" encoding="utf-8"?>
@@ -334,34 +323,25 @@ impl TrayIcon {
     </visual>
     <audio silent="true"/>
 </toast>"#,
-            Self::xml_escape(title),
-            Self::xml_escape(message)
+            Self::xml_escape_fast(title),
+            Self::xml_escape_fast(message)
         );
 
-        // Use the registered AUMID
         Self::try_show_toast_with_aumid(&toast_xml, AUMID)
     }
 
-    /// Try to show toast with a specific AUMID
+    #[inline]
     fn try_show_toast_with_aumid(toast_xml: &str, app_id: &str) -> Result<()> {
-        // Create XML document
         let xml_doc = XmlDocument::new()?;
         xml_doc.LoadXml(&HSTRING::from(toast_xml))?;
-
-        // Create toast notification
         let toast = ToastNotification::CreateToastNotification(&xml_doc)?;
-
-        // Get toast notifier with specific AUMID
         let aumid = HSTRING::from(app_id);
         let notifier = ToastNotificationManager::CreateToastNotifierWithId(&aumid)?;
-
-        // Show the toast
         notifier.Show(&toast)?;
-
         Ok(())
     }
 
-    /// Fallback: Legacy notification using Shell_NotifyIcon
+    #[inline]
     fn show_legacy_notification(
         &mut self,
         title: &str,
@@ -369,13 +349,18 @@ impl TrayIcon {
         icon_type: NOTIFY_ICON_INFOTIP_FLAGS,
     ) -> Result<()> {
         let original_flags = self.nid.uFlags;
-
-        // Set notification flags and info
         self.nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP | NIF_INFO;
-        self.nid.dwInfoFlags = icon_type | NIIF_NOSOUND; // Use NIIF_NOSOUND instead of RESPECT_QUIET_TIME
+        self.nid.dwInfoFlags = icon_type | NIIF_NOSOUND;
 
-        Self::set_notification_text(&mut self.nid, title, message);
-        self.nid.Anonymous = NOTIFYICONDATAW_0 { uTimeout: 5000 }; // 5 seconds
+        let title_utf16 = self.utf16_cache.encode_title(title);
+        let title_len = title_utf16.len().min(self.nid.szInfoTitle.len());
+        self.nid.szInfoTitle[..title_len].copy_from_slice(&title_utf16[..title_len]);
+
+        let message_utf16 = self.utf16_cache.encode_message(message);
+        let message_len = message_utf16.len().min(self.nid.szInfo.len());
+        self.nid.szInfo[..message_len].copy_from_slice(&message_utf16[..message_len]);
+
+        self.nid.Anonymous = NOTIFYICONDATAW_0 { uTimeout: 5000 };
 
         let result = unsafe { Shell_NotifyIconW(NIM_MODIFY, &self.nid) };
 
@@ -388,68 +373,144 @@ impl TrayIcon {
         Ok(())
     }
 
-    /// Escape XML special characters
-    fn xml_escape(s: &str) -> String {
-        s.replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;")
-            .replace('"', "&quot;")
-            .replace('\'', "&apos;")
+    /// Escapes XML special characters, using AVX2 instructions when available
+    #[inline]
+    fn xml_escape_fast(s: &str) -> String {
+        if s.len() < 32 {
+            Self::xml_escape_scalar(s)
+        } else {
+            #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+            {
+                Self::xml_escape_avx2(s)
+            }
+            #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+            {
+                Self::xml_escape_scalar(s)
+            }
+        }
     }
 
-    /// Set the title and message text of the notification (for legacy notifications)
-    fn set_notification_text(nid: &mut NOTIFYICONDATAW, title: &str, message: &str) {
-        // Set title
-        let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let title_len = title_wide.len().min(nid.szInfoTitle.len());
-        nid.szInfoTitle[..title_len].copy_from_slice(&title_wide[..title_len]);
-
-        // Set message
-        let message_wide: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
-        let message_len = message_wide.len().min(nid.szInfo.len());
-        nid.szInfo[..message_len].copy_from_slice(&message_wide[..message_len]);
+    #[inline(always)]
+    fn xml_escape_scalar(s: &str) -> String {
+        let mut result = String::with_capacity(s.len() + 16);
+        for ch in s.chars() {
+            match ch {
+                '&' => result.push_str("&amp;"),
+                '<' => result.push_str("&lt;"),
+                '>' => result.push_str("&gt;"),
+                '"' => result.push_str("&quot;"),
+                '\'' => result.push_str("&apos;"),
+                _ => result.push(ch),
+            }
+        }
+        result
     }
 
-    /// Show notification of a info level
-    #[allow(unused)]
-    pub fn show_info(&mut self, title: &str, message: &str) -> Result<()> {
-        self.show_notification(title, message, NIIF_INFO)
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[inline]
+    fn xml_escape_avx2(s: &str) -> String {
+        use std::arch::x86_64::*;
+
+        let bytes = s.as_bytes();
+        let mut result = String::with_capacity(s.len() + 16);
+        let mut i = 0;
+
+        unsafe {
+            let amp = _mm256_set1_epi8(b'&' as i8);
+            let lt = _mm256_set1_epi8(b'<' as i8);
+            let gt = _mm256_set1_epi8(b'>' as i8);
+            let quot = _mm256_set1_epi8(b'"' as i8);
+            let apos = _mm256_set1_epi8(b'\'' as i8);
+
+            while i + 32 <= bytes.len() {
+                let chunk = _mm256_loadu_si256(bytes.as_ptr().add(i) as *const __m256i);
+
+                let m_amp = _mm256_cmpeq_epi8(chunk, amp);
+                let m_lt = _mm256_cmpeq_epi8(chunk, lt);
+                let m_gt = _mm256_cmpeq_epi8(chunk, gt);
+                let m_quot = _mm256_cmpeq_epi8(chunk, quot);
+                let m_apos = _mm256_cmpeq_epi8(chunk, apos);
+
+                let mask = _mm256_or_si256(
+                    _mm256_or_si256(_mm256_or_si256(m_amp, m_lt), _mm256_or_si256(m_gt, m_quot)),
+                    m_apos,
+                );
+
+                let has_special = _mm256_movemask_epi8(mask);
+
+                if has_special == 0 {
+                    result.push_str(std::str::from_utf8_unchecked(&bytes[i..i + 32]));
+                    i += 32;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        for &byte in &bytes[i..] {
+            match byte {
+                b'&' => result.push_str("&amp;"),
+                b'<' => result.push_str("&lt;"),
+                b'>' => result.push_str("&gt;"),
+                b'"' => result.push_str("&quot;"),
+                b'\'' => result.push_str("&apos;"),
+                _ => result.push(byte as char),
+            }
+        }
+
+        result
     }
 
-    /// Show notification of a warning level
-    #[allow(unused)]
-    pub fn show_warning(&mut self, title: &str, message: &str) -> Result<()> {
-        self.show_notification(title, message, NIIF_WARNING)
+    #[inline(always)]
+    pub fn show_info(&mut self, message: &str) -> Result<()> {
+        let title = self.translations.app_title().to_string();
+        self.show_notification(&title, message, NIIF_INFO)
     }
 
-    /// Show notification of a error level
-    #[allow(unused)]
-    pub fn show_error(&mut self, title: &str, message: &str) -> Result<()> {
-        self.show_notification(title, message, NIIF_ERROR)
+    #[inline(always)]
+    pub fn show_warning(&mut self, message: &str) -> Result<()> {
+        let title = self.translations.app_title().to_string();
+        self.show_notification(&title, message, NIIF_WARNING)
     }
 
-    /// Run notification message loop
+    #[inline(always)]
+    pub fn show_error(&mut self, message: &str) -> Result<()> {
+        let title = self.translations.app_title().to_string();
+        self.show_notification(&title, message, NIIF_ERROR)
+    }
+
     pub fn run_message_loop(&mut self) -> Result<()> {
         let state = get_global_state().ok_or(anyhow!("Failed to get app state"))?;
+
+        use std::sync::mpsc::channel;
         let (event_tx, event_rx) = channel();
         state.set_notification_sender(event_tx);
 
         let mut msg = MSG::default();
-        while !self.should_exit() {
-            if let Ok(event) = event_rx.try_recv() {
-                // Check show_notifications dynamically (in case user changed it in settings)
-                let show_notifications = state.show_notifications();
+        let mut idle_count = 0u32;
+        let mut check_counter = 0u32;
 
-                if show_notifications {
+        while !self.should_exit() {
+            // Check language update every 10 frames (~100ms)
+            check_counter += 1;
+            if check_counter >= 10 {
+                check_counter = 0;
+                self.check_and_update_language();
+            }
+
+            while let Ok(event) = event_rx.try_recv() {
+                idle_count = 0;
+
+                if state.show_notifications() {
                     match event {
-                        NotificationEvent::Info(message) => {
-                            let _ = self.show_info("Sorahk", &message);
+                        NotificationEvent::Info(ref message) => {
+                            let _ = self.show_info(message);
                         }
-                        NotificationEvent::Warning(message) => {
-                            let _ = self.show_warning("Sorahk", &message);
+                        NotificationEvent::Warning(ref message) => {
+                            let _ = self.show_warning(message);
                         }
-                        NotificationEvent::Error(message) => {
-                            let _ = self.show_error("Sorahk", &message);
+                        NotificationEvent::Error(ref message) => {
+                            let _ = self.show_error(message);
                         }
                     }
                 }
@@ -459,14 +520,22 @@ impl TrayIcon {
                 let has_message = PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool();
 
                 if has_message {
+                    idle_count = 0;
                     if msg.message == WM_QUIT {
                         break;
                     }
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 } else {
-                    // Take a short sleep when there is no message to avoid high CPU usage
-                    Sleep(10);
+                    idle_count += 1;
+                    let sleep_time = if idle_count < 10 {
+                        1
+                    } else if idle_count < 50 {
+                        5
+                    } else {
+                        10
+                    };
+                    Sleep(sleep_time);
                 }
             }
         }
@@ -474,7 +543,6 @@ impl TrayIcon {
         Ok(())
     }
 
-    /// Window procedure
     #[allow(non_snake_case)]
     extern "system" fn window_procedure(
         hwnd: HWND,
@@ -490,8 +558,8 @@ impl TrayIcon {
         }
     }
 
-    /// Handle tray icon message
     #[allow(non_snake_case)]
+    #[inline(always)]
     fn handle_tray_message(hwnd: HWND, lparam: LPARAM) -> LRESULT {
         match lparam.0 as u32 {
             WM_RBUTTONUP => {
@@ -507,7 +575,7 @@ impl TrayIcon {
         LRESULT(0)
     }
 
-    /// Handle window destory message
+    #[inline(always)]
     fn handle_destroy() -> LRESULT {
         unsafe {
             PostQuitMessage(0);
@@ -515,67 +583,90 @@ impl TrayIcon {
         LRESULT(0)
     }
 
-    /// Handle menu command
+    #[inline(always)]
     fn handle_command(wparam: WPARAM) -> LRESULT {
         if let Some(state) = get_global_state() {
-            let cmd_id = Self::loword(wparam.0 as u32);
+            let cmd_id = (wparam.0 as u32 & 0xFFFF) as u16;
             match cmd_id {
                 1010 => {
                     let was_paused = state.toggle_paused();
-                    if was_paused {
-                        if let Some(sender) = state.get_notification_sender() {
-                            let _ = sender
-                                .send(NotificationEvent::Info("Sorahk activiting".to_string()));
-                        }
-                    } else if let Some(sender) = state.get_notification_sender() {
-                        let _ = sender.send(NotificationEvent::Info("Sorahk paused".to_string()));
+                    if let Some(sender) = state.get_notification_sender() {
+                        let language = state.language();
+                        let translations = CachedTranslations::new(language);
+                        let msg = if was_paused {
+                            NotificationEvent::Info(
+                                translations.tray_notification_activated().to_string(),
+                            )
+                        } else {
+                            NotificationEvent::Info(
+                                translations.tray_notification_paused().to_string(),
+                            )
+                        };
+                        let _ = sender.send(msg);
                     }
                 }
-                1020 => {
-                    // Show Window
-                    state.request_show_window();
-                }
+                1020 => state.request_show_window(),
                 1030 => {
-                    // Show About dialog
-                    state.request_show_window(); // First show the window
-                    state.request_show_about(); // Then show about dialog
+                    state.request_show_window();
+                    state.request_show_about();
                 }
-                1000 => {
-                    state.exit();
-                }
+                1000 => state.exit(),
                 _ => {}
             }
         }
         LRESULT(0)
     }
 
-    /// Show context menu
     fn show_context_menu(hwnd: HWND) -> Result<()> {
         let state = get_global_state().ok_or(anyhow!("Failed to get app state"))?;
+        let language = state.language();
+        let translations = CachedTranslations::new(language);
+
         unsafe {
             let menu = CreatePopupMenu()?;
 
+            let pause_text: SmallVec<[u16; 64]> = if state.is_paused() {
+                translations.tray_activate()
+            } else {
+                translations.tray_pause()
+            }
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+
+            let show_window_text: SmallVec<[u16; 64]> = translations
+                .tray_show_window()
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+
+            let about_text: SmallVec<[u16; 64]> = translations
+                .tray_about()
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+
+            let exit_text: SmallVec<[u16; 64]> = translations
+                .tray_exit()
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+
+            AppendMenuW(menu, MF_STRING, 1010, PCWSTR::from_raw(pause_text.as_ptr()))?;
+            AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null())?;
             AppendMenuW(
                 menu,
                 MF_STRING,
-                1010,
-                if state.is_paused() {
-                    w!("✓ Activate Sorahk")
-                } else {
-                    w!("⏸ Pause Sorahk")
-                },
+                1020,
+                PCWSTR::from_raw(show_window_text.as_ptr()),
             )?;
+            AppendMenuW(menu, MF_STRING, 1030, PCWSTR::from_raw(about_text.as_ptr()))?;
             AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null())?;
-            AppendMenuW(menu, MF_STRING, 1020, w!("✨️ Show Window"))?;
-            AppendMenuW(menu, MF_STRING, 1030, w!("❤ About"))?;
-            AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null())?;
-            AppendMenuW(menu, MF_STRING, 1000, w!("🚪 Exit Program"))?;
+            AppendMenuW(menu, MF_STRING, 1000, PCWSTR::from_raw(exit_text.as_ptr()))?;
 
-            // Get the mouse position
             let mut pos = POINT::default();
             GetCursorPos(&mut pos)?;
 
-            // Set window to front desk and display the menu
             let _ = SetForegroundWindow(hwnd);
             let _ = TrackPopupMenu(
                 menu,
@@ -592,24 +683,7 @@ impl TrayIcon {
         Ok(())
     }
 
-    /// Extract the lower 16 bits of the 32-bit value
-    fn loword(value: u32) -> u16 {
-        (value & 0xFFFF) as u16
-    }
-
-    /// Set the tray icon according to the application status
-    #[allow(unused)]
-    pub fn set_icon_by_status(&mut self) -> Result<()> {
-        let icon_id = match get_global_state()
-            .ok_or(anyhow!("Failed to get global state"))?
-            .is_paused()
-        {
-            true => IDI_INFORMATION,
-            false => IDI_APPLICATION,
-        };
-        self.set_system_icon(icon_id)
-    }
-
+    #[inline(always)]
     pub fn should_exit(&self) -> bool {
         self.should_exit.load(Ordering::Relaxed)
     }
@@ -630,95 +704,61 @@ mod tests {
 
     #[test]
     fn test_xml_escape_basic_chars() {
-        assert_eq!(TrayIcon::xml_escape("hello"), "hello");
-        assert_eq!(TrayIcon::xml_escape("test123"), "test123");
+        assert_eq!(TrayIcon::xml_escape_scalar("hello"), "hello");
+        assert_eq!(TrayIcon::xml_escape_scalar("test123"), "test123");
     }
 
     #[test]
     fn test_xml_escape_ampersand() {
-        assert_eq!(TrayIcon::xml_escape("A & B"), "A &amp; B");
-        assert_eq!(TrayIcon::xml_escape("&&&"), "&amp;&amp;&amp;");
+        assert_eq!(TrayIcon::xml_escape_scalar("A & B"), "A &amp; B");
+        assert_eq!(TrayIcon::xml_escape_scalar("&&&"), "&amp;&amp;&amp;");
     }
 
     #[test]
     fn test_xml_escape_less_than() {
-        assert_eq!(TrayIcon::xml_escape("A < B"), "A &lt; B");
-        assert_eq!(TrayIcon::xml_escape("<tag>"), "&lt;tag&gt;");
+        assert_eq!(TrayIcon::xml_escape_scalar("A < B"), "A &lt; B");
+        assert_eq!(TrayIcon::xml_escape_scalar("<tag>"), "&lt;tag&gt;");
     }
 
     #[test]
     fn test_xml_escape_greater_than() {
-        assert_eq!(TrayIcon::xml_escape("A > B"), "A &gt; B");
+        assert_eq!(TrayIcon::xml_escape_scalar("A > B"), "A &gt; B");
     }
 
     #[test]
     fn test_xml_escape_quotes() {
         assert_eq!(
-            TrayIcon::xml_escape(r#"He said "hi""#),
+            TrayIcon::xml_escape_scalar(r#"He said "hi""#),
             "He said &quot;hi&quot;"
         );
-        assert_eq!(TrayIcon::xml_escape("It's ok"), "It&apos;s ok");
+        assert_eq!(TrayIcon::xml_escape_scalar("It's ok"), "It&apos;s ok");
     }
 
     #[test]
     fn test_xml_escape_combined() {
         assert_eq!(
-            TrayIcon::xml_escape(r#"<tag attr="value">&text</tag>"#),
+            TrayIcon::xml_escape_scalar(r#"<tag attr="value">&text</tag>"#),
             "&lt;tag attr=&quot;value&quot;&gt;&amp;text&lt;/tag&gt;"
         );
     }
 
     #[test]
     fn test_xml_escape_empty_string() {
-        assert_eq!(TrayIcon::xml_escape(""), "");
+        assert_eq!(TrayIcon::xml_escape_scalar(""), "");
     }
 
     #[test]
-    fn test_loword_extraction() {
-        assert_eq!(TrayIcon::loword(0x12345678), 0x5678);
-        assert_eq!(TrayIcon::loword(0xABCDEF01), 0xEF01);
-        assert_eq!(TrayIcon::loword(0x0000FFFF), 0xFFFF);
-        assert_eq!(TrayIcon::loword(0x12340000), 0x0000);
-    }
+    fn test_utf16_cache() {
+        let mut cache = Utf16Cache::new();
 
-    #[test]
-    fn test_notification_text_formatting() {
-        // Test that notification text can be properly formatted
-        let title = "Test Title";
-        let message = "Test Message";
+        let tooltip = cache.encode_tooltip("Test");
+        assert!(tooltip.ends_with(&[0]));
+        assert!(tooltip.len() > 1);
 
-        // XML escape should handle special characters
-        let escaped_title = TrayIcon::xml_escape(title);
-        let escaped_message = TrayIcon::xml_escape(message);
+        let title = cache.encode_title("Title");
+        assert!(title.ends_with(&[0]));
 
-        assert_eq!(escaped_title, "Test Title");
-        assert_eq!(escaped_message, "Test Message");
-    }
-
-    #[test]
-    fn test_notification_with_special_chars() {
-        let title = "Error: Failed <important>";
-        let message = "Details: 5 > 3 & 2 < 4";
-
-        let escaped_title = TrayIcon::xml_escape(title);
-        let escaped_message = TrayIcon::xml_escape(message);
-
-        assert!(escaped_title.contains("&lt;"));
-        assert!(escaped_title.contains("&gt;"));
-        assert!(escaped_message.contains("&amp;"));
-        assert!(escaped_message.contains("&lt;"));
-        assert!(escaped_message.contains("&gt;"));
-    }
-
-    #[test]
-    fn test_aumid_constant() {
-        assert_eq!(AUMID, "Sorahk.AutoKeyPress");
-        assert!(!AUMID.is_empty());
-    }
-
-    #[test]
-    fn test_tray_message_id() {
-        assert!(TRAY_MESSAGE_ID > WM_APP);
-        assert_eq!(TRAY_MESSAGE_ID, WM_APP + 1);
+        let msg = cache.encode_message("Message");
+        assert!(msg.ends_with(&[0]));
     }
 }

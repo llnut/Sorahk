@@ -3,54 +3,32 @@
 Feature enhancements:
 
 - Add multiple target keys support for simultaneous key presses
-- Add XInput API integration for Xbox controllers
+- Add XInput API integration for Xbox controller support
 - Add Raw Input API integration for HID devices
-- Add HID device activation system
-  - Interactive activation dialog for establishing device baseline
-  - Baseline data persistence across application restarts
-  - Press/release event detection based on HID data state changes
-  - Always-on-top modal activation window
-- Add mouse movement functionality
-  - Eight-directional movement (up, down, left, right, diagonals)
-  - Configurable speed (1-100 pixels) and interval
-  - Target keys: MOUSE_UP, MOUSE_DOWN, MOUSE_LEFT, MOUSE_RIGHT, MOUSE_UP_LEFT, MOUSE_UP_RIGHT, MOUSE_DOWN_LEFT, MOUSE_DOWN_RIGHT
-  - Turbo mode support for continuous movement
-  - Dedicated worker thread for movement processing
-  - Vector-based direction merging for multi-key input
-- Add mouse scroll functionality
-  - Bidirectional scroll (up and down)
-  - Direct wheel delta control (standard Windows units)
-  - Target keys: SCROLL_UP, SCROLL_DOWN
-  - Turbo mode support for continuous scrolling
-  - Non-turbo mode follows Windows repeat events
-  - Configurable scroll speed and interval
-- Add performance optimizations for input processing pipeline
-  - Thread-local buffer pool for Raw Input data
-  - Three-tier device information cache (thread-local, global, Windows API)
-  - FNV-1a hash algorithm for HID data processing
-  - Optional AVX2 SIMD acceleration for data comparison (compile-time feature)
-  - Branch prediction hints for hot path optimization
+- Add HID device activation system with interactive calibration dialog
+- Add mouse movement support with eight-directional control
+- Add mouse scroll support with configurable speed
+- Add tray icon internationalization support with dynamic language switching
+- Add performance optimizations for input processing
+  - Multi-tier caching for device information
+  - SIMD acceleration for data comparison when available
   - Inline optimization for frequently called functions
 
 UI Improvements:
 
-- Add Device Manager dialog for controller configuration
-- Add mouse direction selection dialog
-- Add mouse scroll direction selection dialog
-- Add target type selector buttons in settings (keyboard/mouse, movement, scroll)
-- Add HID device activation dialog with theme support
-- Add HID device button capture in settings dialog
-- Add interval configuration for mouse movement and scroll
-- Increase main window and settings dialog size for better layout
+- Add Device Manager dialog for device configuration and testing
+- Add mouse direction and scroll selection dialogs
+- Add target type selector in settings dialog
+- Add HID device activation dialog with real-time feedback
+- Add internationalization support for tray icon menus and notifications
 
 Configuration:
 
-- Change `target_key` field to `target_keys` array in KeyMapping
-- Add `xinput_capture_mode` field for XInput capture strategy (DiagonalPriority, MostSustained, LastStable)
-- Add `hid_baselines` field for device activation data persistence
-- Add `device_api_preferences` field for per-device API selection
-- Add `move_speed` field to KeyMapping for movement and scroll speed control
-- Add readable XInput button format support in trigger_key field
+- Change `target_key` to `target_keys` array for multi-target support
+- Add capture mode configuration for XInput devices
+- Add device baseline persistence for HID devices
+- Add per-device API preference settings
+- Add movement and scroll speed configuration
 
 0.3.0
 =====
