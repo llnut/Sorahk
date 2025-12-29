@@ -40,6 +40,7 @@ ico = "0.5.0"
 rfd = { version = "0.16.0", default-features = false }
 scc = "3.4.8"
 smallvec = { version = "1.15.1", features = ["serde"] }
+crossbeam-channel = "0.5.15"
 
 [profile.release]
 opt-level = 3

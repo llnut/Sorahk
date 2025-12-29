@@ -89,7 +89,6 @@ pub fn string_to_vk(key_name: &str) -> Option<u32> {
     }
 }
 
-
 /// Loads embedded application icon.
 pub fn create_icon() -> egui::IconData {
     const ICON_BYTES: &[u8] = include_bytes!("../../resources/sorahk.ico");

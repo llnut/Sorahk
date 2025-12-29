@@ -482,8 +482,7 @@ impl TrayIcon {
     pub fn run_message_loop(&mut self) -> Result<()> {
         let state = get_global_state().ok_or(anyhow!("Failed to get app state"))?;
 
-        use std::sync::mpsc::channel;
-        let (event_tx, event_rx) = channel();
+        let (event_tx, event_rx) = crossbeam_channel::unbounded();
         state.set_notification_sender(event_tx);
 
         let mut msg = MSG::default();

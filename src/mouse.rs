@@ -218,11 +218,11 @@ mod tests {
 
     #[test]
     fn test_input_event_channel_communication() {
-        use std::sync::mpsc::channel;
+        use crossbeam_channel::unbounded;
         use std::thread;
         use std::time::Duration;
 
-        let (tx, rx) = channel();
+        let (tx, rx) = unbounded();
 
         let left_btn = InputDevice::Mouse(MouseButton::Left);
         let right_btn = InputDevice::Mouse(MouseButton::Right);

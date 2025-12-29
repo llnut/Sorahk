@@ -1162,4 +1162,3 @@ impl SorahkGui {
         ui.end_row();
     }
 }
-

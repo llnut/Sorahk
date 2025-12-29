@@ -7,9 +7,11 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, LazyLock, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::{Duration, Instant};
+
+use crossbeam_channel::{Receiver, Sender};
+use scc::{AtomicShared, Guard, Shared, Tag};
 
 use smallvec::SmallVec;
 
@@ -378,24 +380,31 @@ pub struct InputMappingInfo {
     pub turbo_enabled: bool,
 }
 
+/// Process information with timestamp for caching
+#[derive(Debug, Clone)]
+struct ProcessInfo {
+    name: Option<String>,
+    timestamp: Instant,
+}
+
 /// Cache for switch key detection with lock-free fast paths
 pub struct SwitchKeyCache {
     pub keyboard_vk: AtomicU32,
     pub xinput_button_mask: AtomicU32,
     pub xinput_device_hash: AtomicU32,
     pub generic_button_id: AtomicU64,
-    pub full_device: RwLock<Option<InputDevice>>,
+    pub full_device: AtomicShared<InputDevice>,
 }
 
 impl SwitchKeyCache {
     #[inline(always)]
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
             keyboard_vk: AtomicU32::new(0),
             xinput_button_mask: AtomicU32::new(0),
             xinput_device_hash: AtomicU32::new(0),
             generic_button_id: AtomicU64::new(0),
-            full_device: RwLock::new(None),
+            full_device: AtomicShared::null(),
         }
     }
 
@@ -405,7 +414,7 @@ impl SwitchKeyCache {
         self.xinput_button_mask.store(0, Ordering::Relaxed);
         self.xinput_device_hash.store(0, Ordering::Relaxed);
         self.generic_button_id.store(0, Ordering::Relaxed);
-        *self.full_device.write().unwrap() = None;
+        let _ = self.full_device.swap((None, Tag::None), Ordering::Relaxed);
     }
 }
 
@@ -443,9 +452,9 @@ pub struct AppState {
     /// Notification event sender
     notification_sender: OnceLock<Sender<NotificationEvent>>,
     /// Process whitelist (empty means all processes enabled)
-    process_whitelist: Mutex<Vec<String>>,
+    process_whitelist: AtomicShared<Vec<String>>,
     /// Cached foreground process name with timestamp
-    cached_process_info: RwLock<(Option<String>, Instant)>,
+    cached_process_info: AtomicShared<ProcessInfo>,
     /// Currently pressed keys for combo detection
     pressed_keys: scc::HashSet<u32>,
     /// Active combo triggers (multiple combos can be active simultaneously)
@@ -464,21 +473,21 @@ pub struct AppState {
     /// Raw Input capture event sender for GUI
     raw_input_capture_sender: Sender<InputDevice>,
     /// Raw Input capture event receiver for GUI
-    raw_input_capture_receiver: Mutex<Receiver<InputDevice>>,
+    raw_input_capture_receiver: Receiver<InputDevice>,
     /// Flag indicating GUI is in capture mode for Raw Input
     is_capturing_raw_input: AtomicBool,
     /// Raw Input capture mode strategy
-    rawinput_capture_mode: RwLock<CaptureMode>,
+    rawinput_capture_mode: AtomicShared<CaptureMode>,
     /// XInput capture mode strategy
-    xinput_capture_mode: RwLock<crate::config::XInputCaptureMode>,
+    xinput_capture_mode: AtomicShared<crate::config::XInputCaptureMode>,
     /// HID device activation request sender
     hid_activation_sender: Sender<HidActivationRequest>,
     /// HID device activation request receiver
-    hid_activation_receiver: Mutex<Receiver<HidActivationRequest>>,
+    hid_activation_receiver: Receiver<HidActivationRequest>,
     /// HID activation data sender (device_handle, data)
     hid_activation_data_sender: Sender<(isize, Vec<u8>)>,
     /// HID activation data receiver
-    hid_activation_data_receiver: Mutex<Receiver<(isize, Vec<u8>)>>,
+    hid_activation_data_receiver: Receiver<(isize, Vec<u8>)>,
     /// Currently activating device handle
     activating_device_handle: std::sync::atomic::AtomicIsize,
     /// XInput cache invalidation flag
@@ -553,9 +562,10 @@ impl AppState {
             }
         }
 
-        let (raw_input_capture_sender, raw_input_capture_receiver) = mpsc::channel();
-        let (hid_activation_sender, hid_activation_receiver) = mpsc::channel();
-        let (hid_activation_data_sender, hid_activation_data_receiver) = mpsc::channel();
+        let (raw_input_capture_sender, raw_input_capture_receiver) = crossbeam_channel::unbounded();
+        let (hid_activation_sender, hid_activation_receiver) = crossbeam_channel::unbounded();
+        let (hid_activation_data_sender, hid_activation_data_receiver) =
+            crossbeam_channel::unbounded();
 
         Ok(Self {
             language: AtomicU8::new(config.language.to_u8()),
@@ -568,12 +578,15 @@ impl AppState {
             show_about_requested: AtomicBool::new(false),
             input_timeout: AtomicU64::new(config.input_timeout),
             worker_count: AtomicU64::new(0),
-            process_whitelist: Mutex::new(config.process_whitelist.clone()),
+            process_whitelist: AtomicShared::from(Shared::new(config.process_whitelist.clone())),
             configured_worker_count: config.worker_count,
             input_mappings,
             worker_pool: OnceLock::new(),
             notification_sender: OnceLock::new(),
-            cached_process_info: RwLock::new((None, Instant::now())),
+            cached_process_info: AtomicShared::from(Shared::new(ProcessInfo {
+                name: None,
+                timestamp: Instant::now(),
+            })),
             pressed_keys: scc::HashSet::new(),
             active_combo_triggers: scc::HashMap::new(),
             cached_turbo_keyboard,
@@ -581,18 +594,18 @@ impl AppState {
             cached_combo_index,
             cached_xinput_combos,
             raw_input_capture_sender,
-            raw_input_capture_receiver: Mutex::new(raw_input_capture_receiver),
+            raw_input_capture_receiver,
             is_capturing_raw_input: AtomicBool::new(false),
-            rawinput_capture_mode: RwLock::new(
+            rawinput_capture_mode: AtomicShared::from(Shared::new(
                 CaptureMode::from_str(&config.rawinput_capture_mode).unwrap(),
-            ),
-            xinput_capture_mode: RwLock::new(crate::config::XInputCaptureMode::from_str(
-                &config.xinput_capture_mode,
-            )?),
+            )),
+            xinput_capture_mode: AtomicShared::from(Shared::new(
+                crate::config::XInputCaptureMode::from_str(&config.xinput_capture_mode)?,
+            )),
             hid_activation_sender,
-            hid_activation_receiver: Mutex::new(hid_activation_receiver),
+            hid_activation_receiver,
             hid_activation_data_sender,
-            hid_activation_data_receiver: Mutex::new(hid_activation_data_receiver),
+            hid_activation_data_receiver,
             activating_device_handle: std::sync::atomic::AtomicIsize::new(-1),
             xinput_cache_invalid: AtomicBool::new(false),
         })
@@ -621,10 +634,18 @@ impl AppState {
             .store(config.input_timeout, Ordering::Relaxed);
 
         // Update capture modes
-        *self.rawinput_capture_mode.write().unwrap() =
-            CaptureMode::from_str(&config.rawinput_capture_mode).unwrap();
-        *self.xinput_capture_mode.write().unwrap() =
-            crate::config::XInputCaptureMode::from_str(&config.xinput_capture_mode)?;
+        let new_rawinput_mode =
+            Shared::new(CaptureMode::from_str(&config.rawinput_capture_mode).unwrap());
+        let _ = self
+            .rawinput_capture_mode
+            .swap((Some(new_rawinput_mode), Tag::None), Ordering::Release);
+
+        let new_xinput_mode = Shared::new(crate::config::XInputCaptureMode::from_str(
+            &config.xinput_capture_mode,
+        )?);
+        let _ = self
+            .xinput_capture_mode
+            .swap((Some(new_xinput_mode), Tag::None), Ordering::Release);
 
         // Update mappings (lock-free concurrent HashMap)
         let new_input_mappings = Self::create_input_mappings(&config)?;
@@ -691,14 +712,19 @@ impl AppState {
         }
 
         // Update process whitelist
-        if let Ok(mut whitelist) = self.process_whitelist.lock() {
-            *whitelist = config.process_whitelist.clone();
-        }
+        let new_whitelist = Shared::new(config.process_whitelist.clone());
+        let _ = self
+            .process_whitelist
+            .swap((Some(new_whitelist), Tag::None), Ordering::Release);
 
         // Clear process name cache
-        if let Ok(mut cache) = self.cached_process_info.write() {
-            *cache = (None, Instant::now());
-        }
+        let new_cache = Shared::new(ProcessInfo {
+            name: None,
+            timestamp: Instant::now(),
+        });
+        let _ = self
+            .cached_process_info
+            .swap((Some(new_cache), Tag::None), Ordering::Release);
 
         // Clear pressed keys and active combos (lock-free concurrent structures)
         self.pressed_keys.clear_sync();
@@ -738,21 +764,27 @@ impl AppState {
 
     /// Gets the current Raw Input capture mode.
     pub fn get_rawinput_capture_mode(&self) -> CaptureMode {
-        *self.rawinput_capture_mode.read().unwrap()
+        let guard = Guard::new();
+        self.rawinput_capture_mode
+            .load(Ordering::Acquire, &guard)
+            .as_ref()
+            .map(|mode| *mode)
+            .unwrap_or_default()
     }
 
     /// Gets the current XInput capture mode.
     pub fn get_xinput_capture_mode(&self) -> crate::config::XInputCaptureMode {
-        *self.xinput_capture_mode.read().unwrap()
+        let guard = Guard::new();
+        self.xinput_capture_mode
+            .load(Ordering::Acquire, &guard)
+            .as_ref()
+            .map(|mode| *mode)
+            .unwrap_or_default()
     }
 
     /// Tries to receive a captured Raw Input event (non-blocking).
     pub fn try_recv_raw_input_capture(&self) -> Option<InputDevice> {
-        if let Ok(receiver) = self.raw_input_capture_receiver.lock() {
-            receiver.try_recv().ok()
-        } else {
-            None
-        }
+        self.raw_input_capture_receiver.try_recv().ok()
     }
 
     /// Sets the Raw Input capture mode flag.
@@ -763,9 +795,7 @@ impl AppState {
         // When entering capture mode, clear all caches to ensure fresh state
         if enabled {
             // Clear all old events in the channel to avoid showing stale captures
-            if let Ok(receiver) = self.raw_input_capture_receiver.lock() {
-                while receiver.try_recv().is_ok() {}
-            }
+            while self.raw_input_capture_receiver.try_recv().is_ok() {}
 
             // Clear device display info cache to avoid showing stale device info
             crate::rawinput::clear_device_display_info_cache();
@@ -797,10 +827,8 @@ impl AppState {
     /// Polls for HID device activation requests
     pub fn poll_hid_activation_requests(&self) -> SmallVec<[HidActivationRequest; 2]> {
         let mut requests = SmallVec::new();
-        if let Ok(receiver) = self.hid_activation_receiver.lock() {
-            while let Ok(req) = receiver.try_recv() {
-                requests.push(req);
-            }
+        while let Ok(req) = self.hid_activation_receiver.try_recv() {
+            requests.push(req);
         }
         requests
     }
@@ -813,15 +841,13 @@ impl AppState {
 
     /// Tries to receive HID activation data for a specific device.
     pub fn try_recv_hid_activation_data(&self, device_handle: isize) -> Option<Vec<u8>> {
-        if let Ok(receiver) = self.hid_activation_data_receiver.lock() {
-            // Consume all messages until we find one for this device
-            // or channel is empty
-            while let Ok((handle, data)) = receiver.try_recv() {
-                if handle == device_handle {
-                    return Some(data);
-                }
-                // Discard data for other devices (shouldn't happen in normal operation)
+        // Consume all messages until we find one for this device
+        // or channel is empty
+        while let Ok((handle, data)) = self.hid_activation_data_receiver.try_recv() {
+            if handle == device_handle {
+                return Some(data);
             }
+            // Discard data for other devices (shouldn't happen in normal operation)
         }
         None
     }
@@ -1792,7 +1818,11 @@ impl AppState {
     /// Check if current foreground process is in whitelist (empty whitelist = all allowed)
     #[inline]
     fn is_process_whitelisted(&self) -> bool {
-        let whitelist = self.process_whitelist.lock().unwrap();
+        let guard = Guard::new();
+        let whitelist_ptr = self.process_whitelist.load(Ordering::Acquire, &guard);
+        let empty_vec = vec![];
+        let whitelist = whitelist_ptr.as_ref().unwrap_or(&empty_vec);
+
         if whitelist.is_empty() {
             return true;
         }
@@ -1801,19 +1831,37 @@ impl AppState {
         let now = Instant::now();
 
         let process_name = {
-            let cache = self.cached_process_info.read().unwrap();
-            let (cached_name, cached_time) = &*cache;
+            let cache_ptr = self.cached_process_info.load(Ordering::Acquire, &guard);
+            let cache = cache_ptr.as_ref();
 
-            if likely(now.duration_since(*cached_time) < Duration::from_millis(CACHE_DURATION_MS)) {
-                // Cache hit: return cached name without write lock
-                cached_name.clone()
+            if let Some(info) = cache {
+                if likely(
+                    now.duration_since(info.timestamp) < Duration::from_millis(CACHE_DURATION_MS),
+                ) {
+                    // Cache hit: return cached name
+                    info.name.clone()
+                } else {
+                    // Cache miss: need refresh
+                    let new_name = Self::get_foreground_process_name();
+                    let new_cache = Shared::new(ProcessInfo {
+                        name: new_name.clone(),
+                        timestamp: now,
+                    });
+                    let _ = self
+                        .cached_process_info
+                        .swap((Some(new_cache), Tag::None), Ordering::Release);
+                    new_name
+                }
             } else {
-                // Cache miss: need refresh
-                drop(cache);
+                // No cache exists
                 let new_name = Self::get_foreground_process_name();
-                let mut cache = self.cached_process_info.write().unwrap();
-                *cache = (new_name.clone(), now);
-
+                let new_cache = Shared::new(ProcessInfo {
+                    name: new_name.clone(),
+                    timestamp: now,
+                });
+                let _ = self
+                    .cached_process_info
+                    .swap((Some(new_cache), Tag::None), Ordering::Release);
                 new_name
             }
         };
@@ -1842,22 +1890,28 @@ impl AppState {
                 return true;
             }
 
-            if kb_vk == 0
-                && let Some(device) = self.switch_key_cache.full_device.read().unwrap().as_ref()
-                && let InputDevice::KeyCombo(keys) = device
-                && keys.contains(&vk_code)
-            {
-                let mut all_pressed = true;
-                for k in keys.iter() {
-                    if !self.pressed_keys.contains_sync(k) {
-                        all_pressed = false;
-                        break;
+            if kb_vk == 0 {
+                let guard = Guard::new();
+                let device_ptr = self
+                    .switch_key_cache
+                    .full_device
+                    .load(Ordering::Acquire, &guard);
+                if let Some(device) = device_ptr.as_ref()
+                    && let InputDevice::KeyCombo(keys) = device
+                    && keys.contains(&vk_code)
+                {
+                    let mut all_pressed = true;
+                    for k in keys.iter() {
+                        if !self.pressed_keys.contains_sync(k) {
+                            all_pressed = false;
+                            break;
+                        }
                     }
-                }
 
-                if all_pressed {
-                    self.handle_switch_key_toggle();
-                    return true;
+                    if all_pressed {
+                        self.handle_switch_key_toggle();
+                        return true;
+                    }
                 }
             }
         }
@@ -2131,7 +2185,10 @@ impl AppState {
             InputDevice::KeyCombo(_) | InputDevice::Mouse(_) => {}
         }
 
-        *cache.full_device.write().unwrap() = Some(device);
+        let shared_device = Shared::new(device);
+        let _ = cache
+            .full_device
+            .swap((Some(shared_device), Tag::None), Ordering::Release);
         Ok(())
     }
 
@@ -3493,19 +3550,17 @@ mod tests {
         let _ = state.is_process_whitelisted();
 
         // Verify cache was populated
-        let cache = state.cached_process_info.read().unwrap();
-        let (cached_name, _) = &*cache;
-        let initial_name = cached_name.clone();
-        drop(cache);
+        let guard = Guard::new();
+        let cache_ptr = state.cached_process_info.load(Ordering::Acquire, &guard);
+        let initial_name = cache_ptr.as_ref().map(|c| c.name.clone());
 
         // Second call immediately - cache hit (should use cached value)
         let _ = state.is_process_whitelisted();
 
         // Verify cache still has same value
-        let cache = state.cached_process_info.read().unwrap();
-        let (cached_name, _) = &*cache;
-        assert_eq!(*cached_name, initial_name);
-        drop(cache);
+        let cache_ptr = state.cached_process_info.load(Ordering::Acquire, &guard);
+        let cached_name = cache_ptr.as_ref().map(|c| c.name.clone());
+        assert_eq!(cached_name, initial_name);
 
         // Wait for cache to expire (>50ms)
         thread::sleep(Duration::from_millis(60));
@@ -3514,9 +3569,12 @@ mod tests {
         let _ = state.is_process_whitelisted();
 
         // Cache should be refreshed with new timestamp
-        let cache = state.cached_process_info.read().unwrap();
-        let (_, timestamp) = &*cache;
-        assert!(timestamp.elapsed() < Duration::from_millis(10));
+        let guard = Guard::new();
+        let cache_ptr = state.cached_process_info.load(Ordering::Acquire, &guard);
+        let timestamp = cache_ptr.as_ref().map(|c| c.timestamp);
+        if let Some(ts) = timestamp {
+            assert!(ts.elapsed() < Duration::from_millis(10));
+        }
     }
 
     #[test]

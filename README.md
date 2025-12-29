@@ -182,6 +182,7 @@ Sorahk is a Windows application for automating repetitive key press operations. 
 ## Features
 
 ### User Interface
+
 - Graphical configuration management through egui framework
 - Multi-language support: English, Simplified Chinese, Traditional Chinese, Japanese
 - Light and dark theme options
@@ -189,14 +190,16 @@ Sorahk is a Windows application for automating repetitive key press operations. 
 - Real-time status monitoring
 
 ### Input/Output Support
-- **Keyboard**: Single keys and combinations with modifier support
-- **Mouse**: Five standard buttons (left, right, middle, X1, X2)
-- **Mouse Movement**: Eight-directional cursor control with configurable speed
-- **Mouse Scroll**: Vertical scrolling with configurable wheel delta
-- **XInput Controllers**: Xbox-compatible gamepad support via polling
-- **Raw Input Devices**: HID device integration for other controllers
+
+- Single keys and combinations with modifier support
+- Five standard mouse buttons (left, right, middle, X1, X2)
+- Eight-directional cursor control with configurable speed
+- Vertical scrolling with configurable wheel delta
+- Xbox-compatible gamepad support via polling
+- HID device integration for other controllers
 
 ### Key Mapping
+
 - Flexible input-to-output mapping configuration
 - Support for key combinations as both triggers and targets
 - Individual turbo mode control per mapping
@@ -205,6 +208,7 @@ Sorahk is a Windows application for automating repetitive key press operations. 
 - Process whitelist for application-specific operation
 
 ### Performance
+
 - Multi-threaded event processing with worker pool
 - Lock-free concurrent data structures via scc crate
 - Optional AVX2 SIMD acceleration (compile-time)
@@ -218,6 +222,7 @@ Sorahk is a Windows application for automating repetitive key press operations. 
 ### Binary Release
 
 Download pre-built executables from the [releases page](https://github.com/llnut/Sorahk/releases):
+
 - `sorahk-x.y.z-$target.zip` - Standard build (compatible with all x86_64 CPUs)
 - `sorahk-avx2-x.y.z-$target.zip` - AVX2-optimized build (Intel 2013+ / AMD 2015+ CPUs)
 
@@ -226,6 +231,7 @@ Extract the archive and run `sorahk.exe`. The application will generate a defaul
 ### Building from Source
 
 **Prerequisites:**
+
 - [Rust](https://rustup.rs/) toolchain (stable channel)
 - Windows 10 or later
 
@@ -296,7 +302,8 @@ turbo_enabled = true
 
 ### Supported Input Types
 
-**Keyboard Keys:**
+Keyboard Keys:
+
 - Letters: `A` to `Z`
 - Numbers: `0` to `9`
 - Function keys: `F1` to `F24`
@@ -306,23 +313,27 @@ turbo_enabled = true
 - Numpad: `NUMPAD0` to `NUMPAD9`, `MULTIPLY`, `ADD`, `SUBTRACT`, `DECIMAL`, `DIVIDE`
 - System: `SNAPSHOT`, `PAUSE`, `SCROLL`, `CAPITAL`, `NUMLOCK`
 
-**Key Combinations:**
+Key Combinations:
+
 - Format: `MODIFIER+KEY` (e.g., `LCTRL+C`, `LALT+RSHIFT+F1`)
 - Left and right modifiers are distinguished
 
-**Mouse:**
+Mouse:
+
 - Buttons: `LBUTTON`, `RBUTTON`, `MBUTTON`, `XBUTTON1`, `XBUTTON2`
 - Movement: `MOUSE_UP`, `MOUSE_DOWN`, `MOUSE_LEFT`, `MOUSE_RIGHT`, `MOUSE_UP_LEFT`, etc.
 - Scroll: `SCROLL_UP`, `SCROLL_DOWN`
 
-**XInput Controllers:**
+XInput Controllers:
+
 - Format: `GAMEPAD_VID_ButtonName` (e.g., `GAMEPAD_045E_A`)
 - Buttons: `A`, `B`, `X`, `Y`, `Start`, `Back`, `LB`, `RB`, `LT`, `RT`, `LS_Click`, `RS_Click`
 - D-Pad: `DPad_Up`, `DPad_Down`, `DPad_Left`, `DPad_Right`
 - Analog sticks: `LS_Up`, `LS_Down`, `RS_Left`, `RS_Right`, etc.
 - Combinations: `GAMEPAD_045E_LS_RightUp+A`
 
-**Raw Input Devices:**
+Raw Input Devices:
+
 - Format: `DEVICE_VID_PID_SERIAL_Bx.x`
 - Requires initial device activation to establish baseline data
 
@@ -340,10 +351,11 @@ For complete configuration documentation, see the example `Config.toml` generate
 ### GUI Key Capture
 
 When capturing input through the settings dialog:
-- Click the capture button for the desired field
-- Press the key or button to capture
-- For combinations, hold all keys/buttons, then release
-- Captured input appears in the field automatically
+
+1. Click the capture button for the desired field
+2. Press the key or button to capture
+3. For combinations, hold all keys/buttons, then release
+4. Captured input appears in the field automatically
 
 ---
 
@@ -437,6 +449,7 @@ MIT License - see the [LICENSE](LICENSE) file for details.
 ## Acknowledgements
 
 Built with:
+
 - [Rust](https://www.rust-lang.org/) - Systems programming language
 - [windows-rs](https://crates.io/crates/windows) - Windows API bindings
 - [egui](https://crates.io/crates/egui) - Immediate mode GUI framework

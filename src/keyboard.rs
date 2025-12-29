@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
@@ -205,14 +206,14 @@ impl KeyboardHook {
         self.state.set_actual_worker_count(worker_count);
 
         // Create dedicated mouse move worker channel
-        let (mouse_move_tx, mouse_move_rx) = channel();
+        let (mouse_move_tx, mouse_move_rx) = unbounded();
 
         let mut worker_pool = WorkerPool::new(worker_count, self.state.clone(), mouse_move_tx);
         let mut worker_handles = Vec::new();
 
         // Start normal turbo workers
         for worker_id in 0..worker_count {
-            let (tx, rx) = channel();
+            let (tx, rx) = unbounded();
             worker_pool.add_worker(tx);
 
             let state_clone = self.state.clone();
@@ -1101,7 +1102,7 @@ mod tests {
         let worker_count = 4;
         let config = AppConfig::default();
         let state = Arc::new(AppState::new(config).unwrap());
-        let (mouse_move_tx, _mouse_move_rx) = channel();
+        let (mouse_move_tx, _mouse_move_rx) = unbounded();
         let pool = WorkerPool::new(worker_count, state, mouse_move_tx);
 
         assert_eq!(pool.worker_count, worker_count);
@@ -1113,7 +1114,7 @@ mod tests {
         let worker_count = 4;
         let config = AppConfig::default();
         let state = Arc::new(AppState::new(config).unwrap());
-        let (mouse_move_tx, _mouse_move_rx) = channel();
+        let (mouse_move_tx, _mouse_move_rx) = unbounded();
         let _pool = WorkerPool::new(worker_count, state, mouse_move_tx);
 
         // Test that same device always maps to same worker
