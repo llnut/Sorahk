@@ -56,8 +56,8 @@ impl crate::state::EventDispatcher for WorkerPool {
         }
     }
 
-    // Dispatch events using pre-computed lookup (hot path)
-    #[inline]
+    /// Dispatch events using pre-computed lookup (hot path)
+    #[inline(always)]
     fn dispatch(&self, event: InputEvent) {
         if unlikely(self.workers.is_empty()) {
             return;
@@ -72,56 +72,40 @@ impl crate::state::EventDispatcher for WorkerPool {
             && *vk < 256
         {
             let cached = self.mouse_action_cache[*vk as usize].load(Ordering::Relaxed);
-            if cached != 0xFF {
+            if likely(cached != 0xFF) {
                 // Cache hit
                 (cached & 0x01) != 0
             } else {
                 // Cache miss - query and update cache
-                let is_action = if let Some(mapping) = self.state.get_input_mapping(device) {
-                    Self::is_mouse_action(&mapping.target_action)
-                } else {
-                    false
-                };
+                let is_action = self.state.get_input_mapping(device)
+                    .is_some_and(|mapping| Self::is_mouse_action(&mapping.target_action));
                 self.mouse_action_cache[*vk as usize]
                     .store(if is_action { 0x01 } else { 0x00 }, Ordering::Relaxed);
                 is_action
             }
         } else {
             // Slow path: mouse buttons, combos, and generic devices
-            if let Some(mapping) = self.state.get_input_mapping(device) {
-                Self::is_mouse_action(&mapping.target_action)
-            } else {
-                false
-            }
+            self.state.get_input_mapping(device)
+                .is_some_and(|mapping| Self::is_mouse_action(&mapping.target_action))
         };
 
         // Route to dedicated mouse move worker or distribute normally
-        if is_mouse_action {
+        if unlikely(is_mouse_action) {
             let _ = self.mouse_move_worker.send(event);
         } else {
-            // Normal load-balanced distribution
+            // Load-balanced distribution across worker threads
             let worker_idx = match device {
                 InputDevice::Keyboard(vk) => (*vk as usize) % self.worker_count,
                 InputDevice::Mouse(button) => (*button as usize) % self.worker_count,
-                InputDevice::KeyCombo(keys) => {
-                    if let Some(&last_key) = keys.last() {
-                        (last_key as usize) % self.worker_count
-                    } else {
-                        0
-                    }
-                }
-                InputDevice::XInputCombo {
-                    device_type,
-                    button_ids,
-                } => {
+                InputDevice::MouseMove(direction) => (*direction as usize) % self.worker_count,
+                InputDevice::KeyCombo(keys) => keys.last()
+                    .map_or(0, |&k| (k as usize) % self.worker_count),
+                InputDevice::XInputCombo { device_type, button_ids } => {
                     let first_button_id = button_ids.first().copied().unwrap_or(0);
-                    Self::hash_generic_device(device_type, first_button_id as u64)
-                        % self.worker_count
+                    Self::hash_generic_device(device_type, first_button_id as u64) % self.worker_count
                 }
-                InputDevice::GenericDevice {
-                    device_type,
-                    button_id,
-                } => Self::hash_generic_device(device_type, *button_id) % self.worker_count,
+                InputDevice::GenericDevice { device_type, button_id } =>
+                    Self::hash_generic_device(device_type, *button_id) % self.worker_count,
             };
             let _ = self.workers[worker_idx].send(event);
         }
@@ -130,12 +114,13 @@ impl crate::state::EventDispatcher for WorkerPool {
 
 impl WorkerPool {
     /// Check if OutputAction contains mouse movement or scroll
-    #[inline]
+    #[inline(always)]
     fn is_mouse_action(action: &crate::state::OutputAction) -> bool {
         use crate::state::OutputAction;
         match action {
             OutputAction::MouseMove(_, _) | OutputAction::MouseScroll(_, _) => true,
             OutputAction::MultipleActions(actions) => actions.iter().any(Self::is_mouse_action),
+            OutputAction::SequentialActions(_, _) => false,
             _ => false,
         }
     }
@@ -657,6 +642,14 @@ impl KeyboardHook {
                 direction_vectors,
                 move_speed,
             );
+            // Sync all active turbo directions using current time to prevent
+            // premature turbo firing due to stale timestamp
+            let sync_time = Instant::now();
+            for i in 0..8 {
+                if (*active_directions & (1 << i)) != 0 && direction_turbo[i] {
+                    direction_last_times[i] = sync_time;
+                }
+            }
         }
 
         for (scroll_direction, scroll_speed) in scroll_list.iter() {
@@ -745,12 +738,10 @@ impl KeyboardHook {
                             scroll_intervals[i] = mapping.interval;
                             scroll_last_times[i] = now;
                             scroll_turbo[i] = mapping.turbo_enabled;
-                            // Always simulate on first press
                             state.simulate_action(OutputAction::MouseScroll(*direction, *speed), 0);
                             return;
                         }
                     }
-                    // No empty slot found (unlikely, but handle gracefully)
                     return;
                 }
 
@@ -773,9 +764,22 @@ impl KeyboardHook {
                             direction_vectors,
                             *first_speed,
                         );
+                        let sync_time = Instant::now();
+                        for i in 0..8 {
+                            if (*active_directions & (1 << i)) != 0 && direction_turbo[i] {
+                                direction_last_times[i] = sync_time;
+                            }
+                        }
                     }
                     return;
                 }
+
+                // New mouse movement - clear all existing directions first
+                *active_directions = 0;
+                for slot in direction_devices.iter_mut() {
+                    *slot = None;
+                }
+                *has_first_speed = false;
 
                 // New key press - check cache first
                 if let Some(&(dir_idx, speed, interval, turbo_enabled)) = mapping_cache.get(&device)
@@ -798,6 +802,12 @@ impl KeyboardHook {
                         direction_vectors,
                         *first_speed,
                     );
+                    let sync_time = Instant::now();
+                    for i in 0..8 {
+                        if (*active_directions & (1 << i)) != 0 && direction_turbo[i] {
+                            direction_last_times[i] = sync_time;
+                        }
+                    }
                     return;
                 }
 
@@ -828,6 +838,14 @@ impl KeyboardHook {
                                 direction_vectors,
                                 *first_speed,
                             );
+                            // Sync all active turbo directions using current time to prevent
+                            // premature turbo firing due to stale timestamp
+                            let sync_time = Instant::now();
+                            for i in 0..8 {
+                                if (*active_directions & (1 << i)) != 0 && direction_turbo[i] {
+                                    direction_last_times[i] = sync_time;
+                                }
+                            }
                         }
                         OutputAction::MultipleActions(actions) => {
                             Self::handle_multiple_mouse_actions(
@@ -853,6 +871,9 @@ impl KeyboardHook {
                                 mapping.turbo_enabled,
                                 now,
                             );
+                        }
+                        OutputAction::SequentialActions(_, _) => {
+                            // Handled in main loop for proper release detection
                         }
                         _ => {}
                     }
@@ -929,7 +950,9 @@ impl KeyboardHook {
         }
     }
 
-    /// Process turbo-enabled movements from timeout
+    /// Process turbo-enabled movements from timeout.
+    /// When any direction is ready, executes all active turbo directions together
+    /// and synchronizes their last_times to ensure smooth diagonal movement.
     #[inline(always)]
     fn execute_movement_bitflags(
         active_directions: u8,
@@ -940,39 +963,49 @@ impl KeyboardHook {
         speed: i32,
     ) {
         let now = Instant::now();
-        let mut total_dx: f32 = 0.0;
-        let mut total_dy: f32 = 0.0;
-        let mut any_ready = false;
 
-        // Check each direction bit for active movements
+        // First pass: check if any turbo direction is ready
+        let mut any_ready = false;
         #[allow(clippy::needless_range_loop)]
         for i in 0..8 {
             if (active_directions & (1 << i)) == 0 {
-                continue; // Direction not active
+                continue;
             }
-
             if !direction_turbo[i] {
-                continue; // Non-turbo, skip timeout processing
+                continue;
             }
-
-            if now.duration_since(direction_last_times[i])
-                < Duration::from_millis(direction_intervals[i])
-            {
-                continue; // Not ready yet
+            let elapsed = now.duration_since(direction_last_times[i]);
+            let interval = Duration::from_millis(direction_intervals[i]);
+            if elapsed >= interval {
+                any_ready = true;
+                break;
             }
+        }
 
-            any_ready = true;
+        if !any_ready {
+            return;
+        }
+
+        // Second pass: compute combined movement and sync all turbo directions
+        let mut total_dx: f32 = 0.0;
+        let mut total_dy: f32 = 0.0;
+
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..8 {
+            if (active_directions & (1 << i)) == 0 {
+                continue;
+            }
+            if !direction_turbo[i] {
+                continue;
+            }
             let (dx, dy) = direction_vectors[i];
             total_dx += dx;
             total_dy += dy;
-
-            // Update time inline
+            // Sync all active turbo directions to same time for smooth diagonal movement
             direction_last_times[i] = now;
         }
 
-        if any_ready {
-            Self::send_movement_normalized(total_dx, total_dy, speed);
-        }
+        Self::send_movement_normalized(total_dx, total_dy, speed);
     }
 
     /// Process immediate movements from key press
@@ -1055,9 +1088,9 @@ impl KeyboardHook {
         // Hardware square root instruction
         let inv_mag = 1.0 / mag_sq.sqrt();
 
-        // Normalize and scale
-        let final_dx = (dx * inv_mag * speed_f + 0.5) as i32;
-        let final_dy = (dy * inv_mag * speed_f + 0.5) as i32;
+        // Normalize and scale (round() handles negative values correctly)
+        let final_dx = (dx * inv_mag * speed_f).round() as i32;
+        let final_dy = (dy * inv_mag * speed_f).round() as i32;
 
         if unlikely(final_dx == 0 && final_dy == 0) {
             return;
@@ -1150,6 +1183,9 @@ mod tests {
             event_duration: Some(5),
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         }];
 
         let state = Arc::new(AppState::new(config).unwrap());

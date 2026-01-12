@@ -896,7 +896,7 @@ impl RawInputHandler {
 
             // Size check for common buffer optimization
             if unlikely(size as usize > MAX_BUFFER_SIZE) {
-                // Fallback for large buffers
+                // Handle large buffers with dynamic allocation
                 let mut buffer = vec![0u8; size as usize];
                 let result = GetRawInputData(
                     HRAWINPUT(l_param.0 as _),
@@ -1107,14 +1107,105 @@ impl RawInputHandler {
                         button_id,
                     };
 
-                    // Only dispatch if mapping exists
                     if likely(self.state.get_input_mapping(&device).is_some()) {
-                        let event = if is_pressed {
-                            InputEvent::Pressed(device)
+                        if is_pressed {
+                            let now = Instant::now();
+                            let sequence_match_result =
+                                self.state.record_and_match_sequence(device.clone(), now);
+
+                            if let Some((matched_device, sequence_inputs)) = sequence_match_result {
+                                if let Some(mapping_info) =
+                                    self.state.get_input_mapping(&matched_device)
+                                    && mapping_info.is_sequence {
+                                        use scc::{Shared, Tag};
+                                        use std::sync::atomic::Ordering;
+
+                                        let shared_device = Shared::new(matched_device.clone());
+                                        let _ = self.state.last_sequence_device.swap(
+                                            (Some(shared_device), Tag::None),
+                                            Ordering::Release,
+                                        );
+
+                                        let shared_inputs = Shared::new(sequence_inputs);
+                                        let _ = self.state.last_sequence_inputs.swap(
+                                            (Some(shared_inputs), Tag::None),
+                                            Ordering::Release,
+                                        );
+
+                                        pool.dispatch(InputEvent::Pressed(matched_device));
+                                        continue;
+                                    }
+                            } else {
+                                // No sequence matched - check if holding sequence trigger button
+                                use scc::Guard;
+                                use std::sync::atomic::Ordering;
+
+                                let guard = Guard::new();
+                                let last_seq_device = self
+                                    .state
+                                    .last_sequence_device
+                                    .load(Ordering::Acquire, &guard);
+                                let last_seq_inputs = self
+                                    .state
+                                    .last_sequence_inputs
+                                    .load(Ordering::Acquire, &guard);
+
+                                if let (Some(seq_device), Some(seq_inputs)) =
+                                    (last_seq_device.as_ref(), last_seq_inputs.as_ref())
+                                {
+                                    // Check if current device is part of the last matched sequence
+                                    if seq_inputs.contains(&device) {
+                                        // User is holding a button from the sequence
+                                        // Continue dispatching Pressed events for turbo
+                                        pool.dispatch(InputEvent::Pressed(seq_device.clone()));
+                                        continue;
+                                    } else if let Some(mapping_info) =
+                                        self.state.get_input_mapping(&device)
+                                    {
+                                        // Not part of sequence, check if sequence-only
+                                        if mapping_info.is_sequence {
+                                            continue;
+                                        }
+                                    }
+                                } else if let Some(mapping_info) =
+                                    self.state.get_input_mapping(&device)
+                                {
+                                    // No active sequence, check if sequence-only
+                                    if mapping_info.is_sequence {
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
+                        if is_pressed {
+                            pool.dispatch(InputEvent::Pressed(device));
                         } else {
-                            InputEvent::Released(device)
-                        };
-                        pool.dispatch(event);
+                            // Check if released device is the last input in an active sequence
+                            use scc::Guard;
+                            let guard = Guard::new();
+                            let last_seq_inputs = self
+                                .state
+                                .last_sequence_inputs
+                                .load(Ordering::Acquire, &guard);
+
+                            if let Some(seq_inputs) = last_seq_inputs.as_ref()
+                                && let Some(last_input) = seq_inputs.last()
+                                    && last_input == &device {
+                                        // Clear sequence state when last input is released
+                                        use scc::Tag;
+                                        let _ = self
+                                            .state
+                                            .last_sequence_device
+                                            .swap((None, Tag::None), Ordering::Release);
+                                        let _ = self
+                                            .state
+                                            .last_sequence_inputs
+                                            .swap((None, Tag::None), Ordering::Release);
+                                    }
+
+                            pool.dispatch(InputEvent::Released(device));
+                        }
                     }
                 }
                 true
@@ -1481,9 +1572,7 @@ impl RawInputHandler {
     /// Strategy:
     /// 1. Collect all currently active bits (relative to baseline)
     /// 2. Compare with previously active bits to find press/release events
-    /// 3. For each event, generate both combo and individual button_ids
-    ///    - Combo: for multi-button combos or unique patterns
-    ///    - Individual: for simultaneous independent keys
+    /// 3. For each event, generate combo button_id
     #[inline]
     fn detect_hid_changes(
         &self,
@@ -1574,7 +1663,7 @@ impl RawInputHandler {
     }
 
     /// Generates button events for a set of bit positions.
-    /// Only creates a single combo button_id from all positions together.
+    /// Creates a single combo button_id from all positions together.
     #[inline(always)]
     fn generate_button_events(
         positions: &[(usize, u32)],

@@ -9,6 +9,7 @@ pub mod i18n;
 pub mod input_manager;
 pub mod input_ownership;
 pub mod rawinput;
+pub mod sequence_matcher;
 pub mod state;
 pub mod util;
 pub mod xinput;

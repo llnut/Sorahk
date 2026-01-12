@@ -60,6 +60,7 @@ Located in `tests/` directory:
 ```
 tests/
 ├── integration_tests.rs    # Cross-module tests
+├── state_tests.rs          # State management tests
 └── example_test_guide.rs   # Testing patterns reference
 ```
 
@@ -67,18 +68,20 @@ tests/
 
 | Module | Primary Focus |
 |--------|---------------|
-| **config.rs** | Configuration loading, saving, validation, error handling, TOML serialization, multiple target keys management (add, remove, clear, set operations) |
-| **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings (keyboard, mouse, HID devices), combo key parsing (including numpad and OEM keys), device type parsing (gamepad, joystick), mouse scroll direction parsing, output action handling (keyboard, mouse buttons, mouse movement, mouse scroll, multiple actions), state management, thread safety, atomic operations, lock-free concurrent data structures, batch INPUT event processing, extended scancode bitmap detection |
+| **config.rs** | Configuration loading, saving, validation, error handling, TOML serialization, multiple target keys management (add, remove, clear, set operations), sequence trigger/target fields, target mode handling |
+| **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings (keyboard, mouse, HID devices), combo key parsing (including numpad and OEM keys), device type parsing (gamepad, joystick), mouse scroll direction parsing, output action handling (keyboard, mouse buttons, mouse movement, mouse scroll, sequential actions), state management, thread safety, atomic operations, lock-free concurrent data structures, batch INPUT event processing, extended scancode bitmap detection |
+| **sequence_matcher.rs** | Ring buffer implementation, input sequence recording, pattern matching algorithm, time window validation, input deduplication, device matching logic, transition tolerance, diagonal bidirectional matching, cache-aligned structures, atomic operations, lock-free sequence registration |
 | **i18n.rs** | Multi-language translations, formatting functions, translation completeness |
-| **keyboard.rs** | Worker pool creation, worker distribution stability, mapping cache retrieval |
-| **mouse.rs** | Mouse button handling, message parsing, event processing |
-| **rawinput.rs** | FNV-1a hash algorithm, device ID generation, VID/PID parsing, button counting, HID baseline management, combo key capture logic |
-| **xinput.rs** | VID/PID hash generation, button state detection, analog stick direction mapping, trigger state detection, input combination hashing, deadzone filtering, combo mask building, bitset matching, layered index matching, AVX2 SIMD batch matching (compile-time), extended scancode detection |
+| **keyboard.rs** | Worker pool creation, worker distribution stability, mapping cache retrieval, sequential action handling, turbo mode processing |
+| **mouse.rs** | Mouse button handling, message parsing, event processing, mouse movement turbo |
+| **rawinput.rs** | FNV-1a hash algorithm, device ID generation, VID/PID parsing, button counting, HID baseline management, combo key capture logic, sequence input recording |
+| **xinput.rs** | VID/PID hash generation, button state detection, analog stick direction mapping, trigger state detection, input combination hashing, deadzone filtering, combo mask building, bitset matching, layered index matching, AVX2 SIMD batch matching (compile-time), extended scancode detection, sequence input recording, diagonal combo matching |
 | **gui/utils.rs** | Key string conversion, icon loading |
 | **gui/types.rs** | KeyCaptureMode enum |
+| **gui/settings_dialog.rs** | Sequence capture mode, continuous key input, target mode selection, sequence window editing |
 | **tray.rs** | XML escaping for notifications, utility functions, constants |
 | **signal.rs** | Console control event constants, type wrappers |
-| **Integration** | Cross-module interactions, configuration persistence, concurrent operations |
+| **Integration** | Cross-module interactions, configuration persistence, concurrent operations, sequence trigger/target workflow |
 
 Run `cargo test -- --list` to see all available test functions.
 
@@ -86,12 +89,20 @@ Run `cargo test -- --list` to see all available test functions.
 
 - Configuration management and validation
 - Multiple target keys functionality (add, remove, clear, display)
+- Sequence trigger and target fields persistence
+- Target mode serialization and deserialization
 - Key name to VK code conversion
 - VK code to scancode mapping
 - Combo key parsing and validation
 - Mouse button name parsing and event handling
 - Mouse movement target validation and direction parsing
-- Multiple simultaneous actions
+- Multiple simultaneous actions and sequential actions
+- Sequence matcher ring buffer operations
+- Input sequence recording and pattern matching
+- Time window validation for sequence completion
+- Input deduplication logic
+- Device matching and transition tolerance
+- Diagonal bidirectional matching for XInput
 - HID device input parsing and device type identification
 - Device ID generation and vendor/product ID handling
 - FNV-1a hash algorithm correctness
@@ -105,6 +116,8 @@ Run `cargo test -- --list` to see all available test functions.
 - Worker pool and event distribution
 - Device-based load balancing and hashing
 - Thread safety and atomic operations
+- Lock-free sequence registration and access
+- Cache-aligned data structure layout
 - Error handling and edge cases
 
 ## What is Not Tested
@@ -118,12 +131,16 @@ Due to Windows API requirements, the following are not covered by automated test
 - Physical key press and mouse click simulation
 - GUI rendering and user interactions
 - Combo key event handling with real keyboard input
+- Sequence capture with real hardware input
+- Real-time sequence matching with physical devices
 - HID device activation dialog interactions
 - Raw Input API device enumeration and data reception
 - XInput API device polling and state retrieval
 - Physical Xbox controller connection and disconnection
+- Sequential action dispatch timing accuracy
+- Turbo mode behavior with actual input events
 
-**Note:** Internal logic is tested without requiring Windows API interaction. Tests verify key conversion, combo parsing, data structure operations, button state detection, and hash generation, but avoid triggering actual input or API calls to prevent system interference.
+**Note:** Internal logic is tested without requiring Windows API interaction. Tests verify key conversion, combo parsing, sequence matching algorithms, data structure operations, button state detection, and hash generation, but avoid triggering actual input or API calls to prevent system interference.
 
 ## Writing New Tests
 

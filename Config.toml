@@ -209,6 +209,65 @@ turbo_enabled = true         # Enable turbo mode (true = auto-repeat, false = fo
 # target_keys = ["LBUTTON"]                      # Left mouse click
 # turbo_enabled = true                           # Enable turbo mode
 
+# ─── Sequence Input/Output Examples (Fighting Game Combos) ───
+# Sequence input triggers: Execute commands using input sequences
+# Format: trigger_sequence = "Key1,Key2,Key3,..."
+# - Keys are comma-separated (e.g., "DOWN,RIGHT,A")
+# - Time window defines max time to complete the sequence (default: 500ms)
+# - Supports keyboard keys, mouse buttons, mouse movements, and XInput stick/buttons
+# - Smart transition tolerance: DOWN->LEFT matches DOWN->DOWNLEFT->LEFT
+# - XInput diagonal bidirectional: DOWN_LEFT matches both DOWN->LEFT and LEFT->DOWN
+#
+# Sequence output targets: Send key sequences in order
+# Format: target_keys = ["Key1", "Key2", "Key3"]
+# - Set target_mode = 2 for sequential output
+# - interval controls delay between keys
+# - turbo_enabled = true: repeat entire sequence
+# - turbo_enabled = false: execute once per trigger
+#
+# Example 1: Hadoken (Quarter Circle Forward + Punch)
+# [[mappings]]
+# trigger_sequence = "LS_Down,LS_DownRight,LS_Right,A"  # ↓↘→+A
+# target_keys = ["J"]                                    # Press J
+# sequence_window_ms = 500                               # Complete within 500ms
+# turbo_enabled = true                                   # Repeat on hold
+#
+# Example 2: Shoryuken (Dragon Punch)
+# [[mappings]]
+# trigger_sequence = "LS_Right,LS_Down,LS_DownRight,B"   # →↓↘+B
+# target_keys = ["K"]
+# sequence_window_ms = 400
+# turbo_enabled = false                                  # Single execution
+#
+# Example 3: Keyboard combo (e.g., "WASD" sequence)
+# [[mappings]]
+# trigger_sequence = "W,A,S,D"                           # Press W-A-S-D in order
+# target_keys = ["F"]                                    # Output F
+# sequence_window_ms = 800
+# turbo_enabled = true
+#
+# Example 4: Mouse movement sequence (double tap direction)
+# [[mappings]]
+# trigger_sequence = "MOUSE_LEFT,MOUSE_LEFT"             # Double tap left
+# target_keys = ["LSHIFT"]                               # Activate sprint
+# sequence_window_ms = 300
+# turbo_enabled = false
+#
+# Example 5: Sequence output (macro)
+# [[mappings]]
+# trigger_key = "F5"                                     # Single key trigger
+# target_keys = ["H", "E", "L", "L", "O"]                # Type "HELLO"
+# target_mode = 2                                        # Sequential mode
+# interval = 50                                          # 50ms between keys
+# turbo_enabled = false                                  # Single execution
+#
+# Example 6: Complex combo (multiple sticks + buttons)
+# [[mappings]]
+# trigger_sequence = "LS_Left,LS_DownLeft,LS_Down,LS_DownRight,LS_Right,LB+RB"
+# target_keys = ["SPACE"]
+# sequence_window_ms = 600
+# turbo_enabled = false
+
 # ─── HID Device Baselines (Auto-generated, Do Not Edit) ───
 # This section is managed automatically by the application
 # Device activation data for press/release detection

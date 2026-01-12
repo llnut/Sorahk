@@ -103,6 +103,8 @@ struct TranslationCache {
     toggle_key_section: String,
     key_label: String,
     press_any_key: String,
+    click_to_set_trigger: String,
+    click_to_set_target: String,
     global_config_title: String,
     input_timeout_label: String,
     default_interval_label: String,
@@ -112,13 +114,7 @@ struct TranslationCache {
     target_short: String,
     interval_short: String,
     duration_short: String,
-    trigger_header: String,
-    target_header: String,
-    interval_header: String,
-    duration_header: String,
-    turbo_header: String,
     add_new_mapping_title: String,
-    click_text: String,
     add_button_text: String,
     process_whitelist_hint: String,
     process_example: String,
@@ -189,10 +185,38 @@ struct TranslationCache {
     capture_mode_analog_optimized: String,
     capture_mode_diagonal_priority: String,
     add_target_key_hover: String,
+    add_sequence_key_hover: String,
+    clear_all_trigger_keys_hover: String,
     clear_all_target_keys_hover: String,
-    remove_target_key_prefix: String,
     diagonal_hint_title: String,
     diagonal_hint: String,
+
+    // Sequence Trigger
+    trigger_mode_label: String,
+    trigger_mode_single: String,
+    trigger_mode_sequence: String,
+    trigger_mode_single_badge: String,
+    trigger_mode_sequence_badge: String,
+    sequence_trigger_explanation: String,
+    sequence_window_label: String,
+    sequence_window_hint: String,
+    sequence_capturing: String,
+    sequence_capture_hint: String,
+    sequence_complete: String,
+    sequence_clear_btn: String,
+    sequence_example_label: String,
+
+    // Target Mode
+    target_mode_label: String,
+    target_mode_single: String,
+    target_mode_multi: String,
+    target_mode_sequence: String,
+    target_mode_single_badge: String,
+    target_mode_multi_badge: String,
+    target_mode_sequence_badge: String,
+    target_mode_multi_explanation: String,
+    target_mode_sequence_explanation: String,
+    target_sequence_output_hint: String,
 
     // Device Manager Dialog
     devices_button: String,
@@ -235,6 +259,14 @@ struct TranslationCache {
     tray_notification_launched: String,
     tray_notification_activated: String,
     tray_notification_paused: String,
+
+    // UI Icons
+    sequence_icon: String,
+    target_icon: String,
+    arrow_icon: String,
+    delete_icon: String,
+    keys_text: String,
+    targets_text: String,
 }
 
 impl CachedTranslations {
@@ -326,6 +358,12 @@ impl CachedTranslations {
     // Settings Dialog - Toggle Key Section
     pub fn press_any_key(&self) -> &str {
         &self.inner.press_any_key
+    }
+    pub fn click_to_set_trigger(&self) -> &str {
+        &self.inner.click_to_set_trigger
+    }
+    pub fn click_to_set_target(&self) -> &str {
+        &self.inner.click_to_set_target
     }
 
     // Settings Dialog - Global Configuration Section
@@ -549,17 +587,91 @@ impl CachedTranslations {
     pub fn add_target_key_hover(&self) -> &str {
         &self.inner.add_target_key_hover
     }
+    pub fn add_sequence_key_hover(&self) -> &str {
+        &self.inner.add_sequence_key_hover
+    }
+    pub fn clear_all_trigger_keys_hover(&self) -> &str {
+        &self.inner.clear_all_trigger_keys_hover
+    }
     pub fn clear_all_target_keys_hover(&self) -> &str {
         &self.inner.clear_all_target_keys_hover
-    }
-    pub fn format_remove_target_key_hover(&self, key: &str) -> String {
-        format!("{} {}", self.inner.remove_target_key_prefix, key)
     }
     pub fn diagonal_hint_title(&self) -> &str {
         &self.inner.diagonal_hint_title
     }
     pub fn diagonal_hint(&self) -> &str {
         &self.inner.diagonal_hint
+    }
+
+    // Sequence Trigger
+    pub fn trigger_mode_label(&self) -> &str {
+        &self.inner.trigger_mode_label
+    }
+    pub fn trigger_mode_single(&self) -> &str {
+        &self.inner.trigger_mode_single
+    }
+    pub fn trigger_mode_sequence(&self) -> &str {
+        &self.inner.trigger_mode_sequence
+    }
+    pub fn trigger_mode_single_badge(&self) -> &str {
+        &self.inner.trigger_mode_single_badge
+    }
+    pub fn trigger_mode_sequence_badge(&self) -> &str {
+        &self.inner.trigger_mode_sequence_badge
+    }
+    pub fn sequence_trigger_explanation(&self) -> &str {
+        &self.inner.sequence_trigger_explanation
+    }
+    pub fn sequence_window_label(&self) -> &str {
+        &self.inner.sequence_window_label
+    }
+    pub fn sequence_window_hint(&self) -> &str {
+        &self.inner.sequence_window_hint
+    }
+    pub fn sequence_capturing(&self) -> &str {
+        &self.inner.sequence_capturing
+    }
+    pub fn sequence_capture_hint(&self) -> &str {
+        &self.inner.sequence_capture_hint
+    }
+    pub fn sequence_complete(&self) -> &str {
+        &self.inner.sequence_complete
+    }
+    pub fn sequence_clear_btn(&self) -> &str {
+        &self.inner.sequence_clear_btn
+    }
+    pub fn sequence_example_label(&self) -> &str {
+        &self.inner.sequence_example_label
+    }
+    pub fn target_mode_label(&self) -> &str {
+        &self.inner.target_mode_label
+    }
+    pub fn target_mode_single(&self) -> &str {
+        &self.inner.target_mode_single
+    }
+    pub fn target_mode_multi(&self) -> &str {
+        &self.inner.target_mode_multi
+    }
+    pub fn target_mode_sequence(&self) -> &str {
+        &self.inner.target_mode_sequence
+    }
+    pub fn target_mode_single_badge(&self) -> &str {
+        &self.inner.target_mode_single_badge
+    }
+    pub fn target_mode_multi_badge(&self) -> &str {
+        &self.inner.target_mode_multi_badge
+    }
+    pub fn target_mode_sequence_badge(&self) -> &str {
+        &self.inner.target_mode_sequence_badge
+    }
+    pub fn target_mode_multi_explanation(&self) -> &str {
+        &self.inner.target_mode_multi_explanation
+    }
+    pub fn target_mode_sequence_explanation(&self) -> &str {
+        &self.inner.target_mode_sequence_explanation
+    }
+    pub fn target_sequence_output_hint(&self) -> &str {
+        &self.inner.target_sequence_output_hint
     }
 
     // Device Manager Dialog
@@ -710,26 +822,8 @@ impl CachedTranslations {
     pub fn duration_short(&self) -> &str {
         &self.inner.duration_short
     }
-    pub fn trigger_header(&self) -> &str {
-        &self.inner.trigger_header
-    }
-    pub fn target_header(&self) -> &str {
-        &self.inner.target_header
-    }
-    pub fn interval_header(&self) -> &str {
-        &self.inner.interval_header
-    }
-    pub fn duration_header(&self) -> &str {
-        &self.inner.duration_header
-    }
-    pub fn turbo_header(&self) -> &str {
-        &self.inner.turbo_header
-    }
     pub fn add_new_mapping_title(&self) -> &str {
         &self.inner.add_new_mapping_title
-    }
-    pub fn click_text(&self) -> &str {
-        &self.inner.click_text
     }
     pub fn add_button_text(&self) -> &str {
         &self.inner.add_button_text
@@ -776,6 +870,50 @@ impl CachedTranslations {
     }
     pub fn tray_notification_paused(&self) -> &str {
         &self.inner.tray_notification_paused
+    }
+
+    // UI Icons
+    pub fn sequence_icon(&self) -> &str {
+        &self.inner.sequence_icon
+    }
+    pub fn target_icon(&self) -> &str {
+        &self.inner.target_icon
+    }
+    pub fn arrow_icon(&self) -> &str {
+        &self.inner.arrow_icon
+    }
+    pub fn delete_icon(&self) -> &str {
+        &self.inner.delete_icon
+    }
+    pub fn keys_text(&self) -> &str {
+        &self.inner.keys_text
+    }
+    pub fn targets_text(&self) -> &str {
+        &self.inner.targets_text
+    }
+
+    /// Format keys count with localized text
+    /// Optimized to minimize allocations with pre-sized capacity
+    #[inline]
+    pub fn format_keys_count(&self, count: usize) -> String {
+        let count_str = count.to_string();
+        let mut s = String::with_capacity(count_str.len() + 1 + self.keys_text().len());
+        s.push_str(&count_str);
+        s.push(' ');
+        s.push_str(self.keys_text());
+        s
+    }
+
+    /// Format targets count with localized text
+    /// Optimized to minimize allocations with pre-sized capacity
+    #[inline]
+    pub fn format_targets_count(&self, count: usize) -> String {
+        let count_str = count.to_string();
+        let mut s = String::with_capacity(count_str.len() + 1 + self.targets_text().len());
+        s.push_str(&count_str);
+        s.push(' ');
+        s.push_str(self.targets_text());
+        s
     }
 }
 
@@ -840,6 +978,8 @@ impl TranslationCache {
             toggle_key_section: get_raw_translation(lang, RawKey::ToggleKeySection).to_string(),
             key_label: get_raw_translation(lang, RawKey::KeyLabel).to_string(),
             press_any_key: get_raw_translation(lang, RawKey::PressAnyKey).to_string(),
+            click_to_set_trigger: get_raw_translation(lang, RawKey::ClickToSetTrigger).to_string(),
+            click_to_set_target: get_raw_translation(lang, RawKey::ClickToSetTarget).to_string(),
 
             // Settings Dialog - Global Configuration Section
             global_config_title: get_raw_translation(lang, RawKey::GlobalConfigTitle).to_string(),
@@ -856,16 +996,8 @@ impl TranslationCache {
             interval_short: get_raw_translation(lang, RawKey::IntShort).to_string(),
             duration_short: get_raw_translation(lang, RawKey::DurShort).to_string(),
 
-            // Main Window - Key Mappings Table Headers
-            trigger_header: get_raw_translation(lang, RawKey::Trigger).to_string(),
-            target_header: get_raw_translation(lang, RawKey::Target).to_string(),
-            interval_header: get_raw_translation(lang, RawKey::IntervalMs).to_string(),
-            duration_header: get_raw_translation(lang, RawKey::DurationMs).to_string(),
-            turbo_header: get_raw_translation(lang, RawKey::TurboHeader).to_string(),
-
             add_new_mapping_title: get_raw_translation(lang, RawKey::AddNewMappingTitle)
                 .to_string(),
-            click_text: get_raw_translation(lang, RawKey::Click).to_string(),
             add_button_text: get_raw_translation(lang, RawKey::AddBtn).to_string(),
 
             // Settings Dialog - Process Whitelist Section
@@ -1039,12 +1171,72 @@ impl TranslationCache {
             )
             .to_string(),
             add_target_key_hover: get_raw_translation(lang, RawKey::AddTargetKeyHover).to_string(),
-            clear_all_target_keys_hover: get_raw_translation(lang, RawKey::ClearAllTargetKeysHover)
+            add_sequence_key_hover: get_raw_translation(lang, RawKey::AddSequenceKeyHover)
                 .to_string(),
-            remove_target_key_prefix: get_raw_translation(lang, RawKey::RemoveTargetKeyPrefix)
+            clear_all_trigger_keys_hover: get_raw_translation(
+                lang,
+                RawKey::ClearAllTriggerKeysHover,
+            )
+            .to_string(),
+            clear_all_target_keys_hover: get_raw_translation(lang, RawKey::ClearAllTargetKeysHover)
                 .to_string(),
             diagonal_hint_title: get_raw_translation(lang, RawKey::DiagonalHintTitle).to_string(),
             diagonal_hint: get_raw_translation(lang, RawKey::DiagonalHint).to_string(),
+
+            // Sequence Trigger
+            trigger_mode_label: get_raw_translation(lang, RawKey::TriggerModeLabel).to_string(),
+            trigger_mode_single: get_raw_translation(lang, RawKey::TriggerModeSingle).to_string(),
+            trigger_mode_sequence: get_raw_translation(lang, RawKey::TriggerModeSequence)
+                .to_string(),
+            trigger_mode_single_badge: get_raw_translation(lang, RawKey::TriggerModeSingleBadge)
+                .to_string(),
+            trigger_mode_sequence_badge: get_raw_translation(
+                lang,
+                RawKey::TriggerModeSequenceBadge,
+            )
+            .to_string(),
+            sequence_trigger_explanation: get_raw_translation(
+                lang,
+                RawKey::SequenceTriggerExplanation,
+            )
+            .to_string(),
+            sequence_window_label: get_raw_translation(lang, RawKey::SequenceWindowLabel)
+                .to_string(),
+            sequence_window_hint: get_raw_translation(lang, RawKey::SequenceWindowHint).to_string(),
+            sequence_capturing: get_raw_translation(lang, RawKey::SequenceCapturing).to_string(),
+            sequence_capture_hint: get_raw_translation(lang, RawKey::SequenceCaptureHint)
+                .to_string(),
+            sequence_complete: get_raw_translation(lang, RawKey::SequenceComplete).to_string(),
+            sequence_clear_btn: get_raw_translation(lang, RawKey::SequenceClearBtn).to_string(),
+            sequence_example_label: get_raw_translation(lang, RawKey::SequenceExampleLabel)
+                .to_string(),
+
+            // Target Mode
+            target_mode_label: get_raw_translation(lang, RawKey::TargetModeLabel).to_string(),
+            target_mode_single: get_raw_translation(lang, RawKey::TargetModeSingle).to_string(),
+            target_mode_multi: get_raw_translation(lang, RawKey::TargetModeMulti).to_string(),
+            target_mode_sequence: get_raw_translation(lang, RawKey::TargetModeSequence).to_string(),
+            target_mode_single_badge: get_raw_translation(lang, RawKey::TargetModeSingleBadge)
+                .to_string(),
+            target_mode_multi_badge: get_raw_translation(lang, RawKey::TargetModeMultiBadge)
+                .to_string(),
+            target_mode_sequence_badge: get_raw_translation(lang, RawKey::TargetModeSequenceBadge)
+                .to_string(),
+            target_mode_multi_explanation: get_raw_translation(
+                lang,
+                RawKey::TargetModeMultiExplanation,
+            )
+            .to_string(),
+            target_mode_sequence_explanation: get_raw_translation(
+                lang,
+                RawKey::TargetModeSequenceExplanation,
+            )
+            .to_string(),
+            target_sequence_output_hint: get_raw_translation(
+                lang,
+                RawKey::TargetSequenceOutputHint,
+            )
+            .to_string(),
 
             // Device Manager Dialog
             devices_button: get_raw_translation(lang, RawKey::DevicesBtn).to_string(),
@@ -1102,6 +1294,14 @@ impl TranslationCache {
             .to_string(),
             tray_notification_paused: get_raw_translation(lang, RawKey::TrayNotificationPaused)
                 .to_string(),
+
+            // UI Icons
+            sequence_icon: get_raw_translation(lang, RawKey::SequenceIcon).to_string(),
+            target_icon: get_raw_translation(lang, RawKey::TargetIcon).to_string(),
+            arrow_icon: get_raw_translation(lang, RawKey::ArrowIcon).to_string(),
+            delete_icon: get_raw_translation(lang, RawKey::DeleteIcon).to_string(),
+            keys_text: get_raw_translation(lang, RawKey::KeysText).to_string(),
+            targets_text: get_raw_translation(lang, RawKey::TargetsText).to_string(),
         }
     }
 }
@@ -1123,11 +1323,8 @@ enum RawKey {
     ToggleKeySection,
     KeyLabel,
     PressAnyKey,
-    Trigger,
-    Target,
-    IntervalMs,
-    DurationMs,
-    Click,
+    ClickToSetTrigger,
+    ClickToSetTarget,
     ProcessWhitelistHint,
     ProcessExample,
     ChangesTakeEffect,
@@ -1183,7 +1380,6 @@ enum RawKey {
     AboutInspired,
     TurboOnHover,
     TurboOffHover,
-    TurboHeader,
     HidActivationTitle,
     HidActivationPressPrompt,
     HidActivationReleasePrompt,
@@ -1226,10 +1422,36 @@ enum RawKey {
     CaptureModeAnalogOptimized,
     CaptureModeDiagonalPriority,
     AddTargetKeyHover,
+    AddSequenceKeyHover,
+    ClearAllTriggerKeysHover,
     ClearAllTargetKeysHover,
-    RemoveTargetKeyPrefix,
     DiagonalHintTitle,
     DiagonalHint,
+
+    // Sequence Trigger
+    TriggerModeLabel,
+    TriggerModeSingle,
+    TriggerModeSequence,
+    TriggerModeSingleBadge,
+    TriggerModeSequenceBadge,
+    SequenceTriggerExplanation,
+    SequenceWindowLabel,
+    SequenceWindowHint,
+    SequenceCapturing,
+    SequenceCaptureHint,
+    SequenceComplete,
+    SequenceClearBtn,
+    SequenceExampleLabel,
+    TargetModeLabel,
+    TargetModeSingle,
+    TargetModeMulti,
+    TargetModeSequence,
+    TargetModeSingleBadge,
+    TargetModeMultiBadge,
+    TargetModeSequenceBadge,
+    TargetModeMultiExplanation,
+    TargetModeSequenceExplanation,
+    TargetSequenceOutputHint,
 
     // Device Manager Dialog
     DevicesBtn,
@@ -1271,6 +1493,14 @@ enum RawKey {
     TrayNotificationLaunched,
     TrayNotificationActivated,
     TrayNotificationPaused,
+
+    // UI Icons
+    SequenceIcon,
+    TargetIcon,
+    ArrowIcon,
+    DeleteIcon,
+    KeysText,
+    TargetsText,
 }
 
 /// Gets raw translation string without formatting.
@@ -1349,9 +1579,21 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
 
         // Press Any Key
         (Language::English, RawKey::PressAnyKey) => "Press any key...",
-        (Language::SimplifiedChinese, RawKey::PressAnyKey) => "请按任意键...",
-        (Language::TraditionalChinese, RawKey::PressAnyKey) => "請按任意鍵...",
+        (Language::SimplifiedChinese, RawKey::PressAnyKey) => "按下任意键...",
+        (Language::TraditionalChinese, RawKey::PressAnyKey) => "按下任意鍵...",
         (Language::Japanese, RawKey::PressAnyKey) => "任意のキーを押してください...",
+
+        // Click to Set Trigger
+        (Language::English, RawKey::ClickToSetTrigger) => "Click to set trigger",
+        (Language::SimplifiedChinese, RawKey::ClickToSetTrigger) => "点击设置触发键",
+        (Language::TraditionalChinese, RawKey::ClickToSetTrigger) => "點擊設定觸發鍵",
+        (Language::Japanese, RawKey::ClickToSetTrigger) => "トリガーを設定",
+
+        // Click to Set Target
+        (Language::English, RawKey::ClickToSetTarget) => "Click to set target",
+        (Language::SimplifiedChinese, RawKey::ClickToSetTarget) => "点击设置目标键",
+        (Language::TraditionalChinese, RawKey::ClickToSetTarget) => "點擊設定目標鍵",
+        (Language::Japanese, RawKey::ClickToSetTarget) => "ターゲットを設定",
 
         // Close Subtitle
         (Language::English, RawKey::CloseSubtitle) => "What would you like to do?",
@@ -1384,38 +1626,6 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::SimplifiedChinese, RawKey::Running) => "连发中",
         (Language::TraditionalChinese, RawKey::Running) => "連發中",
         (Language::Japanese, RawKey::Running) => "連打中",
-
-        // Worker Count
-        // Trigger
-        (Language::English, RawKey::Trigger) => "Trigger",
-        (Language::SimplifiedChinese, RawKey::Trigger) => "触发键",
-        (Language::TraditionalChinese, RawKey::Trigger) => "觸發鍵",
-        (Language::Japanese, RawKey::Trigger) => "起動キー",
-
-        // Target
-        (Language::English, RawKey::Target) => "Target",
-        (Language::SimplifiedChinese, RawKey::Target) => "目标键",
-        (Language::TraditionalChinese, RawKey::Target) => "目標鍵",
-        (Language::Japanese, RawKey::Target) => "ターゲットキー",
-
-        // Interval(ms) - Main window table header
-        (Language::English, RawKey::IntervalMs) => "Interval(ms)",
-        (Language::SimplifiedChinese, RawKey::IntervalMs) => "连发间隔(ms)",
-        (Language::TraditionalChinese, RawKey::IntervalMs) => "連發間隔(ms)",
-        (Language::Japanese, RawKey::IntervalMs) => "連打間隔(ms)",
-
-        // Duration(ms) - Main window table header
-        (Language::English, RawKey::DurationMs) => "Duration(ms)",
-        (Language::SimplifiedChinese, RawKey::DurationMs) => "按键时长(ms)",
-        (Language::TraditionalChinese, RawKey::DurationMs) => "按鍵時長(ms)",
-        (Language::Japanese, RawKey::DurationMs) => "押下持続(ms)",
-
-        // Add New Mapping
-        // Click
-        (Language::English, RawKey::Click) => "Click",
-        (Language::SimplifiedChinese, RawKey::Click) => "点击",
-        (Language::TraditionalChinese, RawKey::Click) => "點擊",
-        (Language::Japanese, RawKey::Click) => "クリック",
 
         // Process Whitelist Hint
         (Language::English, RawKey::ProcessWhitelistHint) => {
@@ -1525,30 +1735,30 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::AlwaysOnTopDisplay) => "常に手前に表示:",
 
         // Settings Dialog - Key Mappings Section
-        (Language::English, RawKey::TriggerShort) => "Trigger:",
-        (Language::SimplifiedChinese, RawKey::TriggerShort) => "触发键:",
-        (Language::TraditionalChinese, RawKey::TriggerShort) => "觸發鍵:",
-        (Language::Japanese, RawKey::TriggerShort) => "起動キー:",
+        (Language::English, RawKey::TriggerShort) => "🎯 Trigger:",
+        (Language::SimplifiedChinese, RawKey::TriggerShort) => "🎯 触发键:",
+        (Language::TraditionalChinese, RawKey::TriggerShort) => "🎯 觸發鍵:",
+        (Language::Japanese, RawKey::TriggerShort) => "🎯 起動キー:",
 
-        (Language::English, RawKey::TargetShort) => "Target:",
-        (Language::SimplifiedChinese, RawKey::TargetShort) => "目标键:",
-        (Language::TraditionalChinese, RawKey::TargetShort) => "目標鍵:",
-        (Language::Japanese, RawKey::TargetShort) => "ターゲットキー:",
+        (Language::English, RawKey::TargetShort) => "🎮 Target:",
+        (Language::SimplifiedChinese, RawKey::TargetShort) => "🎮 目标键:",
+        (Language::TraditionalChinese, RawKey::TargetShort) => "🎮 目標鍵:",
+        (Language::Japanese, RawKey::TargetShort) => "🎮 ターゲットキー:",
 
-        (Language::English, RawKey::IntShort) => "Int:",
-        (Language::SimplifiedChinese, RawKey::IntShort) => "间隔:",
-        (Language::TraditionalChinese, RawKey::IntShort) => "間隔:",
-        (Language::Japanese, RawKey::IntShort) => "間隔:",
+        (Language::English, RawKey::IntShort) => "⏱ Int:",
+        (Language::SimplifiedChinese, RawKey::IntShort) => "⏱ 间隔:",
+        (Language::TraditionalChinese, RawKey::IntShort) => "⏱ 間隔:",
+        (Language::Japanese, RawKey::IntShort) => "⏱ 間隔:",
 
-        (Language::English, RawKey::DurShort) => "Dur:",
-        (Language::SimplifiedChinese, RawKey::DurShort) => "时长:",
-        (Language::TraditionalChinese, RawKey::DurShort) => "時長:",
-        (Language::Japanese, RawKey::DurShort) => "持続:",
+        (Language::English, RawKey::DurShort) => "⏳ Dur:",
+        (Language::SimplifiedChinese, RawKey::DurShort) => "⏳ 时长:",
+        (Language::TraditionalChinese, RawKey::DurShort) => "⏳ 時長:",
+        (Language::Japanese, RawKey::DurShort) => "⏳ 持続:",
 
-        (Language::English, RawKey::AddBtn) => "➕ Add",
-        (Language::SimplifiedChinese, RawKey::AddBtn) => "➕ 添加",
-        (Language::TraditionalChinese, RawKey::AddBtn) => "➕ 新增",
-        (Language::Japanese, RawKey::AddBtn) => "➕ 追加",
+        (Language::English, RawKey::AddBtn) => "+ Add",
+        (Language::SimplifiedChinese, RawKey::AddBtn) => "+ 添加",
+        (Language::TraditionalChinese, RawKey::AddBtn) => "+ 新增",
+        (Language::Japanese, RawKey::AddBtn) => "+ 追加",
 
         // Settings Dialog - Process Whitelist Section
         (Language::English, RawKey::BrowseBtn) => "🗂  Browse",
@@ -1604,11 +1814,6 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::SimplifiedChinese, RawKey::TurboOffHover) => "连发关闭 - 仅单次输入",
         (Language::TraditionalChinese, RawKey::TurboOffHover) => "連發關閉 - 僅單次輸入",
         (Language::Japanese, RawKey::TurboOffHover) => "連打オフ - 単発入力",
-
-        (Language::English, RawKey::TurboHeader) => "Turbo",
-        (Language::SimplifiedChinese, RawKey::TurboHeader) => "连发",
-        (Language::TraditionalChinese, RawKey::TurboHeader) => "連發",
-        (Language::Japanese, RawKey::TurboHeader) => "連打",
 
         (Language::English, RawKey::HotkeySettingsTitle) => "⌨ Hotkey Settings",
         (Language::SimplifiedChinese, RawKey::HotkeySettingsTitle) => "⌨ 快捷键设置",
@@ -1876,10 +2081,10 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::TraditionalChinese, RawKey::SetMouseScrollDirectionHover) => "設定滑鼠滾動方向",
         (Language::Japanese, RawKey::SetMouseScrollDirectionHover) => "マウススクロール方向を設定",
 
-        (Language::English, RawKey::SpeedLabel) => "Speed:",
-        (Language::SimplifiedChinese, RawKey::SpeedLabel) => "速度:",
-        (Language::TraditionalChinese, RawKey::SpeedLabel) => "速度:",
-        (Language::Japanese, RawKey::SpeedLabel) => "速度:",
+        (Language::English, RawKey::SpeedLabel) => "🚀 Speed:",
+        (Language::SimplifiedChinese, RawKey::SpeedLabel) => "🚀 速度:",
+        (Language::TraditionalChinese, RawKey::SpeedLabel) => "🚀 速度:",
+        (Language::Japanese, RawKey::SpeedLabel) => "🚀 速度:",
 
         // Capture Mode
         (Language::English, RawKey::RawInputCaptureModeLabel) => "Raw Input Capture:",
@@ -1937,15 +2142,20 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::TraditionalChinese, RawKey::AddTargetKeyHover) => "➕ 添加目標鍵",
         (Language::Japanese, RawKey::AddTargetKeyHover) => "➕ ターゲットキー追加",
 
+        (Language::English, RawKey::AddSequenceKeyHover) => "➕ Add sequence key",
+        (Language::SimplifiedChinese, RawKey::AddSequenceKeyHover) => "➕ 添加序列键",
+        (Language::TraditionalChinese, RawKey::AddSequenceKeyHover) => "➕ 添加序列鍵",
+        (Language::Japanese, RawKey::AddSequenceKeyHover) => "➕ シーケンスキー追加",
+
+        (Language::English, RawKey::ClearAllTriggerKeysHover) => "🗑 Clear all trigger keys",
+        (Language::SimplifiedChinese, RawKey::ClearAllTriggerKeysHover) => "🗑 清除所有触发键",
+        (Language::TraditionalChinese, RawKey::ClearAllTriggerKeysHover) => "🗑 清除所有觸發鍵",
+        (Language::Japanese, RawKey::ClearAllTriggerKeysHover) => "🗑 すべてのトリガーキーをクリア",
+
         (Language::English, RawKey::ClearAllTargetKeysHover) => "🗑 Clear all target keys",
         (Language::SimplifiedChinese, RawKey::ClearAllTargetKeysHover) => "🗑 清除所有目标键",
         (Language::TraditionalChinese, RawKey::ClearAllTargetKeysHover) => "🗑 清除所有目標鍵",
         (Language::Japanese, RawKey::ClearAllTargetKeysHover) => "🗑 すべてのターゲットキーをクリア",
-
-        (Language::English, RawKey::RemoveTargetKeyPrefix) => "🗑 Click to remove",
-        (Language::SimplifiedChinese, RawKey::RemoveTargetKeyPrefix) => "🗑 点击移除",
-        (Language::TraditionalChinese, RawKey::RemoveTargetKeyPrefix) => "🗑 點擊移除",
-        (Language::Japanese, RawKey::RemoveTargetKeyPrefix) => "🗑 クリックで削除",
 
         (Language::English, RawKey::DiagonalHintTitle) => "🌸 ✨ Diagonal Input Usage ✨ 🌸",
         (Language::SimplifiedChinese, RawKey::DiagonalHintTitle) => "🌸 ✨ 斜方向使用提示 ✨ 🌸",
@@ -1964,6 +2174,155 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::Japanese, RawKey::DiagonalHint) => {
             "RawInput デバイス：斜め入力は個別設定が必要です。例：↗ で ↑ と → を同時トリガーするには、↗ に両方向の対象キーを含むマッピングを作成します"
         }
+
+        // Sequence Trigger
+        (Language::English, RawKey::TriggerModeLabel) => "✨ Trigger Mode:",
+        (Language::SimplifiedChinese, RawKey::TriggerModeLabel) => "✨ 触发模式：",
+        (Language::TraditionalChinese, RawKey::TriggerModeLabel) => "✨ 觸發模式：",
+        (Language::Japanese, RawKey::TriggerModeLabel) => "✨ トリガーモード：",
+
+        (Language::English, RawKey::TriggerModeSingle) => "🎯 Single Key",
+        (Language::SimplifiedChinese, RawKey::TriggerModeSingle) => "🎯 单键触发",
+        (Language::TraditionalChinese, RawKey::TriggerModeSingle) => "🎯 單鍵觸發",
+        (Language::Japanese, RawKey::TriggerModeSingle) => "🎯 単一キー",
+
+        (Language::English, RawKey::TriggerModeSequence) => "✨ Sequence",
+        (Language::SimplifiedChinese, RawKey::TriggerModeSequence) => "✨ 序列触发",
+        (Language::TraditionalChinese, RawKey::TriggerModeSequence) => "✨ 序列觸發",
+        (Language::Japanese, RawKey::TriggerModeSequence) => "✨ シーケンス",
+
+        (Language::English, RawKey::TriggerModeSingleBadge) => "🎯 Single",
+        (Language::SimplifiedChinese, RawKey::TriggerModeSingleBadge) => "🎯 单键",
+        (Language::TraditionalChinese, RawKey::TriggerModeSingleBadge) => "🎯 單鍵",
+        (Language::Japanese, RawKey::TriggerModeSingleBadge) => "🎯 単一",
+
+        (Language::English, RawKey::TriggerModeSequenceBadge) => "✨ Seq",
+        (Language::SimplifiedChinese, RawKey::TriggerModeSequenceBadge) => "✨ 序列",
+        (Language::TraditionalChinese, RawKey::TriggerModeSequenceBadge) => "✨ 序列",
+        (Language::Japanese, RawKey::TriggerModeSequenceBadge) => "✨ 連続",
+
+        (Language::English, RawKey::SequenceTriggerExplanation) => {
+            "Press keys in sequence, like combo moves in games! ♡"
+        }
+        (Language::SimplifiedChinese, RawKey::SequenceTriggerExplanation) => {
+            "像格斗游戏搓招一样按顺序输入按键吧！♡"
+        }
+        (Language::TraditionalChinese, RawKey::SequenceTriggerExplanation) => {
+            "像格鬥遊戲搓招一樣按順序輸入按鍵吧！♡"
+        }
+        (Language::Japanese, RawKey::SequenceTriggerExplanation) => {
+            "格闘ゲームのコマンドみたいに順番にキーを押してね！♡"
+        }
+
+        (Language::English, RawKey::SequenceWindowLabel) => "⏱ Time Window (ms):",
+        (Language::SimplifiedChinese, RawKey::SequenceWindowLabel) => "⏱ 时间窗口 (ms)：",
+        (Language::TraditionalChinese, RawKey::SequenceWindowLabel) => "⏱ 時間窗口 (ms)：",
+        (Language::Japanese, RawKey::SequenceWindowLabel) => "⏱ 入力時間 (ms)：",
+
+        (Language::English, RawKey::SequenceWindowHint) => "Max time between inputs",
+        (Language::SimplifiedChinese, RawKey::SequenceWindowHint) => "输入之间的最大间隔",
+        (Language::TraditionalChinese, RawKey::SequenceWindowHint) => "輸入之間的最大間隔",
+        (Language::Japanese, RawKey::SequenceWindowHint) => "入力間隔の上限",
+
+        (Language::English, RawKey::SequenceCapturing) => {
+            "🌟 Recording sequence... Press keys in order! 🌟"
+        }
+        (Language::SimplifiedChinese, RawKey::SequenceCapturing) => {
+            "🌟 正在录制序列…按顺序按下按键吧！🌟"
+        }
+        (Language::TraditionalChinese, RawKey::SequenceCapturing) => {
+            "🌟 正在錄製序列…按順序按下按鍵吧！🌟"
+        }
+        (Language::Japanese, RawKey::SequenceCapturing) => {
+            "🌟 シーケンス記録中…順番にキーを押してね！🌟"
+        }
+
+        (Language::English, RawKey::SequenceCaptureHint) => "Click 'Done' when finished ♪",
+        (Language::SimplifiedChinese, RawKey::SequenceCaptureHint) => "完成后点击'完成'按钮哦 ♪",
+        (Language::TraditionalChinese, RawKey::SequenceCaptureHint) => "完成後點擊'完成'按鈕哦 ♪",
+        (Language::Japanese, RawKey::SequenceCaptureHint) => "完了したら'完了'を押してね ♪",
+
+        (Language::English, RawKey::SequenceComplete) => "✓ Done",
+        (Language::SimplifiedChinese, RawKey::SequenceComplete) => "✓ 完成",
+        (Language::TraditionalChinese, RawKey::SequenceComplete) => "✓ 完成",
+        (Language::Japanese, RawKey::SequenceComplete) => "✓ 完了",
+
+        (Language::English, RawKey::SequenceClearBtn) => "✖ Clear",
+        (Language::SimplifiedChinese, RawKey::SequenceClearBtn) => "✖ 清除",
+        (Language::TraditionalChinese, RawKey::SequenceClearBtn) => "✖ 清除",
+        (Language::Japanese, RawKey::SequenceClearBtn) => "✖ クリア",
+
+        (Language::English, RawKey::SequenceExampleLabel) => "💫 Example: A → S → D",
+        (Language::SimplifiedChinese, RawKey::SequenceExampleLabel) => "💫 示例：A → S → D",
+        (Language::TraditionalChinese, RawKey::SequenceExampleLabel) => "💫 範例：A → S → D",
+        (Language::Japanese, RawKey::SequenceExampleLabel) => "💫 例：A → S → D",
+
+        // Target Mode
+        (Language::English, RawKey::TargetModeLabel) => "🎯 Target Mode:",
+        (Language::SimplifiedChinese, RawKey::TargetModeLabel) => "🎯 目标模式：",
+        (Language::TraditionalChinese, RawKey::TargetModeLabel) => "🎯 目標模式：",
+        (Language::Japanese, RawKey::TargetModeLabel) => "🎯 ターゲットモード：",
+
+        (Language::English, RawKey::TargetModeSingle) => "🎹 Single",
+        (Language::SimplifiedChinese, RawKey::TargetModeSingle) => "🎹 单键",
+        (Language::TraditionalChinese, RawKey::TargetModeSingle) => "🎹 單鍵",
+        (Language::Japanese, RawKey::TargetModeSingle) => "🎹 シングル",
+
+        (Language::English, RawKey::TargetModeMulti) => "🎶 Multi",
+        (Language::SimplifiedChinese, RawKey::TargetModeMulti) => "🎶 多键",
+        (Language::TraditionalChinese, RawKey::TargetModeMulti) => "🎶 多鍵",
+        (Language::Japanese, RawKey::TargetModeMulti) => "🎶 マルチ",
+
+        (Language::English, RawKey::TargetModeMultiExplanation) => {
+            "Press multiple keys to add, they will be triggered together ♥"
+        }
+        (Language::SimplifiedChinese, RawKey::TargetModeMultiExplanation) => {
+            "按多个键添加，它们将同时触发 ♥"
+        }
+        (Language::TraditionalChinese, RawKey::TargetModeMultiExplanation) => {
+            "按多個鍵添加，它們將同時觸發 ♥"
+        }
+        (Language::Japanese, RawKey::TargetModeMultiExplanation) => {
+            "複数のキーを押して追加、同時にトリガー ♥"
+        }
+
+        (Language::English, RawKey::TargetModeSequence) => "🎮 Sequence",
+        (Language::SimplifiedChinese, RawKey::TargetModeSequence) => "🎮 序列",
+        (Language::TraditionalChinese, RawKey::TargetModeSequence) => "🎮 序列",
+        (Language::Japanese, RawKey::TargetModeSequence) => "🎮 シーケンス",
+
+        (Language::English, RawKey::TargetModeSingleBadge) => "🎮 Single",
+        (Language::SimplifiedChinese, RawKey::TargetModeSingleBadge) => "🎮 单键",
+        (Language::TraditionalChinese, RawKey::TargetModeSingleBadge) => "🎮 單鍵",
+        (Language::Japanese, RawKey::TargetModeSingleBadge) => "🎮 単一",
+
+        (Language::English, RawKey::TargetModeMultiBadge) => "🎮 Multi",
+        (Language::SimplifiedChinese, RawKey::TargetModeMultiBadge) => "🎮 多键",
+        (Language::TraditionalChinese, RawKey::TargetModeMultiBadge) => "🎮 多鍵",
+        (Language::Japanese, RawKey::TargetModeMultiBadge) => "🎮 マルチ",
+
+        (Language::English, RawKey::TargetModeSequenceBadge) => "🎮 Seq",
+        (Language::SimplifiedChinese, RawKey::TargetModeSequenceBadge) => "🎮 序列",
+        (Language::TraditionalChinese, RawKey::TargetModeSequenceBadge) => "🎮 序列",
+        (Language::Japanese, RawKey::TargetModeSequenceBadge) => "🎮 連続",
+
+        (Language::English, RawKey::TargetModeSequenceExplanation) => {
+            "One-key combo! Keys output in sequence like fighting game moves ♥"
+        }
+        (Language::SimplifiedChinese, RawKey::TargetModeSequenceExplanation) => {
+            "一键出招！按键按顺序依次输出，如格斗游戏连招 ♥"
+        }
+        (Language::TraditionalChinese, RawKey::TargetModeSequenceExplanation) => {
+            "一鍵出招！按鍵依序輸出，如格鬥遊戲連招 ♥"
+        }
+        (Language::Japanese, RawKey::TargetModeSequenceExplanation) => {
+            "ワンキーコンボ！格闘ゲームのように順番に出力 ♥"
+        }
+
+        (Language::English, RawKey::TargetSequenceOutputHint) => "Output interval (ms):",
+        (Language::SimplifiedChinese, RawKey::TargetSequenceOutputHint) => "输出间隔(ms)：",
+        (Language::TraditionalChinese, RawKey::TargetSequenceOutputHint) => "輸出間隔(ms)：",
+        (Language::Japanese, RawKey::TargetSequenceOutputHint) => "出力間隔(ms)：",
 
         // Device Manager Dialog
         (Language::English, RawKey::DevicesBtn) => "🎮 Devices",
@@ -2164,6 +2523,20 @@ fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
         (Language::SimplifiedChinese, RawKey::TrayNotificationPaused) => "Sorahk 已暂停",
         (Language::TraditionalChinese, RawKey::TrayNotificationPaused) => "Sorahk 已暫停",
         (Language::Japanese, RawKey::TrayNotificationPaused) => "Sorahkが一時停止しました",
+
+        // UI Icons
+        (_, RawKey::SequenceIcon) => "✨",
+        (_, RawKey::TargetIcon) => "🎯",
+        (_, RawKey::ArrowIcon) => "→",
+        (_, RawKey::DeleteIcon) => "🗑",
+        (Language::English, RawKey::KeysText) => "keys",
+        (Language::SimplifiedChinese, RawKey::KeysText) => "个按键",
+        (Language::TraditionalChinese, RawKey::KeysText) => "個按鍵",
+        (Language::Japanese, RawKey::KeysText) => "個のキー",
+        (Language::English, RawKey::TargetsText) => "targets",
+        (Language::SimplifiedChinese, RawKey::TargetsText) => "个目标",
+        (Language::TraditionalChinese, RawKey::TargetsText) => "個目標",
+        (Language::Japanese, RawKey::TargetsText) => "個のターゲット",
     }
 }
 
@@ -2245,16 +2618,6 @@ mod tests {
         assert_eq!(translations.light_theme(), "☀  ライト");
         assert_eq!(translations.paused_status(), "一時停止中");
         assert_eq!(translations.running_status(), "連打中");
-    }
-
-    #[test]
-    fn test_key_mappings_translations() {
-        let translations = CachedTranslations::new(Language::English);
-
-        assert_eq!(translations.trigger_header(), "Trigger");
-        assert_eq!(translations.target_header(), "Target");
-        assert_eq!(translations.interval_header(), "Interval(ms)");
-        assert_eq!(translations.duration_header(), "Duration(ms)");
     }
 
     #[test]
@@ -2438,18 +2801,17 @@ mod tests {
         let translations = CachedTranslations::new(Language::English);
 
         assert_eq!(translations.add_new_mapping_title(), "➕ Add New Mapping");
-        assert_eq!(translations.add_button_text(), "➕ Add");
-        assert_eq!(translations.click_text(), "Click");
+        assert_eq!(translations.add_button_text(), "+ Add");
     }
 
     #[test]
     fn test_short_form_translations() {
         let translations = CachedTranslations::new(Language::English);
 
-        assert_eq!(translations.trigger_short(), "Trigger:");
-        assert_eq!(translations.target_short(), "Target:");
-        assert_eq!(translations.interval_short(), "Int:");
-        assert_eq!(translations.duration_short(), "Dur:");
+        assert_eq!(translations.trigger_short(), "🎯 Trigger:");
+        assert_eq!(translations.target_short(), "🎮 Target:");
+        assert_eq!(translations.interval_short(), "⏱ Int:");
+        assert_eq!(translations.duration_short(), "⏳ Dur:");
     }
 
     #[test]

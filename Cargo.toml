@@ -1,6 +1,6 @@
 [package]
 name = "sorahk"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 
 [lib]
@@ -29,6 +29,7 @@ windows = { version = "0.62.2", features = [
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
     "Win32_Devices_HumanInterfaceDevice",
+    "Win32_Media",
     "Data_Xml_Dom",
     "UI_Notifications",
 ] }

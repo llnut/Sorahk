@@ -8,6 +8,7 @@ use crate::state::{AppState, DeviceType, InputDevice, InputEvent};
 use crate::util::{likely, unlikely};
 use smallvec::SmallVec;
 use std::sync::{Arc, atomic::Ordering};
+use std::time::Instant;
 use windows::Win32::UI::Input::XboxController::*;
 
 /// XInput gamepad VID (Microsoft)
@@ -347,13 +348,28 @@ impl XInputHandler {
             }
         }
 
-        if likely(current_bits == device_state.last_input_bits) {
-            return;
-        }
+        let inputs_changed = current_bits != device_state.last_input_bits;
 
         // Check paused state after switch key detection
         if unlikely(state.is_paused()) {
             device_state.last_input_bits = current_bits;
+            return;
+        }
+
+        // If inputs unchanged, check if we need to continue sequence turbo
+        if !inputs_changed {
+            use scc::Guard;
+            let guard = Guard::new();
+            let last_seq_device = state.last_sequence_device.load(Ordering::Acquire, &guard);
+
+            if let Some(seq_device) = last_seq_device.as_ref() {
+                // Check if it's an XInput sequence device
+                if matches!(seq_device, InputDevice::XInputCombo { device_type: dt, .. } if dt == &device_type)
+                {
+                    // Continue dispatching for turbo
+                    pool.dispatch(InputEvent::Pressed(seq_device.clone()));
+                }
+            }
             return;
         }
 
@@ -401,14 +417,68 @@ impl XInputHandler {
         // Compare with previously active combos
         let prev_active = &device_state.active_combos;
 
-        // Find newly activated combos
+        // Find newly activated combos and check for sequence triggers
         for combo in &new_active_combos {
             if !Self::contains_combo(prev_active, combo) {
                 let device = InputDevice::XInputCombo {
                     device_type,
                     button_ids: combo.clone(),
                 };
-                pool.dispatch(InputEvent::Pressed(device));
+
+                let now = Instant::now();
+                let sequence_match_result = state.record_and_match_sequence(device.clone(), now);
+
+                if let Some((matched_device, sequence_inputs)) = sequence_match_result {
+                    if let Some(mapping_info) = state.get_input_mapping(&matched_device)
+                        && mapping_info.is_sequence {
+                            use scc::{Shared, Tag};
+                            let shared_device = Shared::new(matched_device.clone());
+                            let _ = state
+                                .last_sequence_device
+                                .swap((Some(shared_device), Tag::None), Ordering::Release);
+
+                            let shared_inputs = Shared::new(sequence_inputs);
+                            let _ = state
+                                .last_sequence_inputs
+                                .swap((Some(shared_inputs), Tag::None), Ordering::Release);
+
+                            pool.dispatch(InputEvent::Pressed(matched_device));
+                            continue;
+                        }
+                } else {
+                    // No sequence matched - check if holding sequence trigger combo
+                    use scc::Guard;
+
+                    let guard = Guard::new();
+                    let last_seq_device =
+                        state.last_sequence_device.load(Ordering::Acquire, &guard);
+                    let last_seq_inputs =
+                        state.last_sequence_inputs.load(Ordering::Acquire, &guard);
+
+                    if let (Some(seq_device), Some(seq_inputs)) =
+                        (last_seq_device.as_ref(), last_seq_inputs.as_ref())
+                    {
+                        // Check if current device is part of the last matched sequence
+                        if seq_inputs.contains(&device) {
+                            // User is holding a combo from the sequence
+                            // Continue dispatching Pressed events for turbo
+                            pool.dispatch(InputEvent::Pressed(seq_device.clone()));
+                            continue;
+                        } else if let Some(mapping_info) = state.get_input_mapping(&device) {
+                            // Not part of sequence, check if sequence-only
+                            if mapping_info.is_sequence {
+                                continue;
+                            }
+                        }
+                    } else if let Some(mapping_info) = state.get_input_mapping(&device) {
+                        // No active sequence, check if sequence-only
+                        if mapping_info.is_sequence {
+                            continue;
+                        }
+                    }
+
+                    pool.dispatch(InputEvent::Pressed(device));
+                }
             }
         }
 
@@ -419,6 +489,42 @@ impl XInputHandler {
                     device_type,
                     button_ids: combo.clone(),
                 };
+
+                // Check if this device is part of an active sequence
+                use scc::Guard;
+                let guard = Guard::new();
+                let last_seq_inputs = state.last_sequence_inputs.load(Ordering::Acquire, &guard);
+
+                if let Some(seq_inputs) = last_seq_inputs.as_ref() {
+                    // Check if released device is the last input in the sequence
+                    if let Some(last_input) = seq_inputs.last() {
+                        let is_last_input = match (last_input, &device) {
+                            (
+                                InputDevice::XInputCombo {
+                                    device_type: dt1,
+                                    button_ids: b1,
+                                },
+                                InputDevice::XInputCombo {
+                                    device_type: dt2,
+                                    button_ids: b2,
+                                },
+                            ) => dt1 == dt2 && Self::combo_equals(b1.as_slice(), b2.as_slice()),
+                            _ => false,
+                        };
+
+                        if is_last_input {
+                            // Clear sequence state when last input is released
+                            use scc::Tag;
+                            let _ = state
+                                .last_sequence_device
+                                .swap((None, Tag::None), Ordering::Release);
+                            let _ = state
+                                .last_sequence_inputs
+                                .swap((None, Tag::None), Ordering::Release);
+                        }
+                    }
+                }
+
                 pool.dispatch(InputEvent::Released(device));
             }
         }

@@ -37,6 +37,9 @@ fn test_state_input_mapping_lookup() {
         event_duration: Some(5),
         turbo_enabled: true,
         move_speed: 10,
+        target_mode: 0,
+        trigger_sequence: None,
+        sequence_window_ms: 500,
     }];
 
     let state = AppState::new(config).expect("Failed to create state");
@@ -141,6 +144,9 @@ fn test_state_multiple_mappings() {
             event_duration: Some(5),
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         },
         KeyMapping {
             trigger_key: "B".to_string(),
@@ -149,6 +155,9 @@ fn test_state_multiple_mappings() {
             event_duration: Some(8),
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         },
         KeyMapping {
             trigger_key: "C".to_string(),
@@ -157,6 +166,9 @@ fn test_state_multiple_mappings() {
             event_duration: None,
             turbo_enabled: false,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         },
     ];
 
@@ -199,6 +211,9 @@ fn test_state_config_reload_clears_mappings() {
         event_duration: Some(5),
         turbo_enabled: true,
         move_speed: 10,
+        target_mode: 0,
+        trigger_sequence: None,
+        sequence_window_ms: 500,
     }];
 
     let state = AppState::new(config.clone()).expect("Failed to create state");
@@ -225,6 +240,9 @@ fn test_state_turbo_enabled_in_mapping() {
             event_duration: Some(5),
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         },
         KeyMapping {
             trigger_key: "B".to_string(),
@@ -233,6 +251,9 @@ fn test_state_turbo_enabled_in_mapping() {
             event_duration: Some(5),
             turbo_enabled: false,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         },
     ];
 

@@ -9,6 +9,7 @@ mod input_ownership;
 mod keyboard;
 mod mouse;
 mod rawinput;
+mod sequence_matcher;
 mod signal;
 mod state;
 mod tray;
@@ -26,8 +27,12 @@ use keyboard::KeyboardHook;
 use mouse::MouseHook;
 use state::AppState;
 use tray::TrayIcon;
+use windows::Win32::Media::timeBeginPeriod;
 
 fn main() -> Result<()> {
+    // Request 1ms timer resolution for precise timing in input processing
+    unsafe { timeBeginPeriod(1) };
+
     signal::set_control_ctrl_handler()?;
 
     // Load config or create default if not exists
