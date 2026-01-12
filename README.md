@@ -197,11 +197,16 @@ Sorahk is a Windows application for automating repetitive key press operations. 
 - Vertical scrolling with configurable wheel delta
 - Xbox-compatible gamepad support via polling
 - HID device integration for other controllers
+- Input sequence detection for combo triggers
+- Sequential output for macro execution
 
 ### Key Mapping
 
 - Flexible input-to-output mapping configuration
 - Support for key combinations as both triggers and targets
+- Sequence input triggers with configurable time windows
+- Sequential output targets with customizable intervals
+- Three target modes: Single, Multi, Sequence
 - Individual turbo mode control per mapping
 - Adjustable repeat interval and press duration
 - Multiple simultaneous input mappings
@@ -210,9 +215,13 @@ Sorahk is a Windows application for automating repetitive key press operations. 
 ### Performance
 
 - Multi-threaded event processing with worker pool
-- Lock-free concurrent data structures via scc crate
+- Lock-free concurrent data structures for sequence matching
+- Atomic operations for minimal synchronization overhead
+- Cache-aligned data structures for better CPU performance
+- Ring buffer for efficient input history tracking
 - Optional AVX2 SIMD acceleration (compile-time)
-- Cache-based lookup optimization for repeated operations
+- SmallVec optimization to reduce heap allocations
+- Optimized pattern matching for sequence detection
 - Native Windows API integration for input handling
 
 ---
@@ -296,8 +305,23 @@ turbo_enabled = true
 
 [[mappings]]
 trigger_key = "LCTRL+C"
-target_key = "LCTRL+V"
+target_keys = ["LCTRL+V"]
 turbo_enabled = true
+
+# Sequence trigger example (fighting game combo)
+[[mappings]]
+trigger_sequence = "LS_Down,LS_DownRight,LS_Right,A"
+target_keys = ["J"]
+sequence_window_ms = 500
+turbo_enabled = true
+
+# Sequence output example (macro)
+[[mappings]]
+trigger_key = "F5"
+target_keys = ["H", "E", "L", "L", "O"]
+target_mode = 2
+interval = 50
+turbo_enabled = false
 ```
 
 ### Supported Input Types
@@ -336,6 +360,21 @@ Raw Input Devices:
 
 - Format: `DEVICE_VID_PID_SERIAL_Bx.x`
 - Requires initial device activation to establish baseline data
+
+Sequence Triggers:
+
+- Format: `trigger_sequence = "Key1,Key2,Key3"`
+- Comma-separated input sequence (e.g., `"DOWN,RIGHT,A"`)
+- Configurable time window for completion (default: 500ms)
+- Smart transition tolerance for intermediate inputs
+- Bidirectional diagonal matching for XInput sticks
+
+Sequence Targets:
+
+- Format: `target_keys = ["Key1", "Key2", "Key3"]` with `target_mode = 2`
+- Execute keys in sequential order
+- Configurable interval between keys
+- Turbo mode for repeating sequences
 
 For complete configuration documentation, see the example `Config.toml` generated on first run.
 

@@ -1,3 +1,27 @@
+0.5.0
+=====
+Feature enhancements:
+
+- Add sequence input trigger system for combo detection
+- Add sequence output support for macro execution
+
+UI Improvements:
+
+- Add sequence capture support in settings dialog
+- Add target mode selector (Single/Multi/Sequence)
+- Improve key capture UX with rolling input support
+
+Bug fixes:
+
+- Fix mouse movement turbo stuttering by requesting 1ms system timer resolution
+
+Configuration:
+
+- Add `trigger_sequence` field for combo triggers
+- Add `sequence_window_ms` field for timing control
+- Add `target_mode` field for output behavior selection
+- Update Config.toml with sequence examples and documentation
+
 0.4.0
 =====
 Feature enhancements:

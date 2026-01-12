@@ -67,7 +67,10 @@ impl MouseHook {
 
         if let Some(state) = crate::state::get_global_state() {
             let mouse_data = mouse_struct.mouseData;
-            let should_block = state.handle_mouse_event(w_param.0 as u32, mouse_data);
+            let mouse_x = mouse_struct.pt.x;
+            let mouse_y = mouse_struct.pt.y;
+            let should_block =
+                state.handle_mouse_event(w_param.0 as u32, mouse_data, mouse_x, mouse_y);
             if should_block {
                 return LRESULT(1);
             }

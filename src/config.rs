@@ -82,6 +82,11 @@ pub struct AppConfig {
     pub language: Language,
     /// Toggle hotkey name
     pub switch_key: String,
+    /// Hotkey used to finalize a sequence capture in the settings dialog.
+    /// Pressing this key during recording stops the capture, and the key
+    /// itself is not added to the sequence.
+    #[serde(default = "default_sequence_finalize_key")]
+    pub sequence_finalize_key: String,
     /// Key mapping configurations
     pub mappings: Vec<KeyMapping>,
     /// Input timeout in milliseconds
@@ -125,12 +130,22 @@ pub struct HidDeviceBaseline {
 /// Key mapping configuration for trigger-target pairs.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct KeyMapping {
-    /// Trigger key name
+    /// Trigger key name (single key or combo)
     pub trigger_key: String,
+    /// Input sequence for combo triggers (e.g., "↓,→,A")
+    /// If set, this takes precedence over trigger_key for matching
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_sequence: Option<String>,
+    /// Time window for sequence completion in milliseconds
+    #[serde(default = "default_sequence_window")]
+    pub sequence_window_ms: u64,
     /// Target keys to send (supports multiple keys for simultaneous press)
     /// Uses SmallVec with inline capacity of 4 to reduce heap allocations for common cases
     #[serde(default = "default_target_keys")]
     pub target_keys: SmallVec<[String; 4]>,
+    /// Target mode: 0=Single, 1=Multi (simultaneous), 2=Sequence (sequential)
+    #[serde(default)]
+    pub target_mode: u8,
     /// Optional override for repeat interval
     #[serde(default)]
     pub interval: Option<u64>,
@@ -157,22 +172,41 @@ fn default_target_keys() -> SmallVec<[String; 4]> {
     SmallVec::new()
 }
 
+fn default_sequence_window() -> u64 {
+    500 // 500ms default window for sequence completion
+}
+
 impl KeyMapping {
+    /// Checks if this mapping uses sequence trigger
+    #[inline]
+    pub fn is_sequence_trigger(&self) -> bool {
+        self.trigger_sequence.is_some()
+    }
+
+    /// Gets the sequence string if available
+    #[inline]
+    pub fn sequence_string(&self) -> Option<&str> {
+        self.trigger_sequence.as_deref()
+    }
+
     /// Gets the target keys slice
     pub fn get_target_keys(&self) -> &[String] {
         &self.target_keys
     }
 
-    /// Adds a target key
+    /// Adds a target key (sequence mode allows duplicates)
     pub fn add_target_key(&mut self, key: String) {
-        if !self.target_keys.contains(&key) {
+        // Sequence mode (target_mode == 2) allows duplicates
+        if self.target_mode == 2 || !self.target_keys.contains(&key) {
             self.target_keys.push(key);
         }
     }
 
-    /// Removes a target key
-    pub fn remove_target_key(&mut self, key: &str) {
-        self.target_keys.retain(|k| k != key);
+    /// Removes a target key by index
+    pub fn remove_target_key_at(&mut self, index: usize) {
+        if index < self.target_keys.len() {
+            self.target_keys.remove(index);
+        }
     }
 
     /// Clears all target keys
@@ -208,6 +242,9 @@ fn default_capture_mode() -> String {
 fn default_xinput_capture_mode() -> String {
     "MostSustained".to_string()
 }
+fn default_sequence_finalize_key() -> String {
+    "RETURN".to_string()
+}
 
 impl Default for AppConfig {
     /// Creates a default configuration with sensible defaults.
@@ -215,17 +252,21 @@ impl Default for AppConfig {
         Self {
             show_tray_icon: true,
             show_notifications: true,
-            always_on_top: false, // Default: not always on top for backward compatibility
-            dark_mode: false,     // Default: light theme for backward compatibility
+            always_on_top: false,
+            dark_mode: false,
             language: Language::default(),
             switch_key: "DELETE".to_string(),
+            sequence_finalize_key: default_sequence_finalize_key(),
             mappings: vec![KeyMapping {
                 trigger_key: "Q".to_string(),
+                trigger_sequence: None,
+                sequence_window_ms: default_sequence_window(),
                 target_keys: SmallVec::from_vec(vec!["Q".to_string()]),
                 interval: None,
                 event_duration: None,
                 turbo_enabled: true,
                 move_speed: 10,
+                target_mode: 0,
             }],
             input_timeout: default_input_timeout(),
             interval: default_interval(),
@@ -311,7 +352,8 @@ impl AppConfig {
                                            # LastStable: Captures the last stable input before release\n\
                                            # Note: Compile with RUSTFLAGS=\"-C target-feature=+avx2\" for AVX2 optimizations\n\n\
              # ─── Control Settings ───   \n\
-             switch_key = \"{}\"       # Reserved key to toggle SoraHK behavior\n\n\
+             switch_key = \"{}\"       # Reserved key to toggle SoraHK behavior\n\
+             sequence_finalize_key = \"{}\"  # Key that stops a sequence capture in Settings\n\n\
              # ─── Process Whitelist ───\n\
              # Process whitelist (empty = all processes enabled)\n\
              # Only processes in this list will have turbo-fire enabled\n\
@@ -430,6 +472,64 @@ impl AppConfig {
              # trigger_key = \"JOYSTICK_046D_C21D_B1.0\"        # Logitech joystick button\n\
              # target_keys = [\"LBUTTON\"]                      # Left mouse click\n\
              # turbo_enabled = true                           # Enable turbo mode\n\n\
+             # ─── Sequence Input/Output Examples (Fighting Game Combos) ───\n\
+             # Sequence input triggers: Execute commands using input sequences\n\
+             # Format: trigger_sequence = \"Key1,Key2,Key3,...\"\n\
+             # - Keys are comma-separated (e.g., \"DOWN,RIGHT,A\")\n\
+             # - Time window defines max time to complete the sequence (default: 500ms)\n\
+             # - Supports keyboard keys, mouse buttons, mouse movements, and XInput stick/buttons\n\
+             # - Smart transition tolerance: DOWN->LEFT matches DOWN->DOWNLEFT->LEFT\n\
+             # - XInput diagonal bidirectional: DOWN_LEFT matches both DOWN->LEFT and LEFT->DOWN\n\
+             #\n\
+             # Sequence output targets: Send key sequences in order\n\
+             # Format: target_keys = [\"Key1\", \"Key2\", \"Key3\"]\n\
+             # - Set target_mode = 2 for sequential output\n\
+             # - interval controls delay between keys\n\
+             # - turbo_enabled = true: repeat entire sequence\n\
+             # - turbo_enabled = false: execute once per trigger\n\
+             #\n\
+             # Example 1: Hadoken (Quarter Circle Forward + Punch)\n\
+             # [[mappings]]\n\
+             # trigger_sequence = \"LS_Down,LS_DownRight,LS_Right,A\"  # ↓↘→+A\n\
+             # target_keys = [\"J\"]                                    # Press J\n\
+             # sequence_window_ms = 500                               # Complete within 500ms\n\
+             # turbo_enabled = true                                   # Repeat on hold\n\
+             #\n\
+             # Example 2: Shoryuken (Dragon Punch)\n\
+             # [[mappings]]\n\
+             # trigger_sequence = \"LS_Right,LS_Down,LS_DownRight,B\"   # →↓↘+B\n\
+             # target_keys = [\"K\"]\n\
+             # sequence_window_ms = 400\n\
+             # turbo_enabled = false                                  # Single execution\n\
+             #\n\
+             # Example 3: Keyboard combo (e.g., \"WASD\" sequence)\n\
+             # [[mappings]]\n\
+             # trigger_sequence = \"W,A,S,D\"                           # Press W-A-S-D in order\n\
+             # target_keys = [\"F\"]                                    # Output F\n\
+             # sequence_window_ms = 800\n\
+             # turbo_enabled = true\n\
+             #\n\
+             # Example 4: Mouse movement sequence (double tap direction)\n\
+             # [[mappings]]\n\
+             # trigger_sequence = \"MOUSE_LEFT,MOUSE_LEFT\"             # Double tap left\n\
+             # target_keys = [\"LSHIFT\"]                               # Activate sprint\n\
+             # sequence_window_ms = 300\n\
+             # turbo_enabled = false\n\
+             #\n\
+             # Example 5: Sequence output (macro)\n\
+             # [[mappings]]\n\
+             # trigger_key = \"F5\"                                     # Single key trigger\n\
+             # target_keys = [\"H\", \"E\", \"L\", \"L\", \"O\"]                # Type \"HELLO\"\n\
+             # target_mode = 2                                        # Sequential mode\n\
+             # interval = 50                                          # 50ms between keys\n\
+             # turbo_enabled = false                                  # Single execution\n\
+             #\n\
+             # Example 6: Complex combo (multiple sticks + buttons)\n\
+             # [[mappings]]\n\
+             # trigger_sequence = \"LS_Left,LS_DownLeft,LS_Down,LS_DownRight,LS_Right,LB+RB\"\n\
+             # target_keys = [\"SPACE\"]\n\
+             # sequence_window_ms = 600\n\
+             # turbo_enabled = false\n\n\
              # ─── HID Device Baselines (Auto-generated, Do Not Edit) ───\n\
              # This section is managed automatically by the application\n\
              # Device activation data for press/release detection\n\
@@ -453,6 +553,7 @@ impl AppConfig {
             self.worker_count,
             self.xinput_capture_mode,
             self.switch_key,
+            self.sequence_finalize_key,
             self.process_whitelist
         );
 
@@ -472,6 +573,18 @@ impl AppConfig {
                     mapping.trigger_key
                 ));
 
+                // Add trigger_sequence if present (for combo triggers)
+                if let Some(ref seq) = mapping.trigger_sequence {
+                    result.push_str(&format!(
+                        "trigger_sequence = \"{}\"    # Input sequence (e.g., \"A,S,D\")\n",
+                        seq
+                    ));
+                    result.push_str(&format!(
+                        "sequence_window_ms = {}       # Time window for sequence completion\n",
+                        mapping.sequence_window_ms
+                    ));
+                }
+
                 if mapping.target_keys.len() == 1 {
                     result.push_str("target_keys = [\"");
                     result.push_str(&mapping.target_keys[0]);
@@ -490,6 +603,14 @@ impl AppConfig {
                 } else {
                     result
                         .push_str("target_keys = []             # Keys that get repeatedly sent\n");
+                }
+
+                // Write target_mode only if not default (0 = Single)
+                if mapping.target_mode != 0 {
+                    result.push_str(&format!(
+                        "target_mode = {}              # 0=Single, 1=Multi, 2=Sequence\n",
+                        mapping.target_mode
+                    ));
                 }
 
                 if let Some(interval) = mapping.interval {
@@ -746,6 +867,9 @@ mod tests {
             event_duration: Some(8),
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         };
 
         assert_eq!(mapping.trigger_key, "A");
@@ -763,6 +887,9 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         };
 
         assert_eq!(mapping.trigger_key, "C");
@@ -837,6 +964,9 @@ mod tests {
                 event_duration: Some(5),
                 turbo_enabled: true,
                 move_speed: 10,
+                target_mode: 0,
+                trigger_sequence: None,
+                sequence_window_ms: 500,
             },
             KeyMapping {
                 trigger_key: "B".to_string(),
@@ -845,6 +975,9 @@ mod tests {
                 event_duration: None,
                 turbo_enabled: true,
                 move_speed: 10,
+                target_mode: 0,
+                trigger_sequence: None,
+                sequence_window_ms: 500,
             },
             KeyMapping {
                 trigger_key: "F1".to_string(),
@@ -853,6 +986,9 @@ mod tests {
                 event_duration: Some(10),
                 turbo_enabled: true,
                 move_speed: 10,
+                target_mode: 0,
+                trigger_sequence: None,
+                sequence_window_ms: 500,
             },
         ];
 
@@ -1057,6 +1193,9 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         };
 
         assert_eq!(mapping.target_keys.len(), 1);
@@ -1072,6 +1211,9 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         };
 
         assert_eq!(mapping.target_keys.len(), 2);
@@ -1087,6 +1229,9 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         };
 
         assert_eq!(mapping.target_keys.len(), 0);
@@ -1102,6 +1247,9 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         };
 
         mapping.add_target_key("C".to_string());
@@ -1114,27 +1262,6 @@ mod tests {
     }
 
     #[test]
-    fn test_remove_target_key() {
-        let mut mapping = KeyMapping {
-            trigger_key: "A".to_string(),
-            target_keys: SmallVec::from_vec(vec![
-                "B".to_string(),
-                "C".to_string(),
-                "D".to_string(),
-            ]),
-            interval: None,
-            event_duration: None,
-            turbo_enabled: true,
-            move_speed: 10,
-        };
-
-        mapping.remove_target_key("C");
-        assert_eq!(mapping.target_keys.len(), 2);
-        assert_eq!(mapping.target_keys[0], "B");
-        assert_eq!(mapping.target_keys[1], "D");
-    }
-
-    #[test]
     fn test_clear_target_keys() {
         let mut mapping = KeyMapping {
             trigger_key: "A".to_string(),
@@ -1143,6 +1270,9 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         };
 
         mapping.clear_target_keys();
@@ -1166,6 +1296,9 @@ mod tests {
                 event_duration: None,
                 turbo_enabled: true,
                 move_speed: 10,
+                target_mode: 0,
+                trigger_sequence: None,
+                sequence_window_ms: 500,
             },
             KeyMapping {
                 trigger_key: "E".to_string(),
@@ -1177,6 +1310,9 @@ mod tests {
                 event_duration: None,
                 turbo_enabled: true,
                 move_speed: 10,
+                target_mode: 0,
+                trigger_sequence: None,
+                sequence_window_ms: 500,
             },
         ];
 
@@ -1223,6 +1359,9 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         };
 
         let keys = mapping.get_target_keys();
@@ -1244,6 +1383,9 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         }];
 
         config.save_to_file(&path).expect("Failed to save config");
@@ -1275,6 +1417,9 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            target_mode: 0,
+            trigger_sequence: None,
+            sequence_window_ms: 500,
         }];
 
         config.save_to_file(&path).expect("Failed to save config");

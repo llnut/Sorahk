@@ -5,6 +5,7 @@
 pub enum KeyCaptureMode {
     None,
     ToggleKey,
+    SequenceFinalizeKey,
     MappingTrigger(usize),
     MappingTarget(usize),
     NewMappingTrigger,

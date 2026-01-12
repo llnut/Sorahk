@@ -98,6 +98,26 @@ pub struct SorahkGui {
     new_process_name: String,
     /// Current key capture state
     key_capture_mode: KeyCaptureMode,
+    /// Captured key sequence for trigger
+    sequence_capture_list: Vec<String>,
+    /// Time window (ms) between inputs for sequence
+    new_mapping_sequence_window: String,
+    /// Whether new mapping uses sequence trigger mode
+    new_mapping_is_sequence_mode: bool,
+    /// Target mode: 0=Single, 1=Multi (simultaneous), 2=Sequence (sequential)
+    new_mapping_target_mode: u8,
+    /// Target sequence capture list
+    target_sequence_capture_list: Vec<String>,
+    /// Editing existing mapping target sequence capture list
+    editing_target_seq_list: Vec<String>,
+    /// Index of mapping being edited for target sequence
+    editing_target_seq_idx: Option<usize>,
+    /// Mouse position when sequence capture started or last direction changed
+    sequence_last_mouse_pos: Option<egui::Pos2>,
+    /// Last detected mouse direction in sequence (for deduplication)
+    sequence_last_mouse_direction: Option<String>,
+    /// Accumulated mouse movement delta for detecting direction change
+    sequence_mouse_delta: egui::Vec2,
     /// Flag to prevent re-entering capture mode immediately after capturing
     just_captured_input: bool,
     /// Keys currently pressed during capture (VK codes)
@@ -160,6 +180,16 @@ impl SorahkGui {
             new_process_name: String::new(),
             key_capture_mode: KeyCaptureMode::None,
             just_captured_input: false,
+            sequence_capture_list: Vec::new(),
+            new_mapping_sequence_window: "300".to_string(),
+            new_mapping_is_sequence_mode: false,
+            new_mapping_target_mode: 0,
+            target_sequence_capture_list: Vec::new(),
+            editing_target_seq_list: Vec::new(),
+            editing_target_seq_idx: None,
+            sequence_last_mouse_pos: None,
+            sequence_last_mouse_direction: None,
+            sequence_mouse_delta: egui::Vec2::ZERO,
             capture_pressed_keys: std::collections::HashSet::new(),
             capture_initial_pressed: std::collections::HashSet::new(),
             parsed_switch_key,

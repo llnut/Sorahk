@@ -5,6 +5,82 @@ use crate::gui::about_dialog::render_about_dialog;
 use crate::state::NotificationEvent;
 use eframe::egui;
 
+/// Check if target key is a mouse movement action.
+fn is_mouse_move_target(target: &str) -> bool {
+    let upper = target.to_uppercase();
+    matches!(
+        upper.as_str(),
+        "MOUSE_UP"
+            | "MOUSE_DOWN"
+            | "MOUSE_LEFT"
+            | "MOUSE_RIGHT"
+            | "MOUSE_UP_LEFT"
+            | "MOUSE_UP_RIGHT"
+            | "MOUSE_DOWN_LEFT"
+            | "MOUSE_DOWN_RIGHT"
+            | "MOUSEUP"
+            | "MOUSEDOWN"
+            | "MOUSELEFT"
+            | "MOUSERIGHT"
+            | "MOVE_UP"
+            | "MOVE_DOWN"
+            | "MOVE_LEFT"
+            | "MOVE_RIGHT"
+            | "M_UP"
+            | "M_DOWN"
+            | "M_LEFT"
+            | "M_RIGHT"
+            | "MOUSEUPLEFT"
+            | "MOUSEUPRIGHT"
+            | "MOUSEDOWNLEFT"
+            | "MOUSEDOWNRIGHT"
+            | "M_UP_LEFT"
+            | "M_UP_RIGHT"
+            | "M_DOWN_LEFT"
+            | "M_DOWN_RIGHT"
+    )
+}
+
+/// Check if target key is a mouse scroll action.
+fn is_mouse_scroll_target(target: &str) -> bool {
+    let upper = target.to_uppercase();
+    matches!(
+        upper.as_str(),
+        "SCROLL_UP"
+            | "SCROLLUP"
+            | "WHEEL_UP"
+            | "WHEELUP"
+            | "SCROLL_DOWN"
+            | "SCROLLDOWN"
+            | "WHEEL_DOWN"
+            | "WHEELDOWN"
+    )
+}
+
+/// Estimates the display width of a sequence key pill.
+#[inline]
+fn estimate_sequence_pill_width(key: &str) -> f32 {
+    const MAX_DISPLAY_LEN: usize = 25;
+    let display_len = key.len().min(MAX_DISPLAY_LEN);
+    let base_padding = 16.0; // horizontal padding (8 * 2)
+    let char_width = 7.0;
+    base_padding + (display_len as f32 * char_width)
+}
+
+/// Estimates the display width of a target key pill.
+#[inline]
+fn estimate_target_pill_width(key: &str) -> f32 {
+    let base_padding = 20.0; // horizontal padding (10 * 2)
+    let char_width = 7.5;
+    base_padding + (key.len() as f32 * char_width)
+}
+
+/// Width of arrow separator "→".
+#[inline]
+const fn arrow_separator_width() -> f32 {
+    20.0
+}
+
 /// Cached frame state to avoid repeated atomic operations.
 struct FrameState {
     is_paused: bool,
@@ -896,44 +972,49 @@ impl SorahkGui {
 
                 ui.add_space(8.0);
 
-                let available = ui.available_width();
-                egui::Grid::new("config_grid")
-                    .num_columns(2)
-                    .spacing([30.0, 8.0])
-                    .min_col_width(available * 0.4)
-                    .striped(false)
-                    .show(ui, |ui| {
-                        self.render_config_row(
-                            ui,
-                            t.input_timeout_display(),
-                            &format!("{} ms", self.config.input_timeout),
-                        );
-                        self.render_config_row(
-                            ui,
-                            t.default_interval_display(),
-                            &format!("{} ms", self.config.interval),
-                        );
-                        self.render_config_row(
-                            ui,
-                            t.default_duration_display(),
-                            &format!("{} ms", self.config.event_duration),
-                        );
-                        self.render_bool_row(
-                            ui,
-                            t.show_tray_icon_display(),
-                            self.config.show_tray_icon,
-                        );
-                        self.render_bool_row(
-                            ui,
-                            t.show_notifications_display(),
-                            self.config.show_notifications,
-                        );
-                        self.render_bool_row(
-                            ui,
-                            t.always_on_top_display(),
-                            self.config.always_on_top,
-                        );
-                    });
+                ui.columns(2, |columns| {
+                    egui::Grid::new("config_left_grid")
+                        .num_columns(2)
+                        .spacing([15.0, 8.0])
+                        .show(&mut columns[0], |ui| {
+                            self.render_config_row(
+                                ui,
+                                t.input_timeout_display(),
+                                &format!("{} ms", self.config.input_timeout),
+                            );
+                            self.render_config_row(
+                                ui,
+                                t.default_duration_display(),
+                                &format!("{} ms", self.config.event_duration),
+                            );
+                            self.render_bool_row(
+                                ui,
+                                t.show_notifications_display(),
+                                self.config.show_notifications,
+                            );
+                        });
+
+                    egui::Grid::new("config_right_grid")
+                        .num_columns(2)
+                        .spacing([15.0, 8.0])
+                        .show(&mut columns[1], |ui| {
+                            self.render_config_row(
+                                ui,
+                                t.default_interval_display(),
+                                &format!("{} ms", self.config.interval),
+                            );
+                            self.render_bool_row(
+                                ui,
+                                t.show_tray_icon_display(),
+                                self.config.show_tray_icon,
+                            );
+                            self.render_bool_row(
+                                ui,
+                                t.always_on_top_display(),
+                                self.config.always_on_top,
+                            );
+                        });
+                });
             });
     }
 
@@ -1014,151 +1095,512 @@ impl SorahkGui {
                             egui::Color32::from_rgb(80, 150, 90)
                         }),
                 );
-                ui.add_space(5.0);
+                ui.add_space(12.0);
 
+                // Auto-expand height with minimum height
+                let min_height = 30.0;
+                let max_height = 450.0;
                 egui::ScrollArea::vertical()
-                    .max_height(280.0)
+                    .min_scrolled_height(min_height)
+                    .max_height(max_height)
+                    .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        // Customize stripe color for better contrast
-                        let stripe_color = if self.dark_mode {
-                            egui::Color32::from_rgba_premultiplied(50, 52, 60, 100)
-                        } else {
-                            egui::Color32::from_rgba_premultiplied(240, 230, 248, 150)
-                        };
-                        ui.style_mut().visuals.faint_bg_color = stripe_color;
-
-                        let available = ui.available_width();
-                        egui::Grid::new("mappings_grid")
-                            .num_columns(5)
-                            .spacing([15.0, 6.0])
-                            .min_col_width(available * 0.18)
-                            .striped(true)
-                            .show(ui, |ui| {
-                                // Header
-                                self.render_mapping_header(ui);
-
-                                // Mappings
-                                for mapping in &self.config.mappings {
-                                    let trigger_text = &mapping.trigger_key;
-                                    let max_trigger_len = 20;
-                                    let display_trigger = if trigger_text.len() > max_trigger_len {
-                                        format!("{}...", &trigger_text[..max_trigger_len])
-                                    } else {
-                                        trigger_text.clone()
-                                    };
-                                    let trigger_response =
-                                        ui.label(egui::RichText::new(&display_trigger).color(
-                                            if self.dark_mode {
-                                                egui::Color32::from_rgb(255, 200, 100)
-                                            } else {
-                                                egui::Color32::from_rgb(180, 80, 0)
-                                            },
-                                        ));
-                                    if trigger_text.len() > max_trigger_len {
-                                        trigger_response.on_hover_text(trigger_text);
-                                    }
-
-                                    let target_text = mapping.target_keys_display();
-                                    let max_target_len = 35;
-                                    let display_target = if target_text.len() > max_target_len {
-                                        format!("{}...", &target_text[..max_target_len])
-                                    } else {
-                                        target_text.clone()
-                                    };
-                                    let target_response =
-                                        ui.label(egui::RichText::new(&display_target).color(
-                                            if self.dark_mode {
-                                                egui::Color32::from_rgb(100, 200, 255)
-                                            } else {
-                                                egui::Color32::from_rgb(0, 80, 180)
-                                            },
-                                        ));
-                                    if target_text.len() > max_target_len {
-                                        target_response.on_hover_text(&target_text);
-                                    }
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{}",
-                                            mapping.interval.unwrap_or(self.config.interval)
-                                        ))
-                                        .color(
-                                            if self.dark_mode {
-                                                egui::Color32::from_rgb(200, 200, 200)
-                                            } else {
-                                                egui::Color32::from_rgb(60, 60, 60)
-                                            },
-                                        ),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{}",
-                                            mapping
-                                                .event_duration
-                                                .unwrap_or(self.config.event_duration)
-                                        ))
-                                        .color(
-                                            if self.dark_mode {
-                                                egui::Color32::from_rgb(200, 200, 200)
-                                            } else {
-                                                egui::Color32::from_rgb(60, 60, 60)
-                                            },
-                                        ),
-                                    );
-
-                                    // Turbo status
-                                    let (turbo_icon, turbo_color) = if mapping.turbo_enabled {
-                                        (
-                                            "⚡",
-                                            if self.dark_mode {
-                                                egui::Color32::from_rgb(100, 200, 255)
-                                            } else {
-                                                egui::Color32::from_rgb(0, 120, 220)
-                                            },
-                                        )
-                                    } else {
-                                        (
-                                            "○",
-                                            if self.dark_mode {
-                                                egui::Color32::from_rgb(120, 120, 120)
-                                            } else {
-                                                egui::Color32::from_rgb(160, 160, 160)
-                                            },
-                                        )
-                                    };
-                                    ui.label(
-                                        egui::RichText::new(turbo_icon)
-                                            .size(16.0)
-                                            .color(turbo_color),
-                                    );
-
-                                    ui.end_row();
-                                }
-                            });
+                        for (idx, mapping) in self.config.mappings.iter().enumerate() {
+                            self.render_mapping_card(ui, mapping, idx);
+                            if idx < self.config.mappings.len() - 1 {
+                                ui.add_space(8.0);
+                            }
+                        }
                     });
             });
     }
 
-    /// Renders the header row for the key mappings table.
-    fn render_mapping_header(&self, ui: &mut egui::Ui) {
+    /// Renders a single mapping as a card.
+    fn render_mapping_card(
+        &self,
+        ui: &mut egui::Ui,
+        mapping: &crate::config::KeyMapping,
+        idx: usize,
+    ) {
         let t = &self.translations;
-        let headers = [
-            t.trigger_header(),
-            t.target_header(),
-            t.interval_header(),
-            t.duration_header(),
-            t.turbo_header(),
-        ];
-        for header in &headers {
-            ui.label(
-                egui::RichText::new(*header)
-                    .strong()
-                    .color(if self.dark_mode {
-                        egui::Color32::from_rgb(220, 220, 220)
+        let card_bg = if self.dark_mode {
+            egui::Color32::from_rgb(48, 50, 60)
+        } else {
+            egui::Color32::from_rgb(255, 250, 255)
+        };
+
+        let border_color = if self.dark_mode {
+            egui::Color32::from_rgba_premultiplied(255, 182, 193, 40)
+        } else {
+            egui::Color32::from_rgba_premultiplied(255, 182, 193, 80)
+        };
+
+        egui::Frame::NONE
+            .fill(card_bg)
+            .corner_radius(egui::CornerRadius::same(16))
+            .inner_margin(egui::Margin::same(14))
+            .stroke(if self.dark_mode {
+                egui::Stroke::NONE
+            } else {
+                egui::Stroke::new(1.5, border_color)
+            })
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+
+                // Header row: number, trigger badge, target badge, and turbo
+                let target_mode = mapping.target_mode;
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("#{}", idx + 1))
+                            .size(14.0)
+                            .strong()
+                            .color(if self.dark_mode {
+                                egui::Color32::from_rgb(255, 182, 193)
+                            } else {
+                                egui::Color32::from_rgb(255, 105, 180)
+                            }),
+                    );
+
+                    ui.add_space(8.0);
+
+                    // Trigger mode badge
+                    let (trigger_badge_text, trigger_badge_bg, trigger_badge_fg) =
+                        if mapping.is_sequence_trigger() {
+                            (
+                                t.trigger_mode_sequence_badge(),
+                                if self.dark_mode {
+                                    egui::Color32::from_rgb(255, 182, 193)
+                                } else {
+                                    egui::Color32::from_rgb(255, 218, 224)
+                                },
+                                if self.dark_mode {
+                                    egui::Color32::from_rgb(80, 20, 40)
+                                } else {
+                                    egui::Color32::from_rgb(220, 80, 120)
+                                },
+                            )
+                        } else {
+                            (
+                                t.trigger_mode_single_badge(),
+                                if self.dark_mode {
+                                    egui::Color32::from_rgb(135, 206, 235)
+                                } else {
+                                    egui::Color32::from_rgb(173, 216, 230)
+                                },
+                                if self.dark_mode {
+                                    egui::Color32::from_rgb(20, 60, 80)
+                                } else {
+                                    egui::Color32::from_rgb(40, 80, 120)
+                                },
+                            )
+                        };
+
+                    egui::Frame::NONE
+                        .fill(trigger_badge_bg)
+                        .corner_radius(egui::CornerRadius::same(8))
+                        .inner_margin(egui::Margin::symmetric(8, 3))
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(trigger_badge_text)
+                                    .size(11.0)
+                                    .strong()
+                                    .color(trigger_badge_fg),
+                            );
+                        });
+
+                    ui.add_space(4.0);
+
+                    // Target mode badge
+                    let (target_badge_text, target_badge_bg, target_badge_fg) = match target_mode {
+                        2 => (
+                            t.target_mode_sequence_badge(),
+                            if self.dark_mode {
+                                egui::Color32::from_rgb(255, 182, 193)
+                            } else {
+                                egui::Color32::from_rgb(255, 218, 224)
+                            },
+                            if self.dark_mode {
+                                egui::Color32::from_rgb(80, 20, 40)
+                            } else {
+                                egui::Color32::from_rgb(220, 80, 120)
+                            },
+                        ),
+                        1 => (
+                            t.target_mode_multi_badge(),
+                            if self.dark_mode {
+                                egui::Color32::from_rgb(135, 206, 235)
+                            } else {
+                                egui::Color32::from_rgb(173, 216, 230)
+                            },
+                            if self.dark_mode {
+                                egui::Color32::from_rgb(20, 60, 80)
+                            } else {
+                                egui::Color32::from_rgb(40, 80, 120)
+                            },
+                        ),
+                        _ => (
+                            t.target_mode_single_badge(),
+                            if self.dark_mode {
+                                egui::Color32::from_rgb(135, 206, 235)
+                            } else {
+                                egui::Color32::from_rgb(173, 216, 230)
+                            },
+                            if self.dark_mode {
+                                egui::Color32::from_rgb(20, 60, 80)
+                            } else {
+                                egui::Color32::from_rgb(40, 80, 120)
+                            },
+                        ),
+                    };
+
+                    egui::Frame::NONE
+                        .fill(target_badge_bg)
+                        .corner_radius(egui::CornerRadius::same(8))
+                        .inner_margin(egui::Margin::symmetric(8, 3))
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(target_badge_text)
+                                    .size(11.0)
+                                    .strong()
+                                    .color(target_badge_fg),
+                            );
+                        });
+
+                    // Turbo indicator (right-aligned)
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if mapping.turbo_enabled {
+                            egui::Frame::NONE
+                                .fill(if self.dark_mode {
+                                    egui::Color32::from_rgb(255, 200, 130)
+                                } else {
+                                    egui::Color32::from_rgb(255, 235, 180)
+                                })
+                                .corner_radius(egui::CornerRadius::same(8))
+                                .inner_margin(egui::Margin::symmetric(8, 4))
+                                .show(ui, |ui| {
+                                    ui.label(egui::RichText::new("⚡").size(13.0).color(
+                                        if self.dark_mode {
+                                            egui::Color32::from_rgb(80, 60, 20)
+                                        } else {
+                                            egui::Color32::from_rgb(100, 80, 20)
+                                        },
+                                    ));
+                                });
+                        }
+                    });
+                });
+
+                ui.add_space(12.0);
+
+                // Trigger section with label
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(t.trigger_short()).size(13.0).color(
+                        if self.dark_mode {
+                            egui::Color32::from_rgb(200, 200, 220)
+                        } else {
+                            egui::Color32::from_rgb(80, 80, 100)
+                        },
+                    ));
+                });
+
+                ui.add_space(4.0);
+
+                // Trigger content
+                if mapping.is_sequence_trigger() {
+                    // Sequence mode
+                    if let Some(seq_str) = mapping.sequence_string() {
+                        let seq_keys: Vec<&str> = seq_str.split(',').map(|s| s.trim()).collect();
+                        if !seq_keys.is_empty() {
+                            let available_width = ui.available_width();
+                            let sep_width = arrow_separator_width();
+
+                            // Pre-calculate rows for proper wrapping
+                            let mut rows: Vec<Vec<usize>> = Vec::new();
+                            let mut current_row: Vec<usize> = Vec::new();
+                            let mut current_width = 0.0f32;
+
+                            for (key_idx, key) in seq_keys.iter().enumerate() {
+                                let pill_width = estimate_sequence_pill_width(key);
+                                let s_width = if key_idx < seq_keys.len() - 1 {
+                                    sep_width
+                                } else {
+                                    0.0
+                                };
+                                let total_width = pill_width + s_width;
+                                if current_width + total_width > available_width
+                                    && !current_row.is_empty()
+                                {
+                                    rows.push(std::mem::take(&mut current_row));
+                                    current_width = 0.0;
+                                }
+                                current_row.push(key_idx);
+                                current_width += total_width + 6.0;
+                            }
+                            if !current_row.is_empty() {
+                                rows.push(current_row);
+                            }
+
+                            // Render each row
+                            for row in &rows {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
+                                    for &key_idx in row {
+                                        let key = seq_keys[key_idx];
+                                        const MAX_LEN: usize = 25;
+                                        let display = if key.len() > MAX_LEN {
+                                            format!("{}...", &key[..MAX_LEN])
+                                        } else {
+                                            key.to_string()
+                                        };
+
+                                        let frame = egui::Frame::NONE
+                                            .fill(if self.dark_mode {
+                                                egui::Color32::from_rgb(255, 182, 193)
+                                            } else {
+                                                egui::Color32::from_rgb(255, 218, 224)
+                                            })
+                                            .corner_radius(egui::CornerRadius::same(8))
+                                            .inner_margin(egui::Margin::symmetric(8, 4))
+                                            .show(ui, |ui| {
+                                                ui.label(
+                                                    egui::RichText::new(&display)
+                                                        .size(12.0)
+                                                        .strong()
+                                                        .color(if self.dark_mode {
+                                                            egui::Color32::from_rgb(80, 20, 40)
+                                                        } else {
+                                                            egui::Color32::from_rgb(180, 60, 100)
+                                                        }),
+                                                );
+                                            });
+
+                                        if key.len() > MAX_LEN {
+                                            frame.response.on_hover_text(key);
+                                        }
+
+                                        if key_idx < seq_keys.len() - 1 {
+                                            ui.label(egui::RichText::new("→").size(12.0).color(
+                                                if self.dark_mode {
+                                                    egui::Color32::from_rgb(255, 150, 170)
+                                                } else {
+                                                    egui::Color32::from_rgb(255, 120, 150)
+                                                },
+                                            ));
+                                        }
+                                    }
+                                });
+                                ui.add_space(4.0);
+                            }
+                        }
+                    }
+                } else {
+                    // Single key mode - use light blue background for better contrast
+                    egui::Frame::NONE
+                        .fill(if self.dark_mode {
+                            egui::Color32::from_rgb(55, 65, 85)
+                        } else {
+                            egui::Color32::from_rgb(220, 235, 250)
+                        })
+                        .corner_radius(egui::CornerRadius::same(10))
+                        .inner_margin(egui::Margin::symmetric(12, 6))
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(&mapping.trigger_key)
+                                    .size(13.0)
+                                    .strong()
+                                    .color(if self.dark_mode {
+                                        egui::Color32::from_rgb(255, 200, 130)
+                                    } else {
+                                        egui::Color32::from_rgb(40, 80, 140)
+                                    }),
+                            );
+                        });
+                }
+
+                ui.add_space(10.0);
+
+                // Target section with label
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(t.target_short()).size(13.0).color(
+                        if self.dark_mode {
+                            egui::Color32::from_rgb(200, 200, 220)
+                        } else {
+                            egui::Color32::from_rgb(80, 80, 100)
+                        },
+                    ));
+                });
+
+                ui.add_space(4.0);
+
+                // Target keys with proper wrapping
+                let target_keys = mapping.get_target_keys();
+                if !target_keys.is_empty() {
+                    let available_width = ui.available_width();
+                    let (sep_char, sep_width) = if target_mode == 2 {
+                        ("→", arrow_separator_width())
+                    } else if target_mode == 1 {
+                        ("+", 20.0)
                     } else {
-                        egui::Color32::from_rgb(40, 40, 40)
-                    }),
-            );
-        }
-        ui.end_row();
+                        ("", 0.0)
+                    };
+
+                    // Pre-calculate rows for proper wrapping
+                    let mut rows: Vec<Vec<usize>> = Vec::new();
+                    let mut current_row: Vec<usize> = Vec::new();
+                    let mut current_width = 0.0f32;
+
+                    for (key_idx, key) in target_keys.iter().enumerate() {
+                        let pill_width = estimate_target_pill_width(key);
+                        let s_width = if key_idx < target_keys.len() - 1 && target_mode != 0 {
+                            sep_width
+                        } else {
+                            0.0
+                        };
+                        let total_width = pill_width + s_width;
+                        if current_width + total_width > available_width && !current_row.is_empty()
+                        {
+                            rows.push(std::mem::take(&mut current_row));
+                            current_width = 0.0;
+                        }
+                        current_row.push(key_idx);
+                        current_width += total_width + 6.0;
+                    }
+                    if !current_row.is_empty() {
+                        rows.push(current_row);
+                    }
+
+                    // Render each row
+                    for row in &rows {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
+                            for &key_idx in row {
+                                let target = &target_keys[key_idx];
+                                // Sequence mode uses pink, Single/Multi use blue
+                                let (fill_color, text_color) = if target_mode == 2 {
+                                    (
+                                        if self.dark_mode {
+                                            egui::Color32::from_rgb(255, 182, 193)
+                                        } else {
+                                            egui::Color32::from_rgb(255, 218, 224)
+                                        },
+                                        if self.dark_mode {
+                                            egui::Color32::from_rgb(80, 20, 40)
+                                        } else {
+                                            egui::Color32::from_rgb(220, 80, 120)
+                                        },
+                                    )
+                                } else {
+                                    (
+                                        if self.dark_mode {
+                                            egui::Color32::from_rgb(135, 206, 235)
+                                        } else {
+                                            egui::Color32::from_rgb(173, 216, 230)
+                                        },
+                                        if self.dark_mode {
+                                            egui::Color32::from_rgb(20, 60, 80)
+                                        } else {
+                                            egui::Color32::from_rgb(40, 80, 120)
+                                        },
+                                    )
+                                };
+
+                                egui::Frame::NONE
+                                    .fill(fill_color)
+                                    .corner_radius(egui::CornerRadius::same(10))
+                                    .inner_margin(egui::Margin::symmetric(10, 5))
+                                    .show(ui, |ui| {
+                                        ui.label(
+                                            egui::RichText::new(target)
+                                                .size(13.0)
+                                                .color(text_color)
+                                                .strong(),
+                                        );
+                                    });
+
+                                // Separator between keys
+                                if key_idx < target_keys.len() - 1 && !sep_char.is_empty() {
+                                    let sep_color = if target_mode == 2 {
+                                        if self.dark_mode {
+                                            egui::Color32::from_rgb(255, 150, 170)
+                                        } else {
+                                            egui::Color32::from_rgb(255, 120, 150)
+                                        }
+                                    } else if self.dark_mode {
+                                        egui::Color32::from_rgb(135, 206, 235)
+                                    } else {
+                                        egui::Color32::from_rgb(70, 130, 180)
+                                    };
+                                    ui.label(
+                                        egui::RichText::new(sep_char).size(13.0).color(sep_color),
+                                    );
+                                }
+                            }
+                        });
+                        ui.add_space(4.0);
+                    }
+                }
+
+                ui.add_space(6.0);
+
+                // Details row with clearer labels
+                ui.horizontal_wrapped(|ui| {
+                    let detail_color = if self.dark_mode {
+                        egui::Color32::from_rgb(170, 170, 190)
+                    } else {
+                        egui::Color32::from_rgb(100, 100, 120)
+                    };
+
+                    let first_target = mapping
+                        .get_target_keys()
+                        .first()
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
+                    let is_mouse_move = is_mouse_move_target(first_target);
+                    let is_mouse_scroll = is_mouse_scroll_target(first_target);
+
+                    // Interval
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "⏱ {} ms",
+                            mapping.interval.unwrap_or(self.config.interval)
+                        ))
+                        .size(11.0)
+                        .color(detail_color),
+                    );
+
+                    // Duration (only for non-move actions)
+                    if !is_mouse_move && !is_mouse_scroll {
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "⏳ {} ms",
+                                mapping.event_duration.unwrap_or(self.config.event_duration)
+                            ))
+                            .size(11.0)
+                            .color(detail_color),
+                        );
+                    }
+
+                    // Move speed (only for move/scroll)
+                    if (is_mouse_move || is_mouse_scroll) && mapping.move_speed > 0 {
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(format!("🚀 {}", mapping.move_speed))
+                                .size(11.0)
+                                .color(detail_color),
+                        );
+                    }
+
+                    // Sequence window (only for sequences)
+                    if mapping.is_sequence_trigger() {
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(format!("⏲ {} ms", mapping.sequence_window_ms))
+                                .size(11.0)
+                                .color(detail_color),
+                        );
+                    }
+                });
+            });
     }
 }

@@ -61,6 +61,68 @@ pub fn likely(b: bool) -> bool {
     b
 }
 
+/// Numpad key remapping helpers.
+///
+/// Windows reports numpad digits as nav-cluster virtual keys such as
+/// VK_INSERT or VK_END when NumLock is off. The capture dialog only sees
+/// VKs via `GetAsyncKeyState`, so it needs both directions to keep a
+/// numpad finalize key working regardless of NumLock state.
+pub mod numpad {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        VIRTUAL_KEY, VK_CLEAR, VK_DECIMAL, VK_DELETE, VK_DOWN, VK_END, VK_HOME, VK_INSERT, VK_LEFT,
+        VK_NEXT, VK_NUMPAD0, VK_NUMPAD1, VK_NUMPAD2, VK_NUMPAD3, VK_NUMPAD4, VK_NUMPAD5,
+        VK_NUMPAD6, VK_NUMPAD7, VK_NUMPAD8, VK_NUMPAD9, VK_PRIOR, VK_RIGHT, VK_UP,
+    };
+
+    #[inline(always)]
+    const fn vk(key: VIRTUAL_KEY) -> u32 {
+        key.0 as u32
+    }
+
+    /// Remaps nav-cluster VKs back to VK_NUMPAD* for callers that only see
+    /// NumLock-translated virtual keys. Call this only when NumLock is off;
+    /// the caller is responsible for checking `GetKeyState(VK_NUMLOCK) & 1`.
+    #[inline(always)]
+    pub fn from_nav_vk(key: u32) -> u32 {
+        match key {
+            k if k == vk(VK_INSERT) => vk(VK_NUMPAD0),
+            k if k == vk(VK_END) => vk(VK_NUMPAD1),
+            k if k == vk(VK_DOWN) => vk(VK_NUMPAD2),
+            k if k == vk(VK_NEXT) => vk(VK_NUMPAD3),
+            k if k == vk(VK_LEFT) => vk(VK_NUMPAD4),
+            k if k == vk(VK_CLEAR) => vk(VK_NUMPAD5),
+            k if k == vk(VK_RIGHT) => vk(VK_NUMPAD6),
+            k if k == vk(VK_HOME) => vk(VK_NUMPAD7),
+            k if k == vk(VK_UP) => vk(VK_NUMPAD8),
+            k if k == vk(VK_PRIOR) => vk(VK_NUMPAD9),
+            k if k == vk(VK_DELETE) => vk(VK_DECIMAL),
+            other => other,
+        }
+    }
+
+    /// Inverse of [`from_nav_vk`]. Returns the nav-cluster VK that Windows
+    /// reports for a numpad VK when NumLock is off, or `None` for non-numpad
+    /// inputs. Needed by callers that query a specific numpad key state via
+    /// `GetAsyncKeyState`.
+    #[inline(always)]
+    pub fn to_nav_vk(key: u32) -> Option<u32> {
+        match key {
+            k if k == vk(VK_NUMPAD0) => Some(vk(VK_INSERT)),
+            k if k == vk(VK_NUMPAD1) => Some(vk(VK_END)),
+            k if k == vk(VK_NUMPAD2) => Some(vk(VK_DOWN)),
+            k if k == vk(VK_NUMPAD3) => Some(vk(VK_NEXT)),
+            k if k == vk(VK_NUMPAD4) => Some(vk(VK_LEFT)),
+            k if k == vk(VK_NUMPAD5) => Some(vk(VK_CLEAR)),
+            k if k == vk(VK_NUMPAD6) => Some(vk(VK_RIGHT)),
+            k if k == vk(VK_NUMPAD7) => Some(vk(VK_HOME)),
+            k if k == vk(VK_NUMPAD8) => Some(vk(VK_UP)),
+            k if k == vk(VK_NUMPAD9) => Some(vk(VK_PRIOR)),
+            k if k == vk(VK_DECIMAL) => Some(vk(VK_DELETE)),
+            _ => None,
+        }
+    }
+}
+
 /// FNV-1a 32-bit hash constants.
 pub mod fnv32 {
     /// Offset basis for FNV-1a 32-bit hash.
