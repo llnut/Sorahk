@@ -49,6 +49,9 @@ pub struct DeviceManagerDialog {
     device_api_preference: std::collections::HashMap<(u16, u16), DeviceApiPreference>,
     /// API preferences that changed and need to be saved
     changed_preferences: std::collections::HashMap<(u16, u16), DeviceApiPreference>,
+    /// Set true whenever the stick/trigger sliders move so the main window
+    /// can push the new values into `AppState` and save the config.
+    xinput_params_dirty: bool,
     /// Last device refresh timestamp
     last_refresh: std::time::Instant,
     /// Cached preference lookups for current frame
@@ -97,6 +100,7 @@ impl Default for DeviceManagerDialog {
             vibration_test_until: None,
             device_api_preference: std::collections::HashMap::new(),
             changed_preferences: std::collections::HashMap::new(),
+            xinput_params_dirty: false,
             last_refresh: std::time::Instant::now() - std::time::Duration::from_secs(1),
             preference_cache: [None; 8],
             cache_hits: 0,
@@ -141,6 +145,27 @@ impl DeviceManagerDialog {
     #[inline]
     pub fn take_devices_to_reactivate(&mut self) -> Vec<(u16, u16)> {
         std::mem::take(&mut self.devices_to_reactivate)
+    }
+
+    /// Seeds the dialog sliders with the persisted XInput thresholds so the
+    /// UI mirrors the saved config.
+    #[inline]
+    pub fn load_xinput_params(&mut self, stick_deadzone: i16, trigger_threshold: u8) {
+        self.stick_deadzone = stick_deadzone;
+        self.trigger_threshold = trigger_threshold;
+        self.xinput_params_dirty = false;
+    }
+
+    /// Extracts the latest XInput thresholds if the sliders moved since the
+    /// last call. Returns `None` when the user has not touched them.
+    #[inline]
+    pub fn take_xinput_params_change(&mut self) -> Option<(i16, u8)> {
+        if self.xinput_params_dirty {
+            self.xinput_params_dirty = false;
+            Some((self.stick_deadzone, self.trigger_threshold))
+        } else {
+            None
+        }
     }
 
     /// Retrieves API preference with frame-local caching.
@@ -677,11 +702,14 @@ impl DeviceManagerDialog {
                                     egui::RichText::new(t.stick_label()).size(13.0).strong(),
                                 ),
                             );
-                            ui.add(
+                            let stick_resp = ui.add(
                                 egui::Slider::new(&mut self.stick_deadzone, 0..=32767)
                                     .text(t.threshold_label())
                                     .show_value(true),
                             );
+                            if stick_resp.changed() {
+                                self.xinput_params_dirty = true;
+                            }
                         });
 
                         ui.add_space(2.0);
@@ -695,11 +723,14 @@ impl DeviceManagerDialog {
                                         .strong(),
                                 ),
                             );
-                            ui.add(
+                            let trigger_resp = ui.add(
                                 egui::Slider::new(&mut self.trigger_threshold, 0..=255)
                                     .text(t.threshold_label())
                                     .show_value(true),
                             );
+                            if trigger_resp.changed() {
+                                self.xinput_params_dirty = true;
+                            }
                         });
                     });
                 });

@@ -113,7 +113,7 @@ jobs:
         target: ${{ matrix.target }}
 
     - name: Cache Cargo registry
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.cargo/registry/index
         key: release-${{ runner.os }}-${{ matrix.target }}-cargo-registry-${{ hashFiles('Cargo.lock') }}
@@ -122,7 +122,7 @@ jobs:
           ${{ runner.os }}-${{ matrix.target }}-cargo-registry-
 
     - name: Cache Cargo registry cache
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.cargo/registry/cache
         key: release-${{ runner.os }}-${{ matrix.target }}-cargo-cache-${{ hashFiles('Cargo.lock') }}
@@ -131,7 +131,7 @@ jobs:
           ${{ runner.os }}-${{ matrix.target }}-cargo-cache-
 
     - name: Cache Cargo git dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.cargo/git
         key: release-${{ runner.os }}-${{ matrix.target }}-cargo-git-${{ hashFiles('Cargo.lock') }}
@@ -140,7 +140,7 @@ jobs:
           ${{ runner.os }}-${{ matrix.target }}-cargo-git-
 
     - name: Cache Cargo build
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: target
         key: release-${{ runner.os }}-${{ matrix.target }}-cargo-build-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('**/*.rs') }}

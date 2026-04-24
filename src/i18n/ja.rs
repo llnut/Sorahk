@@ -59,6 +59,14 @@ pub(super) const fn translate(key: RawKey) -> &'static str {
         RawKey::InputTimeoutLabel => "入力タイムアウト (ms):",
         RawKey::DefaultIntervalLabel => "デフォルト間隔 (ms):",
         RawKey::DefaultDurationLabel => "デフォルト持続時間 (ms):",
+        RawKey::MouseMovePerEventMinLabel => "マウス単発最小速度 (px):",
+        RawKey::MouseMovePerEventMinHint => {
+            "1 フレームの移動がこの値未満なら雑音と見なして累積に加算しない"
+        }
+        RawKey::MouseMoveMinTriggerLabel => "マウス累積トリガ距離 (px):",
+        RawKey::MouseMoveMinTriggerHint => "有効フレームの累積距離がこの値に達すると方向を発火",
+        RawKey::MouseMoveRearmLabel => "同方向の再トリガ閾値 (px):",
+        RawKey::MouseMoveRearmHint => "逆方向の累積がこの距離に達すると同方向の再発火を許可",
         RawKey::WorkerCountLabel => "連打スレッド数:",
         RawKey::TriggerShort => "🎯 起動キー:",
         RawKey::TargetShort => "🎮 ターゲットキー:",

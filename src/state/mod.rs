@@ -8,7 +8,7 @@ mod tests;
 pub mod types;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -33,6 +33,48 @@ pub use types::*;
 
 static GLOBAL_STATE: OnceLock<Arc<AppState>> = OnceLock::new();
 
+/// Default initial repeat delay in ms used if `SPI_GETKEYBOARDDELAY` fails
+/// and as the startup placeholder before the real system values load.
+const DEFAULT_KB_REPEAT_DELAY_MS: u64 = 500;
+
+/// Default repeat interval in ms used if `SPI_GETKEYBOARDSPEED` fails.
+const DEFAULT_KB_REPEAT_INTERVAL_MS: u64 = 33;
+
+/// Reads the system's keyboard repeat settings. Returns a tuple of the
+/// initial delay in ms and the repeat interval in ms. Falls back to
+/// `DEFAULT_KB_REPEAT_DELAY_MS` and `DEFAULT_KB_REPEAT_INTERVAL_MS` when
+/// either call fails.
+fn read_system_key_repeat() -> (u64, u64) {
+    let mut delay_val: u32 = 1;
+    let mut speed_val: u32 = 31;
+    // SAFETY: `delay_val` and `speed_val` are live `u32` locals with no
+    // aliasing borrows for the duration of each FFI call. Failure leaves
+    // the initial fallback values in place, and the `.max 1` guards below
+    // still accept them.
+    unsafe {
+        let _ = SystemParametersInfoW(
+            SPI_GETKEYBOARDDELAY,
+            0,
+            Some(&mut delay_val as *mut _ as *mut core::ffi::c_void),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+        let _ = SystemParametersInfoW(
+            SPI_GETKEYBOARDSPEED,
+            0,
+            Some(&mut speed_val as *mut _ as *mut core::ffi::c_void),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+    }
+    // SPI_GETKEYBOARDDELAY returns 0..=3 and delay in ms is value+1 times 250.
+    let delay_ms = (delay_val.min(3) as u64 + 1) * 250;
+    // SPI_GETKEYBOARDSPEED returns 0..=31. Microsoft maps 0 to about 2.5 Hz
+    // and 31 to about 30 Hz, with linear interpolation in between.
+    let speed_val = speed_val.min(31) as f64;
+    let rate_hz = 2.5 + speed_val * (30.0 - 2.5) / 31.0;
+    let interval_ms = (1000.0 / rate_hz).round() as u64;
+    (delay_ms.max(1), interval_ms.max(1))
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ProcessInfo {
     pub name: Option<String>,
@@ -50,6 +92,12 @@ pub struct AppState {
     pub sequence_finalize_vk: std::sync::atomic::AtomicU32,
     pub should_exit: Arc<AtomicBool>,
     is_paused: AtomicBool,
+    /// Cached result of the last `is_process_whitelisted` check. Workers
+    /// read this atomically to decide whether to idle and drain their
+    /// queues. Also used to detect the true → false transition so we can
+    /// release any keys currently held by a rule firing just before the
+    /// foreground window changed.
+    prev_whitelisted: AtomicBool,
     show_window_requested: AtomicBool,
     show_about_requested: AtomicBool,
     input_timeout: AtomicU64,
@@ -58,6 +106,16 @@ pub struct AppState {
     pub(crate) input_mappings: scc::HashMap<InputDevice, InputMappingInfo>,
     pub(crate) worker_pool: OnceLock<Arc<dyn EventDispatcher>>,
     notification_sender: OnceLock<Sender<NotificationEvent>>,
+    /// Initial repeat delay sourced from `SPI_GETKEYBOARDDELAY`, used by
+    /// non-turbo synthetic repeats for non-keyboard triggers.
+    kb_repeat_delay_ms: AtomicU64,
+    /// Per-repeat interval sourced from `SPI_GETKEYBOARDSPEED`.
+    kb_repeat_interval_ms: AtomicU64,
+    /// XInput analog-stick deadzone. Hot-path readers snapshot this once
+    /// per poll frame to avoid repeated atomic loads per axis.
+    xinput_stick_deadzone: std::sync::atomic::AtomicI16,
+    /// XInput trigger activation threshold, snapshotted the same way.
+    xinput_trigger_threshold: AtomicU8,
     process_whitelist: AtomicShared<Vec<String>>,
     pub(crate) cached_process_info: AtomicShared<ProcessInfo>,
     pub(crate) pressed_keys: scc::HashSet<u32>,
@@ -83,6 +141,43 @@ pub struct AppState {
     pub(crate) last_mouse_x: std::sync::atomic::AtomicI32,
     pub(crate) last_mouse_y: std::sync::atomic::AtomicI32,
     pub(crate) last_mouse_direction: std::sync::atomic::AtomicU8,
+    /// Accumulated movement in the reverse half-plane of `last_mouse_direction`
+    /// since the last recorded direction, in pixels. Used to re-arm
+    /// same-direction recording after the user's hand returns, without
+    /// spamming on a single continuous swipe.
+    pub(crate) mouse_opp_distance_px: std::sync::atomic::AtomicU32,
+    /// Accumulated X delta since the last time the motion accumulator
+    /// reached the trigger threshold. Paired with `mouse_accum_dy` so slow
+    /// continuous motion can still cross the threshold over several events.
+    pub(crate) mouse_accum_dx: std::sync::atomic::AtomicI32,
+    /// Accumulated Y delta counterpart.
+    pub(crate) mouse_accum_dy: std::sync::atomic::AtomicI32,
+    /// Minimum squared single-event delta for a mouse event to count
+    /// toward the motion accumulator. Events below this threshold are
+    /// dropped as noise and do not contribute to the accumulator or the
+    /// reverse-direction accumulator.
+    pub(crate) mouse_move_per_event_min_sq: AtomicU32,
+    /// Non-squared counterpart of `mouse_move_per_event_min_sq` in pixels,
+    /// used for 1-D comparisons such as gating the reverse-direction
+    /// component itself against the same speed threshold.
+    pub(crate) mouse_move_per_event_min_px: AtomicU32,
+    /// Minimum squared accumulated delta magnitude for the accumulator to
+    /// fire a directional trigger. Stored as a squared pixel value to
+    /// avoid a `sqrt` on every event.
+    pub(crate) mouse_move_min_trigger_sq: AtomicU32,
+    /// Reverse-direction distance in pixels required before the same
+    /// direction can fire again via the `mouse_opp_distance_px` path.
+    pub(crate) mouse_move_rearm_px: AtomicU32,
+    /// Reference count per keyboard scancode for the "held by one or more
+    /// active triggers" abstraction. Incremented by each trigger that
+    /// presses the scancode, decremented by release. The simulation layer
+    /// only injects `KEYDOWN` on 0 -> 1 transitions and `KEYUP` on N -> 0
+    /// transitions, so overlapping triggers (e.g. cardinal → diagonal
+    /// mouse-move) keep shared keys held during the handoff.
+    pub(crate) held_scancodes: Box<[std::sync::atomic::AtomicI32; 256]>,
+    /// Counterpart for mouse buttons. Indexed by `mouse_button_index`:
+    /// 0=Left, 1=Right, 2=Middle, 3=X1, 4=X2.
+    pub(crate) held_mouse_buttons: [std::sync::atomic::AtomicI32; 5],
 }
 
 impl AppState {
@@ -214,6 +309,7 @@ impl AppState {
             sequence_finalize_vk,
             should_exit: Arc::new(AtomicBool::new(false)),
             is_paused: AtomicBool::new(false),
+            prev_whitelisted: AtomicBool::new(true),
             show_window_requested: AtomicBool::new(false),
             show_about_requested: AtomicBool::new(false),
             input_timeout: AtomicU64::new(config.input_timeout),
@@ -223,6 +319,10 @@ impl AppState {
             input_mappings,
             worker_pool: OnceLock::new(),
             notification_sender: OnceLock::new(),
+            kb_repeat_delay_ms: AtomicU64::new(DEFAULT_KB_REPEAT_DELAY_MS),
+            kb_repeat_interval_ms: AtomicU64::new(DEFAULT_KB_REPEAT_INTERVAL_MS),
+            xinput_stick_deadzone: std::sync::atomic::AtomicI16::new(config.xinput_stick_deadzone),
+            xinput_trigger_threshold: AtomicU8::new(config.xinput_trigger_threshold),
             cached_process_info: AtomicShared::from(Shared::new(ProcessInfo {
                 name: None,
                 timestamp: Instant::now(),
@@ -254,6 +354,27 @@ impl AppState {
             last_mouse_x: std::sync::atomic::AtomicI32::new(0),
             last_mouse_y: std::sync::atomic::AtomicI32::new(0),
             last_mouse_direction: std::sync::atomic::AtomicU8::new(0),
+            mouse_opp_distance_px: std::sync::atomic::AtomicU32::new(0),
+            mouse_accum_dx: std::sync::atomic::AtomicI32::new(0),
+            mouse_accum_dy: std::sync::atomic::AtomicI32::new(0),
+            mouse_move_per_event_min_sq: AtomicU32::new(
+                config
+                    .mouse_move_per_event_min_px
+                    .saturating_mul(config.mouse_move_per_event_min_px)
+                    .max(1),
+            ),
+            mouse_move_per_event_min_px: AtomicU32::new(config.mouse_move_per_event_min_px.max(1)),
+            mouse_move_min_trigger_sq: AtomicU32::new(
+                config
+                    .mouse_move_min_trigger_px
+                    .saturating_mul(config.mouse_move_min_trigger_px)
+                    .max(1),
+            ),
+            mouse_move_rearm_px: AtomicU32::new(config.mouse_move_rearm_px.max(1)),
+            held_scancodes: Box::new(std::array::from_fn(|_| {
+                std::sync::atomic::AtomicI32::new(0)
+            })),
+            held_mouse_buttons: std::array::from_fn(|_| std::sync::atomic::AtomicI32::new(0)),
         })
     }
 
@@ -272,6 +393,28 @@ impl AppState {
             .store(config.show_notifications, Ordering::Relaxed);
         self.input_timeout
             .store(config.input_timeout, Ordering::Relaxed);
+        self.xinput_stick_deadzone
+            .store(config.xinput_stick_deadzone, Ordering::Relaxed);
+        self.xinput_trigger_threshold
+            .store(config.xinput_trigger_threshold, Ordering::Relaxed);
+        self.mouse_move_per_event_min_sq.store(
+            config
+                .mouse_move_per_event_min_px
+                .saturating_mul(config.mouse_move_per_event_min_px)
+                .max(1),
+            Ordering::Relaxed,
+        );
+        self.mouse_move_per_event_min_px
+            .store(config.mouse_move_per_event_min_px.max(1), Ordering::Relaxed);
+        self.mouse_move_min_trigger_sq.store(
+            config
+                .mouse_move_min_trigger_px
+                .saturating_mul(config.mouse_move_min_trigger_px)
+                .max(1),
+            Ordering::Relaxed,
+        );
+        self.mouse_move_rearm_px
+            .store(config.mouse_move_rearm_px.max(1), Ordering::Relaxed);
         let new_rawinput_mode =
             Shared::new(CaptureMode::from_str(&config.rawinput_capture_mode).unwrap());
         let _ = self
@@ -611,6 +754,51 @@ impl AppState {
         self.input_timeout.load(Ordering::Relaxed)
     }
 
+    /// Returns the current XInput analog-stick deadzone. Hot paths should
+    /// snapshot this once per poll frame rather than reading per-axis.
+    #[inline(always)]
+    pub fn xinput_stick_deadzone(&self) -> i16 {
+        self.xinput_stick_deadzone.load(Ordering::Relaxed)
+    }
+
+    /// Returns the current XInput trigger activation threshold.
+    #[inline(always)]
+    pub fn xinput_trigger_threshold(&self) -> u8 {
+        self.xinput_trigger_threshold.load(Ordering::Relaxed)
+    }
+
+    /// Updates both XInput thresholds atomically. Takes effect on the next
+    /// poll frame without requiring a full config reload.
+    pub fn set_xinput_thresholds(&self, stick_deadzone: i16, trigger_threshold: u8) {
+        self.xinput_stick_deadzone
+            .store(stick_deadzone, Ordering::Relaxed);
+        self.xinput_trigger_threshold
+            .store(trigger_threshold, Ordering::Relaxed);
+    }
+
+    /// Reads `SPI_GETKEYBOARDDELAY` and `SPI_GETKEYBOARDSPEED` and caches
+    /// them as millisecond values. The synthetic-repeat path for non-turbo
+    /// non-keyboard triggers uses these to match Windows' own auto-repeat
+    /// timing for held keys.
+    pub fn refresh_key_repeat_settings(&self) {
+        let (delay, interval) = read_system_key_repeat();
+        self.kb_repeat_delay_ms.store(delay, Ordering::Relaxed);
+        self.kb_repeat_interval_ms
+            .store(interval, Ordering::Relaxed);
+    }
+
+    /// Initial delay before a held key starts repeating, in milliseconds.
+    #[inline(always)]
+    pub fn kb_repeat_delay_ms(&self) -> u64 {
+        self.kb_repeat_delay_ms.load(Ordering::Relaxed)
+    }
+
+    /// Interval between repeat events once the initial delay has elapsed.
+    #[inline(always)]
+    pub fn kb_repeat_interval_ms(&self) -> u64 {
+        self.kb_repeat_interval_ms.load(Ordering::Relaxed)
+    }
+
     /// Returns the configured worker thread count.
     pub fn get_configured_worker_count(&self) -> usize {
         self.configured_worker_count
@@ -660,6 +848,16 @@ impl AppState {
         let was_paused = self.toggle_paused();
         self.active_combo_triggers.clear_sync();
 
+        if !was_paused {
+            // Entering the paused state: tear down every piece of
+            // per-session state so resuming is a clean slate. This also
+            // fixes the ref-count leak where `device_states.clear()` in
+            // the workers previously skipped the `simulate_release` call
+            // for non-turbo entries, leaving keys effectively held forever.
+            self.release_all_held_keys();
+            self.reset_transient_state();
+        }
+
         if let Some(sender) = self.notification_sender.get() {
             let msg = if was_paused {
                 "Sorahk activating".to_string()
@@ -668,6 +866,72 @@ impl AppState {
             };
             let _ = sender.send(NotificationEvent::Info(msg));
         }
+    }
+
+    /// Emits `KEYUP` / `MOUSEUP` for every scancode / mouse button whose
+    /// ref count is non-zero, then zeroes every counter. Use this whenever
+    /// the app transitions into an inactive state (pause, process left the
+    /// whitelist) so downstream apps don't see a stuck key.
+    pub fn release_all_held_keys(&self) {
+        let mut inputs: smallvec::SmallVec<
+            [windows::Win32::UI::Input::KeyboardAndMouse::INPUT; 32],
+        > = smallvec::SmallVec::new();
+        for (idx, cell) in self.held_scancodes.iter().enumerate() {
+            let prev = cell.swap(0, Ordering::AcqRel);
+            if prev > 0 {
+                inputs.push(Self::build_key_input(idx as u16, true));
+            }
+        }
+        for (idx, cell) in self.held_mouse_buttons.iter().enumerate() {
+            let prev = cell.swap(0, Ordering::AcqRel);
+            if prev > 0 {
+                let btn = match idx {
+                    0 => MouseButton::Left,
+                    1 => MouseButton::Right,
+                    2 => MouseButton::Middle,
+                    3 => MouseButton::X1,
+                    _ => MouseButton::X2,
+                };
+                inputs.push(Self::build_mouse_input(btn, true));
+            }
+        }
+        if !inputs.is_empty() {
+            unsafe {
+                windows::Win32::UI::Input::KeyboardAndMouse::SendInput(
+                    &inputs,
+                    std::mem::size_of::<windows::Win32::UI::Input::KeyboardAndMouse::INPUT>()
+                        as i32,
+                );
+            }
+        }
+    }
+
+    /// Resets every piece of short-lived state the handler accumulates
+    /// during normal operation so the next event after the inactive period
+    /// starts from the same baseline as a fresh launch.
+    pub fn reset_transient_state(&self) {
+        let _ = self
+            .last_sequence_device
+            .swap((None, Tag::None), Ordering::Release);
+        let _ = self
+            .last_sequence_inputs
+            .swap((None, Tag::None), Ordering::Release);
+        self.last_mouse_direction.store(0, Ordering::Release);
+        self.last_mouse_x.store(0, Ordering::Release);
+        self.last_mouse_y.store(0, Ordering::Release);
+        self.mouse_opp_distance_px.store(0, Ordering::Release);
+        self.mouse_accum_dx.store(0, Ordering::Release);
+        self.mouse_accum_dy.store(0, Ordering::Release);
+        self.sequence_matcher.clear_history();
+        self.pressed_keys.clear_sync();
+    }
+
+    /// Cheap atomic read used by worker threads to decide whether they
+    /// should idle (clear device_states + drain their channels). Updated
+    /// by `is_process_whitelisted` on each call.
+    #[inline]
+    pub fn last_was_whitelisted(&self) -> bool {
+        self.prev_whitelisted.load(Ordering::Relaxed)
     }
 
     #[inline]
@@ -791,9 +1055,29 @@ impl AppState {
     }
 
     /// Check if current foreground process is in whitelist (empty whitelist = all allowed)
-    /// Hot path: called on every input event, inlined for minimal overhead
+    /// Hot path: called on every input event, inlined for minimal overhead.
+    /// Also detects the `true → false` transition so held keys from the
+    /// previous app don't linger after the foreground window changes out.
     #[inline(always)]
     pub(crate) fn is_process_whitelisted(&self) -> bool {
+        let current = self.compute_whitelisted();
+        let prev = self.prev_whitelisted.swap(current, Ordering::AcqRel);
+        if prev && !current {
+            // Foreground just moved out of the whitelist. Release every
+            // held key and reset transient state so nothing leaks into the
+            // new app; workers pick up `last_was_whitelisted=false` on
+            // their next loop iteration and idle accordingly.
+            self.release_all_held_keys();
+            self.reset_transient_state();
+        }
+        current
+    }
+
+    /// Raw check without transition side effects. Used internally by
+    /// `is_process_whitelisted` and by `handle_switch_key_toggle` to
+    /// decide worker activity on unpause.
+    #[inline(always)]
+    fn compute_whitelisted(&self) -> bool {
         let guard = Guard::new();
         let whitelist_ptr = self.process_whitelist.load(Ordering::Acquire, &guard);
         let empty_vec = vec![];
@@ -814,10 +1098,8 @@ impl AppState {
                 if likely(
                     now.duration_since(info.timestamp) < Duration::from_millis(CACHE_DURATION_MS),
                 ) {
-                    // Cache hit: return cached name
                     info.name.clone()
                 } else {
-                    // Cache miss: need refresh
                     let new_name = Self::get_foreground_process_name();
                     let new_cache = Shared::new(ProcessInfo {
                         name: new_name.clone(),
@@ -829,7 +1111,6 @@ impl AppState {
                     new_name
                 }
             } else {
-                // No cache exists
                 let new_name = Self::get_foreground_process_name();
                 let new_cache = Shared::new(ProcessInfo {
                     name: new_name.clone(),
@@ -842,11 +1123,9 @@ impl AppState {
             }
         };
 
-        // Check if process is in whitelist
         if let Some(name) = process_name {
             whitelist.iter().any(|p| p.to_lowercase() == name)
         } else {
-            // If we can't get process name, allow by default
             true
         }
     }

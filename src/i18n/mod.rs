@@ -130,6 +130,12 @@ struct TranslationCache {
     input_timeout_label: &'static str,
     default_interval_label: &'static str,
     default_duration_label: &'static str,
+    mouse_move_per_event_min_label: &'static str,
+    mouse_move_per_event_min_hint: &'static str,
+    mouse_move_min_trigger_label: &'static str,
+    mouse_move_min_trigger_hint: &'static str,
+    mouse_move_rearm_label: &'static str,
+    mouse_move_rearm_hint: &'static str,
     worker_count_label: &'static str,
     trigger_short: &'static str,
     target_short: &'static str,
@@ -362,6 +368,21 @@ impl TranslationCache {
             input_timeout_label: get_raw_translation(lang, RawKey::InputTimeoutLabel),
             default_interval_label: get_raw_translation(lang, RawKey::DefaultIntervalLabel),
             default_duration_label: get_raw_translation(lang, RawKey::DefaultDurationLabel),
+            mouse_move_per_event_min_label: get_raw_translation(
+                lang,
+                RawKey::MouseMovePerEventMinLabel,
+            ),
+            mouse_move_per_event_min_hint: get_raw_translation(
+                lang,
+                RawKey::MouseMovePerEventMinHint,
+            ),
+            mouse_move_min_trigger_label: get_raw_translation(
+                lang,
+                RawKey::MouseMoveMinTriggerLabel,
+            ),
+            mouse_move_min_trigger_hint: get_raw_translation(lang, RawKey::MouseMoveMinTriggerHint),
+            mouse_move_rearm_label: get_raw_translation(lang, RawKey::MouseMoveRearmLabel),
+            mouse_move_rearm_hint: get_raw_translation(lang, RawKey::MouseMoveRearmHint),
             worker_count_label: get_raw_translation(lang, RawKey::WorkerCountLabel),
 
             // Settings Dialog - Key Mappings Section

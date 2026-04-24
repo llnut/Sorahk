@@ -235,6 +235,10 @@ impl eframe::App for SorahkGui {
             if self.device_manager_dialog.is_none() {
                 let mut dialog = crate::gui::device_manager_dialog::DeviceManagerDialog::new();
                 dialog.load_preferences(&self.config.device_api_preferences);
+                dialog.load_xinput_params(
+                    self.config.xinput_stick_deadzone,
+                    self.config.xinput_trigger_threshold,
+                );
                 dialog.refresh_devices();
                 self.device_manager_dialog = Some(dialog);
             }
@@ -300,7 +304,25 @@ impl eframe::App for SorahkGui {
                     dialog.refresh_devices();
                 }
 
+                // Push every slider movement into `AppState` so the change
+                // takes effect on the next XInput poll tick. The config save
+                // is batched to the dialog-close event below to avoid
+                // rewriting `Config.toml` on every drag frame.
+                if let Some((stick_deadzone, trigger_threshold)) =
+                    dialog.take_xinput_params_change()
+                {
+                    self.config.xinput_stick_deadzone = stick_deadzone;
+                    self.config.xinput_trigger_threshold = trigger_threshold;
+                    self.app_state
+                        .set_xinput_thresholds(stick_deadzone, trigger_threshold);
+                    self.xinput_params_save_pending = true;
+                }
+
                 if should_close {
+                    if self.xinput_params_save_pending {
+                        let _ = self.config.save_to_file("Config.toml");
+                        self.xinput_params_save_pending = false;
+                    }
                     self.show_device_manager = false;
                     self.device_manager_dialog = None;
                 }

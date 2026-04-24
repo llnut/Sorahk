@@ -87,6 +87,29 @@ pub struct AppConfig {
     /// itself is not added to the sequence.
     #[serde(default = "default_sequence_finalize_key")]
     pub sequence_finalize_key: String,
+    /// Analog-stick deadzone applied to every XInput device.
+    /// Values below the absolute threshold are treated as neutral.
+    #[serde(default = "default_xinput_stick_deadzone")]
+    pub xinput_stick_deadzone: i16,
+    /// Trigger threshold applied to every XInput device.
+    /// Trigger values at or below the threshold are treated as released.
+    #[serde(default = "default_xinput_trigger_threshold")]
+    pub xinput_trigger_threshold: u8,
+    /// Minimum single-event delta in pixels required for a mouse event
+    /// to count toward the motion accumulator. Acts as a noise floor that
+    /// filters out hardware jitter and hand tremor below the threshold.
+    #[serde(default = "default_mouse_move_per_event_min_px")]
+    pub mouse_move_per_event_min_px: u32,
+    /// Accumulated motion in pixels required to fire a directional trigger.
+    /// Only events that pass `mouse_move_per_event_min_px` contribute to
+    /// this accumulator.
+    #[serde(default = "default_mouse_move_min_trigger_px")]
+    pub mouse_move_min_trigger_px: u32,
+    /// Reverse-direction distance in pixels that must accumulate before
+    /// the same direction can fire again. Lets the user double-flick in
+    /// one direction without spamming on a single continuous swipe.
+    #[serde(default = "default_mouse_move_rearm_px")]
+    pub mouse_move_rearm_px: u32,
     /// Key mapping configurations
     pub mappings: Vec<KeyMapping>,
     /// Input timeout in milliseconds
@@ -245,6 +268,21 @@ fn default_xinput_capture_mode() -> String {
 fn default_sequence_finalize_key() -> String {
     "RETURN".to_string()
 }
+fn default_xinput_stick_deadzone() -> i16 {
+    7849
+}
+fn default_xinput_trigger_threshold() -> u8 {
+    30
+}
+fn default_mouse_move_per_event_min_px() -> u32 {
+    2
+}
+fn default_mouse_move_min_trigger_px() -> u32 {
+    20
+}
+fn default_mouse_move_rearm_px() -> u32 {
+    10
+}
 
 impl Default for AppConfig {
     /// Creates a default configuration with sensible defaults.
@@ -257,6 +295,11 @@ impl Default for AppConfig {
             language: Language::default(),
             switch_key: "DELETE".to_string(),
             sequence_finalize_key: default_sequence_finalize_key(),
+            xinput_stick_deadzone: default_xinput_stick_deadzone(),
+            xinput_trigger_threshold: default_xinput_trigger_threshold(),
+            mouse_move_per_event_min_px: default_mouse_move_per_event_min_px(),
+            mouse_move_min_trigger_px: default_mouse_move_min_trigger_px(),
+            mouse_move_rearm_px: default_mouse_move_rearm_px(),
             mappings: vec![KeyMapping {
                 trigger_key: "Q".to_string(),
                 trigger_sequence: None,
@@ -350,7 +393,12 @@ impl AppConfig {
                                            # DiagonalPriority: Prioritizes diagonal stick directions over straight directions\n\
                                            # MostSustained: Captures the most sustained input pattern\n\
                                            # LastStable: Captures the last stable input before release\n\
-                                           # Note: Compile with RUSTFLAGS=\"-C target-feature=+avx2\" for AVX2 optimizations\n\n\
+                                           # Note: Compile with RUSTFLAGS=\"-C target-feature=+avx2\" for AVX2 optimizations\n\
+             xinput_stick_deadzone = {}    # Analog-stick deadzone applied to all XInput devices (0-32767)\n\
+             xinput_trigger_threshold = {} # Trigger activation threshold applied to all XInput devices (0-255)\n\
+             mouse_move_per_event_min_px = {} # Minimum per-event delta in pixels for a mouse event to count (noise floor)\n\
+             mouse_move_min_trigger_px = {}   # Accumulated pixels required to fire a directional trigger\n\
+             mouse_move_rearm_px = {}         # Reverse-direction distance in pixels before same direction can fire again\n\n\
              # ─── Control Settings ───   \n\
              switch_key = \"{}\"       # Reserved key to toggle SoraHK behavior\n\
              sequence_finalize_key = \"{}\"  # Key that stops a sequence capture in Settings\n\n\
@@ -552,6 +600,11 @@ impl AppConfig {
             self.event_duration,
             self.worker_count,
             self.xinput_capture_mode,
+            self.xinput_stick_deadzone,
+            self.xinput_trigger_threshold,
+            self.mouse_move_per_event_min_px,
+            self.mouse_move_min_trigger_px,
+            self.mouse_move_rearm_px,
             self.switch_key,
             self.sequence_finalize_key,
             self.process_whitelist

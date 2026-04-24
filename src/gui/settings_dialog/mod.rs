@@ -155,31 +155,25 @@ impl SorahkGui {
             if captured_input.is_none() && !self.just_captured_input {
                 let current_pressed = Self::poll_all_pressed_keys();
 
-                let new_keys: std::collections::HashSet<u32> = current_pressed
+                // Accumulate every newly pressed key that was not held when
+                // capture started, then finalize once any accumulated key is
+                // released. Waiting for a release is what lets modifier-plus-
+                // main-key combos like LCTRL+C be captured as a whole rather
+                // than one key at a time.
+                current_pressed
                     .iter()
                     .filter(|&vk| !self.capture_initial_pressed.contains(vk))
-                    .copied()
-                    .collect();
-
-                let has_new_key = new_keys
-                    .iter()
-                    .any(|vk| !self.capture_pressed_keys.contains(vk));
-
-                if has_new_key && !self.capture_pressed_keys.is_empty() {
-                    captured_input = Self::format_captured_keys(&self.capture_pressed_keys);
-                } else {
-                    new_keys.iter().for_each(|&vk| {
+                    .for_each(|&vk| {
                         self.capture_pressed_keys.insert(vk);
                     });
 
-                    let any_released = self
-                        .capture_pressed_keys
-                        .iter()
-                        .any(|vk| !current_pressed.contains(vk));
+                let any_released = self
+                    .capture_pressed_keys
+                    .iter()
+                    .any(|vk| !current_pressed.contains(vk));
 
-                    if any_released {
-                        captured_input = Self::format_captured_keys(&self.capture_pressed_keys);
-                    }
+                if any_released {
+                    captured_input = Self::format_captured_keys(&self.capture_pressed_keys);
                 }
             }
 
@@ -732,6 +726,77 @@ impl SorahkGui {
                                                     );
                                                     if let Ok(val) = duration_str.parse::<u64>() {
                                                         temp_config.event_duration = val.max(2);
+                                                    }
+                                                    ui.end_row();
+
+                                                    ui.label(t.mouse_move_per_event_min_label())
+                                                        .on_hover_text(
+                                                            t.mouse_move_per_event_min_hint(),
+                                                        );
+                                                    let mut per_event_str = temp_config
+                                                        .mouse_move_per_event_min_px
+                                                        .to_string();
+                                                    ui.add_sized(
+                                                        [120.0, 24.0],
+                                                        egui::TextEdit::singleline(
+                                                            &mut per_event_str,
+                                                        )
+                                                        .background_color(if self.dark_mode {
+                                                            egui::Color32::from_rgb(50, 50, 50)
+                                                        } else {
+                                                            egui::Color32::from_rgb(220, 220, 220)
+                                                        }),
+                                                    );
+                                                    if let Ok(val) = per_event_str.parse::<u32>() {
+                                                        temp_config.mouse_move_per_event_min_px =
+                                                            val.max(1);
+                                                    }
+                                                    ui.end_row();
+
+                                                    ui.label(t.mouse_move_min_trigger_label())
+                                                        .on_hover_text(
+                                                            t.mouse_move_min_trigger_hint(),
+                                                        );
+                                                    let mut min_trigger_str = temp_config
+                                                        .mouse_move_min_trigger_px
+                                                        .to_string();
+                                                    ui.add_sized(
+                                                        [120.0, 24.0],
+                                                        egui::TextEdit::singleline(
+                                                            &mut min_trigger_str,
+                                                        )
+                                                        .background_color(if self.dark_mode {
+                                                            egui::Color32::from_rgb(50, 50, 50)
+                                                        } else {
+                                                            egui::Color32::from_rgb(220, 220, 220)
+                                                        }),
+                                                    );
+                                                    if let Ok(val) =
+                                                        min_trigger_str.parse::<u32>()
+                                                    {
+                                                        temp_config.mouse_move_min_trigger_px =
+                                                            val.max(1);
+                                                    }
+                                                    ui.end_row();
+
+                                                    ui.label(t.mouse_move_rearm_label())
+                                                        .on_hover_text(t.mouse_move_rearm_hint());
+                                                    let mut rearm_str =
+                                                        temp_config.mouse_move_rearm_px.to_string();
+                                                    ui.add_sized(
+                                                        [120.0, 24.0],
+                                                        egui::TextEdit::singleline(&mut rearm_str)
+                                                            .background_color(if self.dark_mode {
+                                                                egui::Color32::from_rgb(50, 50, 50)
+                                                            } else {
+                                                                egui::Color32::from_rgb(
+                                                                    220, 220, 220,
+                                                                )
+                                                            }),
+                                                    );
+                                                    if let Ok(val) = rearm_str.parse::<u32>() {
+                                                        temp_config.mouse_move_rearm_px =
+                                                            val.max(1);
                                                     }
                                                     ui.end_row();
 
@@ -4029,9 +4094,11 @@ impl SorahkGui {
                     // Update GUI's config
                     self.config = temp_config.clone();
 
-                    // Switch key is resolved by the state layer via
-                    // `update_switch_key_cache`. No GUI-side re-parse is
-                    // needed here.
+                    // The GUI also polls the switch key via GetAsyncKeyState
+                    // using a cached parse result, so rebuild it from the new
+                    // config. Without this refresh the polling loop keeps
+                    // firing on the old hotkey until the app restarts.
+                    self.parsed_switch_key = Self::parse_switch_key(&self.config.switch_key);
 
                     // Apply theme change immediately
                     if dark_mode_changed {

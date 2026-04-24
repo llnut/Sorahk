@@ -59,6 +59,18 @@ pub(super) const fn translate(key: RawKey) -> &'static str {
         RawKey::InputTimeoutLabel => "Input Timeout (ms):",
         RawKey::DefaultIntervalLabel => "Default Interval (ms):",
         RawKey::DefaultDurationLabel => "Default Duration (ms):",
+        RawKey::MouseMovePerEventMinLabel => "Mouse Move Per-Event Min (px):",
+        RawKey::MouseMovePerEventMinHint => {
+            "Single-event delta below this threshold is treated as noise and ignored"
+        }
+        RawKey::MouseMoveMinTriggerLabel => "Mouse Move Accumulated Trigger (px):",
+        RawKey::MouseMoveMinTriggerHint => {
+            "Accumulated delta of qualifying events required to fire a directional trigger"
+        }
+        RawKey::MouseMoveRearmLabel => "Mouse Move Rearm Distance (px):",
+        RawKey::MouseMoveRearmHint => {
+            "Reverse-direction distance before the same direction can fire again"
+        }
         RawKey::WorkerCountLabel => "Worker Count:",
         RawKey::TriggerShort => "🎯 Trigger:",
         RawKey::TargetShort => "🎮 Target:",

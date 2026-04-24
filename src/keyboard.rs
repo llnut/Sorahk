@@ -13,6 +13,97 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use crate::state::{AppState, InputDevice, InputEvent};
 use crate::util::{likely, unlikely};
 
+/// Per-device simulation state held by a turbo-worker's local cache.
+/// `synthetic_repeat` marks triggers that do not produce Windows key-repeat
+/// events such as mouse, XInput, and Raw Input. For those the worker drives
+/// its own repeat pump using `first_press` and the system keyboard-repeat
+/// settings. `is_holdable` is cached at insert time so the hot path skips
+/// rescanning `MultipleActions` on every Pressed event and synthetic-repeat
+/// tick. `is_sequential` marks targets that must fire a full `simulate_action`
+/// cycle per repeat tick rather than a `simulate_repeat_press`, so sequential
+/// targets loop their whole key chain on every Windows repeat.
+struct DeviceSimState<A> {
+    last_time: Instant,
+    interval: u64,
+    event_duration: u64,
+    target_action: A,
+    turbo_enabled: bool,
+    first_press: Instant,
+    synthetic_repeat: bool,
+    is_holdable: bool,
+    is_sequential: bool,
+}
+
+impl<A> DeviceSimState<A> {
+    /// Creates a turbo entry. Turbo entries never drive the synthetic
+    /// repeat pump because `simulate_action` already paces the output
+    /// cycle itself.
+    #[inline(always)]
+    fn new_turbo(target_action: A, interval: u64, event_duration: u64, now: Instant) -> Self {
+        Self {
+            last_time: now,
+            interval,
+            event_duration,
+            target_action,
+            turbo_enabled: true,
+            first_press: now,
+            synthetic_repeat: false,
+            is_holdable: false,
+            is_sequential: false,
+        }
+    }
+
+    /// Creates a non-turbo entry. The caller must have already classified
+    /// the trigger and the target action.
+    #[inline(always)]
+    fn new_non_turbo(
+        target_action: A,
+        interval: u64,
+        event_duration: u64,
+        now: Instant,
+        synthetic_repeat: bool,
+        is_holdable: bool,
+        is_sequential: bool,
+    ) -> Self {
+        Self {
+            last_time: now,
+            interval,
+            event_duration,
+            target_action,
+            turbo_enabled: false,
+            first_press: now,
+            synthetic_repeat,
+            is_holdable,
+            is_sequential,
+        }
+    }
+}
+
+/// Returns true for output actions that have a meaningful held state:
+/// keyboard keys, key combos, mouse buttons, and recursive compositions of
+/// those. Movement, scroll, and sequential actions return false because
+/// `simulate_initial_press` cannot represent their held semantics.
+#[inline(always)]
+fn is_holdable_action(action: &crate::state::OutputAction) -> bool {
+    use crate::state::OutputAction;
+    match action {
+        OutputAction::KeyboardKey(_) | OutputAction::KeyCombo(_) | OutputAction::MouseButton(_) => {
+            true
+        }
+        OutputAction::MultipleActions(actions) => actions.iter().all(is_holdable_action),
+        _ => false,
+    }
+}
+
+/// Returns true for targets that must loop a full `simulate_action` pass
+/// on each repeat tick. Only the top-level `SequentialActions` qualifies;
+/// nested uses inside `MultipleActions` are not supported because the
+/// worker can only drive one simulation cursor per device.
+#[inline(always)]
+fn is_sequential_action(action: &crate::state::OutputAction) -> bool {
+    matches!(action, crate::state::OutputAction::SequentialActions(..))
+}
+
 unsafe impl Send for KeyboardHook {}
 
 // Multi-worker dispatcher supporting both keyboard and mouse
@@ -64,7 +155,7 @@ impl crate::state::EventDispatcher for WorkerPool {
         }
 
         let device = match &event {
-            InputEvent::Pressed(d) | InputEvent::Released(d) => d,
+            InputEvent::Pressed(d) | InputEvent::Released(d) | InputEvent::RetapHold(d) => d,
         };
 
         // Fast path: check cache for keyboard keys (most common case)
@@ -296,24 +387,31 @@ impl KeyboardHook {
 
     fn turbo_worker(_worker_id: usize, state: Arc<AppState>, event_rx: Receiver<InputEvent>) {
         use crate::state::OutputAction;
-        // Store device state along with cached mapping info to avoid repeated lookups
-        // Cache format: (last_time, interval, event_duration, target_action, turbo_enabled)
-        // Pre-allocate with reasonable capacity to reduce allocations
-        let mut device_states: HashMap<InputDevice, (Instant, u64, u64, OutputAction, bool)> =
+        let mut device_states: HashMap<InputDevice, DeviceSimState<OutputAction>> =
             HashMap::with_capacity(16);
 
         let timeout_duration = Duration::from_millis(state.input_timeout());
 
         while !state.should_exit() {
-            if unlikely(state.is_paused()) {
+            // Tick the whitelist check so foreground-app transitions land
+            // even when the only activity is XInput / Raw Input (those
+            // paths never call `is_process_whitelisted` themselves). The
+            // inner 50ms cache keeps the real syscall rate bounded.
+            let _ = state.is_process_whitelisted();
+
+            if unlikely(state.is_paused() || !state.last_was_whitelisted()) {
+                // Either user-paused or the foreground app left the
+                // whitelist. Drop worker-local state so pending turbo
+                // cycles stop, and drain the channel so stale events
+                // don't replay after the idle period.
                 if !device_states.is_empty() {
                     device_states.clear();
                 }
+                while event_rx.try_recv().is_ok() {}
                 thread::sleep(Duration::from_millis(50));
                 continue;
             }
 
-            // Hot path: event receiving and processing
             match event_rx.recv_timeout(timeout_duration) {
                 Ok(event) => Self::handle_input_event(&state, &mut device_states, event),
                 Err(_) => Self::handle_timeout(&state, &mut device_states),
@@ -321,122 +419,190 @@ impl KeyboardHook {
         }
     }
 
+    /// Returns true for trigger devices that do not produce native Windows
+    /// key-repeat events. Such triggers need a worker-driven synthetic
+    /// repeat to emulate a held key in non-turbo mode. The match uses a
+    /// positive whitelist so any future `InputDevice` variant forces a
+    /// compile error here instead of silently inheriting synthetic repeat.
+    #[inline(always)]
+    fn needs_synthetic_repeat(device: &InputDevice) -> bool {
+        match device {
+            InputDevice::Keyboard(_) | InputDevice::KeyCombo(_) => false,
+            InputDevice::Mouse(_)
+            | InputDevice::MouseMove(_)
+            | InputDevice::XInputCombo { .. }
+            | InputDevice::GenericDevice { .. } => true,
+        }
+    }
+
+    /// Processes a single input event, applying turbo pacing or passing
+    /// through a press/release for non-turbo mappings.
     #[inline]
     fn handle_input_event(
         state: &AppState,
-        device_states: &mut HashMap<
-            InputDevice,
-            (Instant, u64, u64, crate::state::OutputAction, bool),
-        >,
+        device_states: &mut HashMap<InputDevice, DeviceSimState<crate::state::OutputAction>>,
         event: InputEvent,
     ) {
-        use crate::state::OutputAction;
+        // Re-check the pause / whitelist state before firing any ref-counted
+        // press. Closes the narrow race where the handler thread toggled
+        // `is_paused` between its own top-level guard and `pool.dispatch`,
+        // letting a stale Pressed slip past early-return. Dropping the
+        // event here avoids `simulate_initial_press` leaking a ref count
+        // that no matching Released will arrive to balance.
+        if unlikely(state.is_paused() || !state.last_was_whitelisted()) {
+            return;
+        }
 
         match event {
             InputEvent::Pressed(device) => {
                 let now = Instant::now();
 
-                // Fast path: check if device already in cache (common case for repeats)
-                if let Some((last_time, interval, duration, target_action, turbo_enabled)) =
-                    device_states.get_mut(&device)
-                {
-                    if *turbo_enabled {
-                        // Turbo mode: respect interval timing
+                if let Some(sim) = device_states.get_mut(&device) {
+                    if sim.turbo_enabled {
                         if likely(
-                            now.duration_since(*last_time) >= Duration::from_millis(*interval),
+                            now.duration_since(sim.last_time)
+                                >= Duration::from_millis(sim.interval),
                         ) {
-                            state.simulate_action(target_action.clone(), *duration);
-                            *last_time = now;
+                            state.simulate_action(sim.target_action.clone(), sim.event_duration);
+                            sim.last_time = now;
                         }
-                    } else {
-                        // Non-turbo mode: handle Windows repeat events
-                        // Process keyboard keys only (mouse buttons don't generate repeat events)
-                        // Windows repeat sends full action cycles (press->duration->release)
-                        match target_action {
-                            OutputAction::KeyboardKey(_) | OutputAction::KeyCombo(_) => {
-                                state.simulate_action(target_action.clone(), *duration);
-                                *last_time = now;
-                            }
-                            OutputAction::MultipleActions(actions) => {
-                                // For multiple actions, check if all are keyboard-related
-                                let all_keyboard = actions.iter().all(|a| {
-                                    matches!(
-                                        a,
-                                        OutputAction::KeyboardKey(_) | OutputAction::KeyCombo(_)
-                                    )
-                                });
-                                if all_keyboard {
-                                    state.simulate_action(target_action.clone(), *duration);
-                                    *last_time = now;
-                                }
-                            }
-                            _ => {}
+                    } else if !sim.synthetic_repeat {
+                        // Keyboard-like trigger rides Windows' own key-repeat
+                        // stream. Each arriving Pressed maps to one WM_KEYDOWN
+                        // delivery at Windows pacing.
+                        if sim.is_sequential {
+                            // Sequential target runs a full press/release
+                            // cycle per tick so the whole key chain loops.
+                            state.simulate_action(sim.target_action.clone(), sim.event_duration);
+                            sim.last_time = now;
+                        } else if sim.is_holdable {
+                            // Ref-neutral repeat: the key is already held
+                            // (refcount >= 1 from the initial press), so we
+                            // only need to re-emit KEYDOWN to keep Windows'
+                            // auto-repeat stream alive.
+                            state.simulate_repeat_press(&sim.target_action);
+                            sim.last_time = now;
                         }
+                        // Non-holdable non-sequential targets (MouseMove /
+                        // MouseScroll) have no repeat semantics; drop the tick.
                     }
-                } else {
-                    // Slow path: first press lookup and cache
-                    if let Some(mapping) = state.get_input_mapping(&device) {
-                        let target_action_clone = mapping.target_action.clone();
-                        let turbo_enabled = mapping.turbo_enabled;
+                    // Non-keyboard triggers arrive at event-source rate which
+                    // is far faster than Windows key repeat. Fall through
+                    // without firing so handle_timeout can drive the synthetic
+                    // repeat at the real OS delay and rate.
+                } else if let Some(mapping) = state.get_input_mapping(&device) {
+                    let target_action_clone = mapping.target_action.clone();
+                    let turbo_enabled = mapping.turbo_enabled;
 
-                        device_states.insert(
-                            device,
-                            (
-                                now,
-                                mapping.interval,
-                                mapping.event_duration,
-                                mapping.target_action,
-                                turbo_enabled,
-                            ),
-                        );
+                    let sim = if turbo_enabled {
+                        DeviceSimState::new_turbo(
+                            mapping.target_action,
+                            mapping.interval,
+                            mapping.event_duration,
+                            now,
+                        )
+                    } else {
+                        let synthetic_repeat = Self::needs_synthetic_repeat(&device);
+                        let is_holdable = is_holdable_action(&mapping.target_action);
+                        let is_sequential = is_sequential_action(&mapping.target_action);
+                        DeviceSimState::new_non_turbo(
+                            mapping.target_action,
+                            mapping.interval,
+                            mapping.event_duration,
+                            now,
+                            synthetic_repeat,
+                            is_holdable,
+                            is_sequential,
+                        )
+                    };
+                    device_states.insert(device, sim);
 
-                        // Simulate based on turbo mode
-                        if turbo_enabled {
-                            state.simulate_action(target_action_clone, mapping.event_duration);
-                        } else {
-                            state.simulate_press(&target_action_clone);
-                        }
+                    if turbo_enabled {
+                        state.simulate_action(target_action_clone, mapping.event_duration);
+                    } else if is_sequential_action(&target_action_clone) {
+                        // First fire of a sequential target runs the whole
+                        // chain so non-turbo mode is not stuck on the first
+                        // key like plain `simulate_initial_press` would leave it.
+                        state.simulate_action(target_action_clone, mapping.event_duration);
+                    } else {
+                        // Initial press increments per-key ref counts so
+                        // overlapping triggers (e.g. diagonal mouse-move
+                        // merge) can share a held key without racing.
+                        state.simulate_initial_press(&target_action_clone);
                     }
                 }
             }
             InputEvent::Released(device) => {
-                // For non-turbo mode, simulate release event
-                if let Some((_, _, _, target_action, turbo_enabled)) = device_states.get(&device)
-                    && !turbo_enabled
+                if let Some(sim) = device_states.get(&device)
+                    && !sim.turbo_enabled
+                    && !sim.is_sequential
                 {
-                    state.simulate_release(target_action);
+                    // Sequential targets release themselves inside each
+                    // simulate_action pass, so no extra release is needed.
+                    state.simulate_release(&sim.target_action);
                 }
                 device_states.remove(&device);
+            }
+            InputEvent::RetapHold(device) => {
+                // Same-direction re-arm: release the current hold, wait the
+                // mapping's interval, then press again. Polling-based games
+                // can observe the intermediate keyup so double-tap detection
+                // fires. Delay is per-mapping so the user tunes it together
+                // with turbo rate.
+                if let Some(sim) = device_states.get_mut(&device) {
+                    let delay_ms = sim.interval;
+                    let target = sim.target_action.clone();
+                    state.simulate_release(&target);
+                    if delay_ms > 0 {
+                        thread::sleep(Duration::from_millis(delay_ms));
+                    }
+                    // Re-seed the refcount-backed press so the target is
+                    // treated as freshly held after the retap window.
+                    state.simulate_initial_press(&target);
+                    let now = Instant::now();
+                    sim.first_press = now;
+                    sim.last_time = now;
+                }
+                // If the device is not currently held, RetapHold is a no-op.
             }
         }
     }
 
+    /// Fires pending turbo events and non-turbo synthetic repeats.
     #[inline]
     fn handle_timeout(
         state: &AppState,
-        device_states: &mut HashMap<
-            InputDevice,
-            (Instant, u64, u64, crate::state::OutputAction, bool),
-        >,
+        device_states: &mut HashMap<InputDevice, DeviceSimState<crate::state::OutputAction>>,
     ) {
-        // Early return if no active devices
         if unlikely(device_states.is_empty()) {
             return;
         }
 
         let now = Instant::now();
+        let repeat_delay = Duration::from_millis(state.kb_repeat_delay_ms());
+        let repeat_interval = Duration::from_millis(state.kb_repeat_interval_ms());
 
-        // Iterate over cached device states
-        for (_device, (last_time, interval, duration, target_action, turbo_enabled)) in
-            device_states.iter_mut()
-        {
-            // Only repeat if turbo mode is enabled
-            if likely(
-                *turbo_enabled
-                    && now.duration_since(*last_time) >= Duration::from_millis(*interval),
-            ) {
-                state.simulate_action(target_action.clone(), *duration);
-                *last_time = now;
+        for sim in device_states.values_mut() {
+            if sim.turbo_enabled {
+                if likely(now.duration_since(sim.last_time) >= Duration::from_millis(sim.interval))
+                {
+                    state.simulate_action(sim.target_action.clone(), sim.event_duration);
+                    sim.last_time = now;
+                }
+            } else if sim.synthetic_repeat
+                && (sim.is_holdable || sim.is_sequential)
+                && now.duration_since(sim.first_press) >= repeat_delay
+                && now.duration_since(sim.last_time) >= repeat_interval
+            {
+                if sim.is_sequential {
+                    state.simulate_action(sim.target_action.clone(), sim.event_duration);
+                } else {
+                    // Synthetic repeat keeps the OS auto-repeat stream
+                    // warm. The key is already ref-counted from the
+                    // initial press, so only the KEYDOWN signal goes out.
+                    state.simulate_repeat_press(&sim.target_action);
+                }
+                sim.last_time = now;
             }
         }
     }
@@ -505,12 +671,15 @@ impl KeyboardHook {
         let timeout_duration = Duration::from_millis(1);
 
         while !state.should_exit() {
-            if unlikely(state.is_paused()) {
+            let _ = state.is_process_whitelisted();
+
+            if unlikely(state.is_paused() || !state.last_was_whitelisted()) {
                 active_directions = 0;
                 scroll_active = 0;
                 has_first_speed = false;
                 first_speed = 5;
                 mapping_cache.clear();
+                while event_rx.try_recv().is_ok() {}
                 thread::sleep(Duration::from_millis(50));
                 continue;
             }
@@ -708,6 +877,14 @@ impl KeyboardHook {
         event: InputEvent,
     ) {
         use crate::state::OutputAction;
+
+        // Same race guard as turbo_worker: drop events that raced past the
+        // handler's top-level pause check. Keeps mouse-scroll / mouse-move
+        // dispatches from running after pause.
+        if unlikely(state.is_paused() || !state.last_was_whitelisted()) {
+            return;
+        }
+
         let now = Instant::now();
 
         match event {
@@ -919,6 +1096,15 @@ impl KeyboardHook {
                     *has_first_speed = false;
                     *first_speed = 10;
                 }
+            }
+            InputEvent::RetapHold(_) => {
+                // Routing invariant: this worker only handles events whose
+                // target is mouse movement or scroll (the dispatcher's
+                // `is_mouse_action` gate in `WorkerPool::dispatch` sends
+                // keyboard-style targets to the turbo_worker). Movement
+                // outputs are emitted frame-by-frame and have no persistent
+                // hold state, so the retap cycle is a no-op here. If the
+                // dispatcher invariant ever changes, add handling.
             }
         }
     }

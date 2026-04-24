@@ -10,6 +10,30 @@ use crate::util::{likely, unlikely};
 use super::AppState;
 use super::types::*;
 
+/// Returns how much of a mouse-move delta lands in the half-plane opposite
+/// to the given direction. Screen coordinates have Y pointing down. Only
+/// positive values are meaningful; a negative result means the delta is in
+/// the same hemisphere as the direction and should be ignored by the
+/// caller. Diagonal directions are scaled by 1/sqrt(2) to give the
+/// projection onto the unit vector, so thresholds stay comparable across
+/// all eight directions.
+#[inline(always)]
+fn opposite_projection(dx: i32, dy: i32, dir: MouseMoveDirection) -> f32 {
+    const FRAC_1_SQRT_2: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    let dxf = dx as f32;
+    let dyf = dy as f32;
+    match dir {
+        MouseMoveDirection::Up => dyf,
+        MouseMoveDirection::Down => -dyf,
+        MouseMoveDirection::Left => dxf,
+        MouseMoveDirection::Right => -dxf,
+        MouseMoveDirection::UpLeft => (dxf + dyf) * FRAC_1_SQRT_2,
+        MouseMoveDirection::UpRight => (-dxf + dyf) * FRAC_1_SQRT_2,
+        MouseMoveDirection::DownLeft => (dxf - dyf) * FRAC_1_SQRT_2,
+        MouseMoveDirection::DownRight => (-dxf - dyf) * FRAC_1_SQRT_2,
+    }
+}
+
 impl AppState {
     #[allow(non_snake_case)]
     #[inline(always)]
@@ -269,6 +293,13 @@ impl AppState {
     ) -> bool {
         use std::sync::atomic::Ordering;
 
+        // Short-circuit the entire mouse pipeline when paused or the
+        // foreground app is not whitelisted. The whitelist check also
+        // trips the transition detector which releases held keys.
+        if unlikely(self.is_paused() || !self.is_process_whitelisted()) {
+            return false;
+        }
+
         let mut should_block = false;
 
         if message == WM_MOUSEMOVE {
@@ -278,11 +309,67 @@ impl AppState {
             if last_x != 0 || last_y != 0 {
                 let delta_x = mouse_x - last_x;
                 let delta_y = mouse_y - last_y;
-                let magnitude_sq = delta_x * delta_x + delta_y * delta_y;
-                if magnitude_sq >= 100 {
-                    // sqrt(100) = 10 pixels
-                    // Calculate angle in degrees
-                    let angle = (delta_y as f32).atan2(delta_x as f32).to_degrees();
+                let delta_mag_sq =
+                    (delta_x as i64) * (delta_x as i64) + (delta_y as i64) * (delta_y as i64);
+
+                // Per-event speed gate. Events whose single-frame delta
+                // falls under this threshold are treated as hardware noise
+                // or unintentional drift and are dropped entirely: they do
+                // not contribute to the motion accumulator, the reverse
+                // accumulator, or trigger any logic. Deliberate motion
+                // produces events above the threshold.
+                let per_event_min_sq =
+                    self.mouse_move_per_event_min_sq.load(Ordering::Acquire) as i64;
+                let qualifies = delta_mag_sq >= per_event_min_sq;
+
+                let opp_rearm_px = self.mouse_move_rearm_px.load(Ordering::Acquire);
+                let last_dir_now =
+                    MouseMoveDirection::from_u8(self.last_mouse_direction.load(Ordering::Acquire));
+
+                // Default to existing accumulator for non-qualifying events
+                // so no stored state changes when this frame is dropped.
+                let mut accum_dx = self.mouse_accum_dx.load(Ordering::Acquire);
+                let mut accum_dy = self.mouse_accum_dy.load(Ordering::Acquire);
+
+                if qualifies {
+                    // Qualifying events feed the accumulator so slow but
+                    // deliberate motion still eventually crosses the
+                    // threshold, and feed the reverse accumulator used to
+                    // re-arm same-direction firing.
+                    accum_dx = accum_dx.saturating_add(delta_x);
+                    accum_dy = accum_dy.saturating_add(delta_y);
+                    self.mouse_accum_dx.store(accum_dx, Ordering::Release);
+                    self.mouse_accum_dy.store(accum_dy, Ordering::Release);
+
+                    if let Some(ld) = last_dir_now {
+                        let opp = opposite_projection(delta_x, delta_y, ld);
+                        // The reverse projection itself must clear the same
+                        // per-event speed gate as the full delta. Without
+                        // this, a mostly-forward event with a small lateral
+                        // reverse component would quietly drip pixels into
+                        // opp_distance and eventually re-arm without any
+                        // real return motion.
+                        let per_event_min_px =
+                            self.mouse_move_per_event_min_px.load(Ordering::Acquire);
+                        if opp >= per_event_min_px as f32 {
+                            let add = opp.round().max(0.0) as u32;
+                            if add > 0 {
+                                let cur = self.mouse_opp_distance_px.load(Ordering::Acquire);
+                                self.mouse_opp_distance_px
+                                    .store(cur.saturating_add(add), Ordering::Release);
+                            }
+                        }
+                    }
+                }
+
+                let accum_mag_sq =
+                    (accum_dx as i64) * (accum_dx as i64) + (accum_dy as i64) * (accum_dy as i64);
+                let min_trigger_sq = self.mouse_move_min_trigger_sq.load(Ordering::Acquire) as i64;
+                if qualifies && accum_mag_sq >= min_trigger_sq {
+                    // Direction is read from the accumulated vector, so
+                    // slight zig-zag within one "swipe unit" still resolves
+                    // to the net direction.
+                    let angle = (accum_dy as f32).atan2(accum_dx as f32).to_degrees();
 
                     // Determine direction (8 directions)
                     // Note: Screen coordinates have Y-axis pointing DOWN
@@ -304,21 +391,53 @@ impl AppState {
                         MouseMoveDirection::UpRight
                     };
 
-                    // Deduplicate: only record if direction changed
-                    // Lock-free atomic operations for better performance
+                    // Direction-change records are unconditional. Same-direction
+                    // records are gated by either the reverse-distance
+                    // accumulator or the pause reset above, so a continuous
+                    // swipe does not spam records while a double-flick still
+                    // re-arms the next record.
                     let last_dir_u8 = self.last_mouse_direction.load(Ordering::Acquire);
                     let last_dir = MouseMoveDirection::from_u8(last_dir_u8);
 
+                    let mut rearm_dispatch: Option<InputDevice> = None;
                     let (should_record, should_stop_previous) = if last_dir != Some(direction) {
-                        let should_stop = last_dir.is_some(); // Stop previous direction if exists
+                        let should_stop = last_dir.is_some();
                         self.last_mouse_direction
                             .store(direction.to_u8(), Ordering::Release);
+                        self.mouse_opp_distance_px.store(0, Ordering::Release);
                         (true, should_stop)
+                    } else if self.mouse_opp_distance_px.load(Ordering::Acquire) >= opp_rearm_px {
+                        // Same-direction re-arm: emit a `RetapHold` so the
+                        // worker releases, waits the mapping's interval,
+                        // then presses again. That intermediate keyup is
+                        // what a polling-based game samples to register the
+                        // double-tap. Skip the record/dispatch path below
+                        // because `last_sequence_device` is already set to
+                        // this direction and the worker will restart its
+                        // hold cycle.
+                        self.mouse_opp_distance_px.store(0, Ordering::Release);
+                        rearm_dispatch = Some(InputDevice::MouseMove(direction));
+                        self.sequence_matcher.clear_history();
+                        (false, false)
                     } else {
                         (false, false)
                     };
 
-                    // Stop previous mouse direction sequence if direction changed
+                    if let Some(dev) = rearm_dispatch
+                        && let Some(pool) = self.worker_pool.get()
+                    {
+                        pool.dispatch(InputEvent::RetapHold(dev));
+                    }
+
+                    // Clear the previous mouse-move sequence state when the
+                    // direction actually changed, but defer the `Released`
+                    // dispatch until *after* the new `Pressed` fires below.
+                    // The worker processes events FIFO, so sending Pressed
+                    // first lets ref counts for any shared scancodes climb
+                    // to >= 2 before the release drops them back to 1 — the
+                    // overlapping keys stay held all the way through the
+                    // transition (smooth cardinal → diagonal handoff).
+                    let mut deferred_release: Option<InputDevice> = None;
                     if should_stop_previous {
                         let guard = Guard::new();
                         let last_seq = self.last_sequence_device.load(Ordering::Acquire, &guard);
@@ -332,9 +451,7 @@ impl AppState {
                                 .last_sequence_inputs
                                 .swap((None, Tag::None), Ordering::Release);
 
-                            if let Some(pool) = self.worker_pool.get() {
-                                pool.dispatch(InputEvent::Released(seq_device));
-                            }
+                            deferred_release = Some(seq_device);
                         }
                     }
 
@@ -387,6 +504,22 @@ impl AppState {
                             }
                         }
                     }
+
+                    // Deferred release fires AFTER the new Pressed above,
+                    // so shared scancodes keep ref >= 1 during the swap.
+                    if let Some(seq_device) = deferred_release
+                        && let Some(pool) = self.worker_pool.get()
+                    {
+                        pool.dispatch(InputEvent::Released(seq_device));
+                    }
+
+                    // Threshold reached this event: reset the motion
+                    // accumulator so the next record requires a fresh
+                    // threshold's worth of motion. This avoids a single long
+                    // swipe firing the same direction repeatedly and lets
+                    // `opp_distance` alone gate same-direction re-records.
+                    self.mouse_accum_dx.store(0, Ordering::Release);
+                    self.mouse_accum_dy.store(0, Ordering::Release);
                 }
             }
 

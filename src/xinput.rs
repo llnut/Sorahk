@@ -14,12 +14,6 @@ use windows::Win32::UI::Input::XboxController::*;
 /// XInput gamepad VID (Microsoft)
 const XBOX_VID: u16 = 0x045E;
 
-/// Analog stick deadzone threshold.
-const STICK_DEADZONE: i16 = 7849; // ~24% of max range
-
-/// Trigger deadzone threshold.
-const TRIGGER_THRESHOLD: u8 = 30;
-
 /// Maximum number of simultaneous inputs (buttons + sticks + triggers)
 const MAX_INPUTS: usize = 20;
 
@@ -161,14 +155,19 @@ impl XInputHandler {
             }
         }
 
+        // Snapshot thresholds once per poll frame so the inner fast paths
+        // compare against plain locals instead of hitting atomics per axis.
+        let stick_deadzone = self.state.xinput_stick_deadzone();
+        let trigger_threshold = self.state.xinput_trigger_threshold();
+
         for user_index in 0..XUSER_MAX_COUNT {
-            self.poll_device(user_index);
+            self.poll_device(user_index, stick_deadzone, trigger_threshold);
         }
     }
 
     /// Polls a single XInput device.
     #[inline]
-    fn poll_device(&mut self, user_index: u32) {
+    fn poll_device(&mut self, user_index: u32, stick_deadzone: i16, trigger_threshold: u8) {
         let mut state = XINPUT_STATE::default();
 
         match unsafe { XInputGetState(user_index, &mut state) } {
@@ -183,8 +182,8 @@ impl XInputHandler {
                     let mut current_inputs = SmallVec::<[u32; MAX_INPUTS]>::new();
 
                     Self::check_buttons_fast(&gamepad, &mut current_inputs);
-                    Self::check_analog_sticks_fast(&gamepad, &mut current_inputs);
-                    Self::check_triggers_fast(&gamepad, &mut current_inputs);
+                    Self::check_analog_sticks_fast(&gamepad, &mut current_inputs, stick_deadzone);
+                    Self::check_triggers_fast(&gamepad, &mut current_inputs, trigger_threshold);
 
                     let inputs_changed = current_inputs != device_state.active_inputs;
 
@@ -778,53 +777,58 @@ impl XInputHandler {
         }
     }
 
-    /// Checks analog stick states and records active directions.
+    /// Checks analog stick states and records active directions using the
+    /// deadzone passed by the caller. The caller snapshots the value once
+    /// per poll frame so the inner loop runs against a plain scalar.
     #[inline(always)]
     fn check_analog_sticks_fast(
         gamepad: &XINPUT_GAMEPAD,
         active: &mut SmallVec<[u32; MAX_INPUTS]>,
+        deadzone: i16,
     ) {
-        // Left stick X-axis
+        let neg_deadzone = -deadzone;
+
         let lx = gamepad.sThumbLX;
-        if unlikely(lx > STICK_DEADZONE) {
-            active.push(0x10); // Left stick right
-        } else if unlikely(lx < -STICK_DEADZONE) {
-            active.push(0x11); // Left stick left
+        if unlikely(lx > deadzone) {
+            active.push(0x10);
+        } else if unlikely(lx < neg_deadzone) {
+            active.push(0x11);
         }
 
-        // Left stick Y-axis
         let ly = gamepad.sThumbLY;
-        if unlikely(ly > STICK_DEADZONE) {
-            active.push(0x12); // Left stick up
-        } else if unlikely(ly < -STICK_DEADZONE) {
-            active.push(0x13); // Left stick down
+        if unlikely(ly > deadzone) {
+            active.push(0x12);
+        } else if unlikely(ly < neg_deadzone) {
+            active.push(0x13);
         }
 
-        // Right stick X-axis
         let rx = gamepad.sThumbRX;
-        if unlikely(rx > STICK_DEADZONE) {
-            active.push(0x14); // Right stick right
-        } else if unlikely(rx < -STICK_DEADZONE) {
-            active.push(0x15); // Right stick left
+        if unlikely(rx > deadzone) {
+            active.push(0x14);
+        } else if unlikely(rx < neg_deadzone) {
+            active.push(0x15);
         }
 
-        // Right stick Y-axis
         let ry = gamepad.sThumbRY;
-        if unlikely(ry > STICK_DEADZONE) {
-            active.push(0x16); // Right stick up
-        } else if unlikely(ry < -STICK_DEADZONE) {
-            active.push(0x17); // Right stick down
+        if unlikely(ry > deadzone) {
+            active.push(0x16);
+        } else if unlikely(ry < neg_deadzone) {
+            active.push(0x17);
         }
     }
 
     /// Checks trigger states and records active triggers.
     #[inline(always)]
-    fn check_triggers_fast(gamepad: &XINPUT_GAMEPAD, active: &mut SmallVec<[u32; MAX_INPUTS]>) {
-        if unlikely(gamepad.bLeftTrigger > TRIGGER_THRESHOLD) {
-            active.push(0x18); // Left trigger
+    fn check_triggers_fast(
+        gamepad: &XINPUT_GAMEPAD,
+        active: &mut SmallVec<[u32; MAX_INPUTS]>,
+        threshold: u8,
+    ) {
+        if unlikely(gamepad.bLeftTrigger > threshold) {
+            active.push(0x18);
         }
-        if unlikely(gamepad.bRightTrigger > TRIGGER_THRESHOLD) {
-            active.push(0x19); // Right trigger
+        if unlikely(gamepad.bRightTrigger > threshold) {
+            active.push(0x19);
         }
     }
 
@@ -1425,7 +1429,7 @@ mod tests {
 
         let mut active = SmallVec::<[u32; MAX_INPUTS]>::new();
 
-        XInputHandler::check_analog_sticks_fast(&gamepad, &mut active);
+        XInputHandler::check_analog_sticks_fast(&gamepad, &mut active, 7849);
         assert_eq!(active.len(), 0);
     }
 
@@ -1443,7 +1447,7 @@ mod tests {
 
         let mut active = SmallVec::<[u32; MAX_INPUTS]>::new();
 
-        XInputHandler::check_analog_sticks_fast(&gamepad, &mut active);
+        XInputHandler::check_analog_sticks_fast(&gamepad, &mut active, 7849);
         assert_eq!(active.len(), 1);
         assert_eq!(active[0], 0x10); // Left stick right
     }
@@ -1462,7 +1466,7 @@ mod tests {
 
         let mut active = SmallVec::<[u32; MAX_INPUTS]>::new();
 
-        XInputHandler::check_analog_sticks_fast(&gamepad, &mut active);
+        XInputHandler::check_analog_sticks_fast(&gamepad, &mut active, 7849);
         assert_eq!(active.len(), 1);
         assert_eq!(active[0], 0x12); // Left stick up
     }
@@ -1481,7 +1485,7 @@ mod tests {
 
         let mut active = SmallVec::<[u32; MAX_INPUTS]>::new();
 
-        XInputHandler::check_analog_sticks_fast(&gamepad, &mut active);
+        XInputHandler::check_analog_sticks_fast(&gamepad, &mut active, 7849);
         assert_eq!(active.len(), 2);
         assert!(active.contains(&0x10)); // Right
         assert!(active.contains(&0x12)); // Up
@@ -1501,7 +1505,7 @@ mod tests {
 
         let mut active = SmallVec::<[u32; MAX_INPUTS]>::new();
 
-        XInputHandler::check_analog_sticks_fast(&gamepad, &mut active);
+        XInputHandler::check_analog_sticks_fast(&gamepad, &mut active, 7849);
         assert_eq!(active.len(), 0);
     }
 
@@ -1519,7 +1523,7 @@ mod tests {
 
         let mut active = SmallVec::<[u32; MAX_INPUTS]>::new();
 
-        XInputHandler::check_analog_sticks_fast(&gamepad, &mut active);
+        XInputHandler::check_analog_sticks_fast(&gamepad, &mut active, 7849);
         assert_eq!(active.len(), 2);
         assert!(active.contains(&0x15)); // Right stick left
         assert!(active.contains(&0x17)); // Right stick down
@@ -1539,7 +1543,7 @@ mod tests {
 
         let mut active = SmallVec::<[u32; MAX_INPUTS]>::new();
 
-        XInputHandler::check_triggers_fast(&gamepad, &mut active);
+        XInputHandler::check_triggers_fast(&gamepad, &mut active, 30);
         assert_eq!(active.len(), 0);
     }
 
@@ -1557,7 +1561,7 @@ mod tests {
 
         let mut active = SmallVec::<[u32; MAX_INPUTS]>::new();
 
-        XInputHandler::check_triggers_fast(&gamepad, &mut active);
+        XInputHandler::check_triggers_fast(&gamepad, &mut active, 30);
         assert_eq!(active.len(), 1);
         assert_eq!(active[0], 0x18); // Left trigger
     }
@@ -1576,7 +1580,7 @@ mod tests {
 
         let mut active = SmallVec::<[u32; MAX_INPUTS]>::new();
 
-        XInputHandler::check_triggers_fast(&gamepad, &mut active);
+        XInputHandler::check_triggers_fast(&gamepad, &mut active, 30);
         assert_eq!(active.len(), 2);
         assert!(active.contains(&0x18)); // Left trigger
         assert!(active.contains(&0x19)); // Right trigger
@@ -1596,7 +1600,7 @@ mod tests {
 
         let mut active = SmallVec::<[u32; MAX_INPUTS]>::new();
 
-        XInputHandler::check_triggers_fast(&gamepad, &mut active);
+        XInputHandler::check_triggers_fast(&gamepad, &mut active, 30);
         assert_eq!(active.len(), 0);
     }
 

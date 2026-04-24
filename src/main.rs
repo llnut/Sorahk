@@ -51,6 +51,7 @@ fn main() -> Result<()> {
             return show_error(&error_msg);
         }
     });
+    app_state.refresh_key_repeat_settings();
 
     // Start keyboard hook in a separate thread BEFORE GUI
     // Create hook INSIDE the thread to ensure proper message loop

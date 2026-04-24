@@ -62,6 +62,10 @@ pub struct SorahkGui {
     show_device_manager: bool,
     /// Device manager dialog
     device_manager_dialog: Option<device_manager_dialog::DeviceManagerDialog>,
+    /// Pending flag for XInput threshold persistence. Slider moves push
+    /// live values into `AppState` every frame; this batches the
+    /// `Config.toml` save to the dialog-close event.
+    xinput_params_save_pending: bool,
     /// HID device activation dialog
     hid_activation_dialog: Option<hid_activation_dialog::HidActivationDialog>,
     /// HID activation dialog creation time (for 10ms debounce)
@@ -160,6 +164,7 @@ impl SorahkGui {
             show_about_dialog: false,
             show_device_manager: false,
             device_manager_dialog: None,
+            xinput_params_save_pending: false,
             hid_activation_dialog: None,
             hid_activation_creation_time: None,
             mouse_direction_dialog: None,

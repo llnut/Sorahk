@@ -126,6 +126,24 @@ impl CachedTranslations {
     pub fn default_duration_label(&self) -> &str {
         self.inner.default_duration_label
     }
+    pub fn mouse_move_per_event_min_label(&self) -> &str {
+        self.inner.mouse_move_per_event_min_label
+    }
+    pub fn mouse_move_per_event_min_hint(&self) -> &str {
+        self.inner.mouse_move_per_event_min_hint
+    }
+    pub fn mouse_move_min_trigger_label(&self) -> &str {
+        self.inner.mouse_move_min_trigger_label
+    }
+    pub fn mouse_move_min_trigger_hint(&self) -> &str {
+        self.inner.mouse_move_min_trigger_hint
+    }
+    pub fn mouse_move_rearm_label(&self) -> &str {
+        self.inner.mouse_move_rearm_label
+    }
+    pub fn mouse_move_rearm_hint(&self) -> &str {
+        self.inner.mouse_move_rearm_hint
+    }
 
     // Close Dialog
     pub fn close_window_title(&self) -> &str {

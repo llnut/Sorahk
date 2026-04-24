@@ -339,6 +339,11 @@ pub enum MouseButton {
 pub enum InputEvent {
     Pressed(InputDevice),
     Released(InputDevice),
+    /// Release the current hold, wait a short delay, then press again.
+    /// Used by mouse-move same-direction re-arm so polling-based games
+    /// observe a real keyup/keydown transition between the two taps. The
+    /// delay is taken from the mapping's `interval` setting.
+    RetapHold(InputDevice),
 }
 
 /// Mouse movement direction
