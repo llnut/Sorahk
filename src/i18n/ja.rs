@@ -202,5 +202,17 @@ pub(super) const fn translate(key: RawKey) -> &'static str {
         RawKey::DeleteIcon => "🗑",
         RawKey::KeysText => "個のキー",
         RawKey::TargetsText => "個のターゲット",
+
+        RawKey::RulePropsButton => "⚙ 追加ルール",
+        RawKey::RulePropsDialogTitle => "追加ルール設定",
+        RawKey::RulePropsHint => {
+            "1回のトリガー後も連続して入力したい目標キーにチェックを入れます。追加キーの指定も可能。ダッシュの持続入力や溜めコマンドなど、押し続け系の動作に活用できます。"
+        }
+        RawKey::RulePropsHoldColumn => "再生後も保持",
+        RawKey::RulePropsAppendLabel => "追加で押し続けるキー",
+        RawKey::RulePropsAddAppend => "＋ キーを追加",
+        RawKey::RulePropsAppendPlaceholder => "クリックしてキーを記録",
+        RawKey::RulePropsSave => "保存",
+        RawKey::RulePropsCancel => "キャンセル",
     }
 }

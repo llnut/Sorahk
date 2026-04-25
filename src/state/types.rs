@@ -438,6 +438,39 @@ pub enum OutputAction {
     /// Sequential actions with interval between each action (for target sequence mode)
     /// (actions, interval_ms between each action)
     SequentialActions(Arc<SmallVec<[OutputAction; 4]>>, u64),
+    /// Play a mapping body once, then keep a chosen subset of actions
+    /// (plus any `append` actions) held until the trigger is released.
+    /// Used for any mapping whose "rule properties" define a hold subset
+    /// or append list, regardless of target_mode.
+    ///
+    /// Playback shape follows `sequential`:
+    /// - `true`: actions run one at a time with `interval_ms` between them.
+    ///   Non-held items press + sleep(duration) + release individually;
+    ///   held items only press, remaining down after the pass. Mirrors
+    ///   the "double-tap to run" semantic for sequence-mode targets.
+    /// - `false`: all body actions press simultaneously, hold for
+    ///   `duration`, then release only the non-held indices. Used for
+    ///   Single / Multi target modes, where the body is logically
+    ///   concurrent.
+    ///
+    /// In turbo mode the worker calls `simulate_hold_cycle`, which
+    /// ignores the non-held body entirely and pulses only the held
+    /// subset plus the append list at interval / duration cadence.
+    MappingHold {
+        /// Target-key actions that form the body.
+        actions: Arc<SmallVec<[OutputAction; 4]>>,
+        /// Inter-item delay in ms when `sequential` is true. Ignored
+        /// when `sequential` is false.
+        interval_ms: u64,
+        /// Bit `i` set means `actions[i]` remains held after the pass.
+        hold_mask: u16,
+        /// Actions pressed and held after the body completes. Edge
+        /// variants (MouseMove / MouseScroll) pulse once per cycle.
+        append: Arc<SmallVec<[OutputAction; 4]>>,
+        /// When true, play body items sequentially with `interval_ms`
+        /// between them. When false, press them simultaneously.
+        sequential: bool,
+    },
 }
 
 /// Configuration for a single input mapping.

@@ -32,6 +32,11 @@ struct DeviceSimState<A> {
     synthetic_repeat: bool,
     is_holdable: bool,
     is_sequential: bool,
+    /// True when the target is `OutputAction::MappingHold`. The first
+    /// press plays the whole sequence once and leaves the held subset
+    /// pressed; subsequent auto-repeat ticks drive `simulate_hold_repeat`
+    /// instead of replaying the sequence, and release drops the held set.
+    is_sequential_hold: bool,
 }
 
 impl<A> DeviceSimState<A> {
@@ -50,12 +55,14 @@ impl<A> DeviceSimState<A> {
             synthetic_repeat: false,
             is_holdable: false,
             is_sequential: false,
+            is_sequential_hold: false,
         }
     }
 
     /// Creates a non-turbo entry. The caller must have already classified
     /// the trigger and the target action.
     #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
     fn new_non_turbo(
         target_action: A,
         interval: u64,
@@ -64,6 +71,7 @@ impl<A> DeviceSimState<A> {
         synthetic_repeat: bool,
         is_holdable: bool,
         is_sequential: bool,
+        is_sequential_hold: bool,
     ) -> Self {
         Self {
             last_time: now,
@@ -75,6 +83,7 @@ impl<A> DeviceSimState<A> {
             synthetic_repeat,
             is_holdable,
             is_sequential,
+            is_sequential_hold,
         }
     }
 }
@@ -102,6 +111,16 @@ fn is_holdable_action(action: &crate::state::OutputAction) -> bool {
 #[inline(always)]
 fn is_sequential_action(action: &crate::state::OutputAction) -> bool {
     matches!(action, crate::state::OutputAction::SequentialActions(..))
+}
+
+/// Returns true for targets that play the sequence once and then hold a
+/// chosen subset until release. Classified separately from
+/// `is_sequential_action` so the worker routes them to
+/// `simulate_hold_repeat` / `simulate_hold_release` instead of replaying
+/// the sequence on every auto-repeat tick.
+#[inline(always)]
+fn is_sequential_hold_action(action: &crate::state::OutputAction) -> bool {
+    matches!(action, crate::state::OutputAction::MappingHold { .. })
 }
 
 unsafe impl Send for KeyboardHook {}
@@ -222,6 +241,11 @@ impl WorkerPool {
             OutputAction::MouseMove(_, _) | OutputAction::MouseScroll(_, _) => true,
             OutputAction::MultipleActions(actions) => actions.iter().any(Self::is_mouse_action),
             OutputAction::SequentialActions(_, _) => false,
+            // MappingHold is always routed to turbo_worker so the
+            // worker can own both the synchronous body playback and the
+            // held-subset lifecycle without contending with the
+            // bitflag-based mouse-move worker.
+            OutputAction::MappingHold { .. } => false,
             _ => false,
         }
     }
@@ -463,14 +487,27 @@ impl KeyboardHook {
                             now.duration_since(sim.last_time)
                                 >= Duration::from_millis(sim.interval),
                         ) {
-                            state.simulate_action(sim.target_action.clone(), sim.event_duration);
+                            if sim.is_sequential_hold {
+                                // Turbo + MappingHold cycles only the
+                                // user-chosen hold subset + append keys.
+                                state.simulate_hold_cycle(&sim.target_action, sim.event_duration);
+                            } else {
+                                state
+                                    .simulate_action(sim.target_action.clone(), sim.event_duration);
+                            }
                             sim.last_time = now;
                         }
                     } else if !sim.synthetic_repeat {
                         // Keyboard-like trigger rides Windows' own key-repeat
                         // stream. Each arriving Pressed maps to one WM_KEYDOWN
                         // delivery at Windows pacing.
-                        if sim.is_sequential {
+                        if sim.is_sequential_hold {
+                            // Sequence already played; refresh KEYDOWN on
+                            // the held subset so the OS auto-repeat stream
+                            // stays warm without re-triggering the body.
+                            state.simulate_hold_repeat(&sim.target_action);
+                            sim.last_time = now;
+                        } else if sim.is_sequential {
                             // Sequential target runs a full press/release
                             // cycle per tick so the whole key chain loops.
                             state.simulate_action(sim.target_action.clone(), sim.event_duration);
@@ -505,6 +542,7 @@ impl KeyboardHook {
                         let synthetic_repeat = Self::needs_synthetic_repeat(&device);
                         let is_holdable = is_holdable_action(&mapping.target_action);
                         let is_sequential = is_sequential_action(&mapping.target_action);
+                        let is_sequential_hold = is_sequential_hold_action(&mapping.target_action);
                         DeviceSimState::new_non_turbo(
                             mapping.target_action,
                             mapping.interval,
@@ -513,16 +551,27 @@ impl KeyboardHook {
                             synthetic_repeat,
                             is_holdable,
                             is_sequential,
+                            is_sequential_hold,
                         )
                     };
                     device_states.insert(device, sim);
 
                     if turbo_enabled {
-                        state.simulate_action(target_action_clone, mapping.event_duration);
-                    } else if is_sequential_action(&target_action_clone) {
-                        // First fire of a sequential target runs the whole
-                        // chain so non-turbo mode is not stuck on the first
-                        // key like plain `simulate_initial_press` would leave it.
+                        if is_sequential_hold_action(&target_action_clone) {
+                            // Turbo's first shot only needs to pulse the
+                            // sequence-properties subset; the full body
+                            // is not played at all in turbo mode.
+                            state.simulate_hold_cycle(&target_action_clone, mapping.event_duration);
+                        } else {
+                            state.simulate_action(target_action_clone, mapping.event_duration);
+                        }
+                    } else if is_sequential_action(&target_action_clone)
+                        || is_sequential_hold_action(&target_action_clone)
+                    {
+                        // First fire of a sequential (loop or hold) target
+                        // runs the whole chain. For MappingHold, the
+                        // simulate_action arm leaves the held subset and
+                        // append list pressed for follow-up repeats.
                         state.simulate_action(target_action_clone, mapping.event_duration);
                     } else {
                         // Initial press increments per-key ref counts so
@@ -535,11 +584,19 @@ impl KeyboardHook {
             InputEvent::Released(device) => {
                 if let Some(sim) = device_states.get(&device)
                     && !sim.turbo_enabled
-                    && !sim.is_sequential
                 {
-                    // Sequential targets release themselves inside each
-                    // simulate_action pass, so no extra release is needed.
-                    state.simulate_release(&sim.target_action);
+                    if sim.is_sequential_hold {
+                        // Drop the held subset + append list. Sequential
+                        // body actions already self-balanced inside
+                        // simulate_action, so only the pending hold set
+                        // needs decrement + KEYUP.
+                        state.simulate_hold_release(&sim.target_action);
+                    } else if !sim.is_sequential {
+                        // Pure SequentialActions self-balances inside each
+                        // simulate_action pass, so no extra release is
+                        // needed. Everything else decrements here.
+                        state.simulate_release(&sim.target_action);
+                    }
                 }
                 device_states.remove(&device);
             }
@@ -586,15 +643,23 @@ impl KeyboardHook {
             if sim.turbo_enabled {
                 if likely(now.duration_since(sim.last_time) >= Duration::from_millis(sim.interval))
                 {
-                    state.simulate_action(sim.target_action.clone(), sim.event_duration);
+                    if sim.is_sequential_hold {
+                        state.simulate_hold_cycle(&sim.target_action, sim.event_duration);
+                    } else {
+                        state.simulate_action(sim.target_action.clone(), sim.event_duration);
+                    }
                     sim.last_time = now;
                 }
             } else if sim.synthetic_repeat
-                && (sim.is_holdable || sim.is_sequential)
+                && (sim.is_holdable || sim.is_sequential || sim.is_sequential_hold)
                 && now.duration_since(sim.first_press) >= repeat_delay
                 && now.duration_since(sim.last_time) >= repeat_interval
             {
-                if sim.is_sequential {
+                if sim.is_sequential_hold {
+                    // Drive the OS auto-repeat for the held subset without
+                    // replaying the sequence body.
+                    state.simulate_hold_repeat(&sim.target_action);
+                } else if sim.is_sequential {
                     state.simulate_action(sim.target_action.clone(), sim.event_duration);
                 } else {
                     // Synthetic repeat keeps the OS auto-repeat stream
@@ -1382,6 +1447,8 @@ mod tests {
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
+            hold_indices: None,
+            append_keys: None,
         }];
 
         let state = Arc::new(AppState::new(config).unwrap());

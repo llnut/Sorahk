@@ -574,70 +574,69 @@ impl AppState {
             let device = InputDevice::Mouse(button);
 
             match message {
-                WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN => {
-                    if !self.is_paused() && self.is_process_whitelisted() {
-                        let now = Instant::now();
+                WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN
+                    if !self.is_paused() && self.is_process_whitelisted() =>
+                {
+                    let now = Instant::now();
 
-                        let sequence_match_result =
-                            self.record_and_match_sequence(device.clone(), now);
+                    let sequence_match_result = self.record_and_match_sequence(device.clone(), now);
 
-                        if let Some((matched_device, sequence_inputs)) = sequence_match_result {
-                            if let Some(mapping_info) = self.get_input_mapping(&matched_device)
-                                && mapping_info.is_sequence
-                            {
-                                self.sequence_matcher.clear_history();
+                    if let Some((matched_device, sequence_inputs)) = sequence_match_result {
+                        if let Some(mapping_info) = self.get_input_mapping(&matched_device)
+                            && mapping_info.is_sequence
+                        {
+                            self.sequence_matcher.clear_history();
 
-                                let shared_device = Shared::new(matched_device.clone());
-                                let _ = self
-                                    .last_sequence_device
-                                    .swap((Some(shared_device), Tag::None), Ordering::Release);
+                            let shared_device = Shared::new(matched_device.clone());
+                            let _ = self
+                                .last_sequence_device
+                                .swap((Some(shared_device), Tag::None), Ordering::Release);
 
-                                let shared_inputs = Shared::new(sequence_inputs);
-                                let _ = self
-                                    .last_sequence_inputs
-                                    .swap((Some(shared_inputs), Tag::None), Ordering::Release);
+                            let shared_inputs = Shared::new(sequence_inputs);
+                            let _ = self
+                                .last_sequence_inputs
+                                .swap((Some(shared_inputs), Tag::None), Ordering::Release);
 
+                            if let Some(pool) = self.worker_pool.get() {
+                                pool.dispatch(InputEvent::Pressed(matched_device));
+                                should_block = true;
+                            }
+                        }
+                    } else {
+                        // No sequence matched - check if holding sequence trigger key
+                        let guard = Guard::new();
+                        let last_seq_device =
+                            self.last_sequence_device.load(Ordering::Acquire, &guard);
+                        let last_seq_inputs =
+                            self.last_sequence_inputs.load(Ordering::Acquire, &guard);
+
+                        if let (Some(seq_device), Some(seq_inputs)) =
+                            (last_seq_device.as_ref(), last_seq_inputs.as_ref())
+                        {
+                            // Check if current device is part of the last matched sequence
+                            if seq_inputs.contains(&device) {
+                                // User is holding a key from the sequence
+                                // Continue dispatching Pressed events for turbo
                                 if let Some(pool) = self.worker_pool.get() {
-                                    pool.dispatch(InputEvent::Pressed(matched_device));
+                                    pool.dispatch(InputEvent::Pressed(seq_device.clone()));
                                     should_block = true;
                                 }
-                            }
-                        } else {
-                            // No sequence matched - check if holding sequence trigger key
-                            let guard = Guard::new();
-                            let last_seq_device =
-                                self.last_sequence_device.load(Ordering::Acquire, &guard);
-                            let last_seq_inputs =
-                                self.last_sequence_inputs.load(Ordering::Acquire, &guard);
-
-                            if let (Some(seq_device), Some(seq_inputs)) =
-                                (last_seq_device.as_ref(), last_seq_inputs.as_ref())
-                            {
-                                // Check if current device is part of the last matched sequence
-                                if seq_inputs.contains(&device) {
-                                    // User is holding a key from the sequence
-                                    // Continue dispatching Pressed events for turbo
-                                    if let Some(pool) = self.worker_pool.get() {
-                                        pool.dispatch(InputEvent::Pressed(seq_device.clone()));
-                                        should_block = true;
-                                    }
-                                } else if let Some(mapping_info) = self.get_input_mapping(&device) {
-                                    // Not part of sequence, handle normally
-                                    if !mapping_info.is_sequence
-                                        && let Some(pool) = self.worker_pool.get()
-                                    {
-                                        pool.dispatch(InputEvent::Pressed(device));
-                                        should_block = true;
-                                    }
-                                }
                             } else if let Some(mapping_info) = self.get_input_mapping(&device) {
-                                // No active sequence, handle normally
+                                // Not part of sequence, handle normally
                                 if !mapping_info.is_sequence
                                     && let Some(pool) = self.worker_pool.get()
                                 {
                                     pool.dispatch(InputEvent::Pressed(device));
                                     should_block = true;
                                 }
+                            }
+                        } else if let Some(mapping_info) = self.get_input_mapping(&device) {
+                            // No active sequence, handle normally
+                            if !mapping_info.is_sequence
+                                && let Some(pool) = self.worker_pool.get()
+                            {
+                                pool.dispatch(InputEvent::Pressed(device));
+                                should_block = true;
                             }
                         }
                     }

@@ -4,7 +4,8 @@
 //! currently selected `TranslationCache`.
 
 use super::{
-    CachedTranslations, EN_CACHE, JA_CACHE, Language, TranslationCache, ZH_CN_CACHE, ZH_TW_CACHE,
+    CachedTranslations, EN_CACHE, JA_CACHE, KO_CACHE, Language, TranslationCache, ZH_CN_CACHE,
+    ZH_TW_CACHE,
 };
 
 impl CachedTranslations {
@@ -17,6 +18,7 @@ impl CachedTranslations {
             Language::SimplifiedChinese => &ZH_CN_CACHE,
             Language::TraditionalChinese => &ZH_TW_CACHE,
             Language::Japanese => &JA_CACHE,
+            Language::Korean => &KO_CACHE,
         };
         Self { inner }
     }
@@ -655,6 +657,34 @@ impl CachedTranslations {
     }
     pub fn targets_text(&self) -> &str {
         self.inner.targets_text
+    }
+
+    pub fn rule_props_button(&self) -> &str {
+        self.inner.rule_props_button
+    }
+    pub fn rule_props_dialog_title(&self) -> &str {
+        self.inner.rule_props_dialog_title
+    }
+    pub fn rule_props_hint(&self) -> &str {
+        self.inner.rule_props_hint
+    }
+    pub fn rule_props_hold_column(&self) -> &str {
+        self.inner.rule_props_hold_column
+    }
+    pub fn rule_props_append_label(&self) -> &str {
+        self.inner.rule_props_append_label
+    }
+    pub fn rule_props_add_append(&self) -> &str {
+        self.inner.rule_props_add_append
+    }
+    pub fn rule_props_append_placeholder(&self) -> &str {
+        self.inner.rule_props_append_placeholder
+    }
+    pub fn rule_props_save(&self) -> &str {
+        self.inner.rule_props_save
+    }
+    pub fn rule_props_cancel(&self) -> &str {
+        self.inner.rule_props_cancel
     }
 
     /// Format keys count with localized text

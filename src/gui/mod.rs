@@ -12,6 +12,7 @@ mod hid_activation_dialog;
 mod main_window;
 mod mouse_direction_dialog;
 mod mouse_scroll_dialog;
+mod rule_properties_dialog;
 mod settings_dialog;
 mod types;
 mod utils;
@@ -74,6 +75,20 @@ pub struct SorahkGui {
     mouse_direction_dialog: Option<mouse_direction_dialog::MouseDirectionDialog>,
     /// Mouse scroll selection dialog
     mouse_scroll_dialog: Option<mouse_scroll_dialog::MouseScrollDialog>,
+    /// Rule properties dialog for configuring hold indices / append keys.
+    /// Available for every target mode and both turbo states.
+    rule_properties_dialog: Option<rule_properties_dialog::RulePropertiesDialog>,
+    /// `Some(idx)` = editing the existing mapping at that index.
+    /// `None` while the dialog is open = editing the not-yet-added
+    /// mapping being composed in the Add Mapping form.
+    rule_props_editing_idx: Option<usize>,
+    /// Hold indices captured by the rule properties dialog for the new
+    /// mapping in progress. Flushed into `KeyMapping` when the user
+    /// clicks the Add button that commits the draft.
+    new_mapping_hold_indices: Vec<u8>,
+    /// Append keys captured by the rule properties dialog for the new
+    /// mapping in progress.
+    new_mapping_append_keys: Vec<String>,
     /// Index of mapping being edited for mouse direction (None for new mapping)
     mouse_direction_mapping_idx: Option<usize>,
     /// Index of mapping being edited for mouse scroll (None for new mapping)
@@ -169,6 +184,10 @@ impl SorahkGui {
             hid_activation_creation_time: None,
             mouse_direction_dialog: None,
             mouse_scroll_dialog: None,
+            rule_properties_dialog: None,
+            rule_props_editing_idx: None,
+            new_mapping_hold_indices: Vec::new(),
+            new_mapping_append_keys: Vec::new(),
             mouse_direction_mapping_idx: None,
             mouse_scroll_mapping_idx: None,
             minimize_on_close: true,

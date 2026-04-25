@@ -356,6 +356,42 @@ impl eframe::App for SorahkGui {
             }
         }
 
+        // Handle rule properties dialog (aka "Mapping Add-ons")
+        if let Some(dialog) = &mut self.rule_properties_dialog {
+            let should_close = dialog.render(ctx, self.dark_mode, &self.translations);
+            if should_close {
+                if let Some(result) = dialog.take_result() {
+                    if let Some(idx) = self.rule_props_editing_idx {
+                        // Existing mapping path: write straight into the
+                        // mapping held inside the draft config.
+                        if let Some(temp_config) = &mut self.temp_config
+                            && let Some(mapping) = temp_config.mappings.get_mut(idx)
+                        {
+                            mapping.hold_indices = if result.hold_indices.is_empty() {
+                                None
+                            } else {
+                                Some(result.hold_indices)
+                            };
+                            mapping.append_keys = if result.append_keys.is_empty() {
+                                None
+                            } else {
+                                Some(result.append_keys)
+                            };
+                        }
+                    } else {
+                        // New-mapping path: park the result in the GUI's
+                        // transient fields. The settings dialog's Add
+                        // button flushes them into the KeyMapping when
+                        // the draft is committed.
+                        self.new_mapping_hold_indices = result.hold_indices.into_iter().collect();
+                        self.new_mapping_append_keys = result.append_keys.into_iter().collect();
+                    }
+                }
+                self.rule_properties_dialog = None;
+                self.rule_props_editing_idx = None;
+            }
+        }
+
         // Handle mouse scroll dialog
         if let Some(dialog) = &mut self.mouse_scroll_dialog {
             let should_close = dialog.render(ctx, self.dark_mode, &self.translations);

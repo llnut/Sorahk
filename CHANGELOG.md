@@ -4,22 +4,38 @@ Feature enhancements:
 
 - Add sequence input trigger system for combo detection
 - Add sequence output support for macro execution
+- Add per mapping add-on rules to keep chosen target keys and extra keys pressed after the trigger
+- Add Korean language support
+- Add ref counted key holding so overlapping triggers share the same pressed key without releasing it early
+- Add mouse move filters with per event minimum, accumulated trigger distance, and reverse direction rearm
+- Add synthetic key repeat for mouse, XInput, and Raw Input triggers
+- Expand HID vendor and product database
 
 UI Improvements:
 
 - Add sequence capture support in settings dialog
 - Add target mode selector (Single/Multi/Sequence)
 - Improve key capture UX with rolling input support
+- Make the sequence target button match the look of Single and Multi
+- Load Chinese, Japanese, and Korean system fonts at startup
+- Add live XInput deadzone and trigger threshold sliders in the device manager
 
 Bug fixes:
 
 - Fix mouse movement turbo stuttering by requesting 1ms system timer resolution
+- Fix stuck keys when the active window leaves the whitelist
+- Fix stuck keys when pausing with active non turbo mappings
+- Fix stale events playing back after resume
 
 Configuration:
 
 - Add `trigger_sequence` field for combo triggers
 - Add `sequence_window_ms` field for timing control
 - Add `target_mode` field for output behavior selection
+- Add `hold_indices` and `append_keys` on each mapping for add-on rules
+- Add `mouse_move_per_event_min_px`, `mouse_move_min_trigger_px`, and
+  `mouse_move_rearm_px`
+- Move `xinput_stick_deadzone` and `xinput_trigger_threshold` into the global section
 - Update Config.toml with sequence examples and documentation
 
 0.4.0

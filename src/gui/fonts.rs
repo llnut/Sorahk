@@ -1,170 +1,103 @@
-//! Windows system font loading and configuration for multi-language support.
+//! Windows CJK font loading.
 //!
-//! Loads optimized Windows fonts for English, Simplified Chinese, Traditional Chinese,
-//! and Japanese. Uses a ordered font stack to ensure consistent emoji rendering
-//! across all languages while applying language-specific adjustments for CJK text.
+//! Every CJK stack loads up front so the language picker can render
+//! names in all locales side by side regardless of the active UI
+//! language.
 
-use crate::i18n::Language;
 use eframe::egui;
 use std::sync::Arc;
 
-/// Font configuration for Windows system fonts.
-struct FontConfig {
+/// A logical font slot and its Windows system font candidates in
+/// priority order.
+struct FontGroup {
     name: &'static str,
-    path: &'static str,
+    candidates: &'static [&'static str],
 }
 
-/// Loads Windows system fonts optimized for the selected language.
-///
-/// **Font loading strategy:**
-/// 1. egui built-in fonts (default_fonts) - HIGHEST priority for UI consistency
-/// 2. Language-specific CJK fonts - for Chinese/Japanese text
-/// 3. Windows emoji fonts - fallback for characters not in built-in fonts
-///
-/// This ensures emoji from egui while maintaining full CJK support.
-pub fn load_fonts(ctx: &egui::Context, language: Language) {
+/// Registers the Chinese, Japanese, and Korean stacks plus emoji
+/// fallbacks on the egui context. The `language` argument is unused:
+/// font coverage stays identical across locales so strings in any
+/// language render correctly regardless of the active UI language.
+pub fn load_fonts(ctx: &egui::Context, _language: crate::i18n::Language) {
     let mut fonts = egui::FontDefinitions::default();
-    let mut loaded_count = 0;
 
-    // Load language-specific fonts - WITH y_offset for Japanese
-    // Provide CJK character support
-    let font_configs = get_font_configs_for_language(language);
-    let cjk_y_offset = match language {
-        Language::Japanese => 0.3,
-        Language::English | Language::SimplifiedChinese | Language::TraditionalChinese => 0.0,
-    };
+    let groups: &[FontGroup] = &[
+        FontGroup {
+            name: "cjk_zh",
+            candidates: &[
+                r"C:\Windows\Fonts\msyh.ttc",
+                r"C:\Windows\Fonts\msjh.ttc",
+                r"C:\Windows\Fonts\simsun.ttc",
+                r"C:\Windows\Fonts\simhei.ttf",
+            ],
+        },
+        FontGroup {
+            name: "cjk_ja",
+            candidates: &[
+                r"C:\Windows\Fonts\meiryo.ttc",
+                r"C:\Windows\Fonts\YuGothR.ttc",
+                r"C:\Windows\Fonts\YuGothM.ttc",
+                r"C:\Windows\Fonts\msgothic.ttc",
+                r"C:\Windows\Fonts\BIZ-UDGothicR.ttc",
+            ],
+        },
+        FontGroup {
+            name: "cjk_ko",
+            candidates: &[
+                r"C:\Windows\Fonts\malgun.ttf",
+                r"C:\Windows\Fonts\malgunbd.ttf",
+                r"C:\Windows\Fonts\gulim.ttc",
+                r"C:\Windows\Fonts\batang.ttc",
+            ],
+        },
+    ];
 
-    for config in font_configs {
-        if let Ok(font_data) = std::fs::read(config.path) {
-            let font_data = if cjk_y_offset != 0.0 {
-                egui::FontData::from_owned(font_data).tweak(egui::FontTweak {
-                    y_offset_factor: cjk_y_offset,
-                    ..Default::default()
-                })
-            } else {
-                egui::FontData::from_owned(font_data)
-            };
+    let mut loaded_any = false;
 
-            fonts
-                .font_data
-                .insert(config.name.to_string(), Arc::new(font_data));
-
-            fonts
-                .families
-                .entry(egui::FontFamily::Proportional)
-                .or_default()
-                .push(config.name.to_string());
-
-            fonts
-                .families
-                .entry(egui::FontFamily::Monospace)
-                .or_default()
-                .push(config.name.to_string());
-
-            loaded_count += 1;
+    for group in groups {
+        for path in group.candidates {
+            if let Ok(bytes) = std::fs::read(path) {
+                register(&mut fonts, group.name, bytes);
+                loaded_any = true;
+                break;
+            }
         }
     }
 
-    // Load Windows emoji fonts as FALLBACK
-    // Used only when egui built-in fonts don't have a character
-    // Priority: egui built-in > Windows emoji fonts
-    let emoji_fonts = [
-        ("Segoe UI Emoji", "C:\\Windows\\Fonts\\seguiemj.ttf"), // Colorful emoji fallback
-        ("Segoe UI Symbol", "C:\\Windows\\Fonts\\seguisym.ttf"), // Symbol characters fallback
+    // Emoji and symbol fallbacks go last so the CJK stacks claim code
+    // points they cover first.
+    let emoji_fonts: &[(&str, &str)] = &[
+        ("seg_emoji", r"C:\Windows\Fonts\seguiemj.ttf"),
+        ("seg_symbol", r"C:\Windows\Fonts\seguisym.ttf"),
     ];
 
     for (name, path) in emoji_fonts {
-        if let Ok(emoji_data) = std::fs::read(path) {
-            fonts.font_data.insert(
-                name.to_string(),
-                Arc::new(egui::FontData::from_owned(emoji_data)),
-            );
-
-            fonts
-                .families
-                .entry(egui::FontFamily::Proportional)
-                .or_default()
-                .push(name.to_string()); // Append as fallback, not insert at front
-
-            fonts
-                .families
-                .entry(egui::FontFamily::Monospace)
-                .or_default()
-                .push(name.to_string()); // Append as fallback, not insert at front
+        if let Ok(bytes) = std::fs::read(path) {
+            register(&mut fonts, name, bytes);
         }
     }
 
-    if loaded_count == 0 {
+    if !loaded_any {
         eprintln!(
-            "Warning: No system fonts loaded for {:?}. CJK characters may not display correctly.",
-            language
+            "Warning: no CJK system fonts loaded. Chinese, Japanese, and Korean text may render as tofu boxes."
         );
     }
 
     ctx.set_fonts(fonts);
 }
 
-/// Returns font configurations prioritized by language.
-fn get_font_configs_for_language(language: Language) -> Vec<FontConfig> {
-    match language {
-        Language::SimplifiedChinese => vec![
-            FontConfig {
-                name: "Microsoft YaHei",
-                path: "C:\\Windows\\Fonts\\msyh.ttc",
-            },
-            FontConfig {
-                name: "SimHei",
-                path: "C:\\Windows\\Fonts\\simhei.ttf",
-            },
-            FontConfig {
-                name: "SimSun",
-                path: "C:\\Windows\\Fonts\\simsun.ttc",
-            },
-        ],
+/// Inserts `bytes` under `name` and appends the name to both font
+/// families as a fallback.
+fn register(fonts: &mut egui::FontDefinitions, name: &str, bytes: Vec<u8>) {
+    fonts
+        .font_data
+        .insert(name.to_owned(), Arc::new(egui::FontData::from_owned(bytes)));
 
-        Language::TraditionalChinese => vec![
-            FontConfig {
-                name: "Microsoft JhengHei",
-                path: "C:\\Windows\\Fonts\\msjh.ttc",
-            },
-            FontConfig {
-                name: "MingLiU",
-                path: "C:\\Windows\\Fonts\\mingliu.ttc",
-            },
-            FontConfig {
-                name: "Microsoft YaHei",
-                path: "C:\\Windows\\Fonts\\msyh.ttc",
-            },
-        ],
-
-        Language::Japanese => vec![
-            FontConfig {
-                name: "BIZ UDGothic",
-                path: "C:\\Windows\\Fonts\\BIZ-UDGothicR.ttc",
-            },
-            FontConfig {
-                name: "Yu Gothic UI",
-                path: "C:\\Windows\\Fonts\\YuGothM.ttc",
-            },
-            FontConfig {
-                name: "Meiryo UI",
-                path: "C:\\Windows\\Fonts\\meiryob.ttc",
-            },
-            FontConfig {
-                name: "Meiryo",
-                path: "C:\\Windows\\Fonts\\meiryo.ttc",
-            },
-        ],
-
-        Language::English => vec![
-            FontConfig {
-                name: "Segoe UI",
-                path: "C:\\Windows\\Fonts\\segoeui.ttf",
-            },
-            FontConfig {
-                name: "Microsoft YaHei",
-                path: "C:\\Windows\\Fonts\\msyh.ttc",
-            },
-        ],
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .push(name.to_owned());
     }
 }

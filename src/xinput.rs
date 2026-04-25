@@ -558,8 +558,8 @@ impl XInputHandler {
                 button_ids: combo.iter().copied().collect(),
             });
         }
-        // Sort by combo size (larger combos first for priority matching)
-        masks.sort_unstable_by(|a, b| b.combo_size.cmp(&a.combo_size));
+        // Sort by combo size, larger first for priority matching.
+        masks.sort_unstable_by_key(|m| std::cmp::Reverse(m.combo_size));
     }
 
     /// Builds layered index for fast lookup

@@ -37,6 +37,11 @@ macro_rules! finalize_sequence_capture {
     }};
 }
 
+/// Deferred payload used by the mapping-list loop to request opening the
+/// rule properties dialog. Tuple fields are (mapping index, current
+/// target keys, existing hold indices, existing append keys).
+type RulePropsRequest = (usize, Vec<String>, Vec<u8>, Vec<String>);
+
 impl SorahkGui {
     /// Renders the settings dialog for configuration management.
     pub(super) fn render_settings_dialog(&mut self, ctx: &egui::Context) {
@@ -44,8 +49,14 @@ impl SorahkGui {
         let mut should_cancel = false;
 
         // Capture pipeline, in priority order: Keyboard > Mouse > Raw Input.
-        // Suppressed while the HID activation dialog is visible.
-        if self.key_capture_mode != KeyCaptureMode::None && self.hid_activation_dialog.is_none() {
+        // Suppressed while the HID activation dialog or the rule properties
+        // dialog is visible — the latter runs its own capture state machine for
+        // append keys, and letting both polls fire would send one physical
+        // release into two collections.
+        if self.key_capture_mode != KeyCaptureMode::None
+            && self.hid_activation_dialog.is_none()
+            && self.rule_properties_dialog.is_none()
+        {
             let mut captured_input: Option<String> = None;
 
             let is_sequence_capture = match self.key_capture_mode {
@@ -83,6 +94,45 @@ impl SorahkGui {
                 && !self.just_captured_input
                 && self.is_sequence_finalize_pressed()
             {
+                // The Done-button paths explicitly commit captured lists back
+                // to the mapping / new-mapping draft. The finalize-key shortcut
+                // was tearing down capture state via the macro without that
+                // commit, so target-sequence captures that ended with Enter
+                // silently dropped every key. Mirror the Done-button sync here
+                // for target-mode == 2 captures. Trigger-mode sequences mutate
+                // the mapping live during capture, so no sync is needed.
+                match self.key_capture_mode {
+                    KeyCaptureMode::MappingTarget(idx) => {
+                        if let Some(temp_config) = &mut self.temp_config
+                            && let Some(m) = temp_config.mappings.get_mut(idx)
+                            && m.target_mode == 2
+                        {
+                            m.target_keys = self.editing_target_seq_list.iter().cloned().collect();
+                            let new_len = m.target_keys.len();
+                            if let Some(holds) = m.hold_indices.as_mut() {
+                                holds.retain(|i| (*i as usize) < new_len);
+                                if holds.is_empty() {
+                                    m.hold_indices = None;
+                                }
+                            }
+                            self.editing_target_seq_list.clear();
+                            self.editing_target_seq_idx = None;
+                        }
+                    }
+                    KeyCaptureMode::NewMappingTarget
+                        if self.new_mapping_target_mode == 2
+                            && !self.target_sequence_capture_list.is_empty() =>
+                    {
+                        self.new_mapping_target_keys = self.target_sequence_capture_list.clone();
+                        if let Some(first) = self.new_mapping_target_keys.first() {
+                            self.new_mapping_target = first.clone();
+                        }
+                        let new_len = self.new_mapping_target_keys.len();
+                        self.new_mapping_hold_indices
+                            .retain(|i| (*i as usize) < new_len);
+                    }
+                    _ => {}
+                }
                 finalize_sequence_capture!(self);
             }
 
@@ -925,6 +975,14 @@ impl SorahkGui {
 
                                             // Existing mappings
                                             let mut to_remove = None;
+                                            // Deferred open request for the sequence properties
+                                            // dialog. Collected during the iter_mut() loop so the
+                                            // dialog is only instantiated after the mutable borrow
+                                            // on `temp_config.mappings` is released. Tuple fields:
+                                            // (mapping index, current target keys, current hold
+                                            // indices, current append keys).
+                                            let mut open_rule_props: Option<RulePropsRequest> =
+                                                None;
                                             for (idx, mapping) in
                                                 temp_config.mappings.iter_mut().enumerate()
                                             {
@@ -1412,7 +1470,7 @@ impl SorahkGui {
                                                                                                             // Delete button (×)
                                                                                                             let del_btn = ui.add(
                                                                                                                 egui::Button::new(
-                                                                                                                    egui::RichText::new("×")
+                                                                                                                    egui::RichText::new("🗑")
                                                                                                                         .size(11.0)
                                                                                                                         .color(if self.dark_mode {
                                                                                                                             egui::Color32::from_rgb(180, 80, 100)
@@ -1597,6 +1655,87 @@ impl SorahkGui {
                                                             if ui.add(seq_btn).clicked() && target_mode != 2 {
                                                                 mapping.target_mode = 2;
                                                             }
+
+                                                            // Right-aligned Rule Props button.
+                                                            // Lives on the target-mode row so one
+                                                            // entry point covers Single, Multi, and
+                                                            // Sequence without growing the card
+                                                            // vertically.
+                                                            ui.with_layout(
+                                                                egui::Layout::right_to_left(
+                                                                    egui::Align::Center,
+                                                                ),
+                                                                |ui| {
+                                                                    let (props_fill, props_text) =
+                                                                        if self.dark_mode {
+                                                                            (
+                                                                                egui::Color32::from_rgb(
+                                                                                    255, 140, 170,
+                                                                                ),
+                                                                                egui::Color32::WHITE,
+                                                                            )
+                                                                        } else {
+                                                                            (
+                                                                                egui::Color32::from_rgb(
+                                                                                    255, 170, 190,
+                                                                                ),
+                                                                                egui::Color32::WHITE,
+                                                                            )
+                                                                        };
+                                                                    let props_btn =
+                                                                        egui::Button::new(
+                                                                            egui::RichText::new(
+                                                                                t.rule_props_button(),
+                                                                            )
+                                                                            .size(11.0)
+                                                                            .color(props_text),
+                                                                        )
+                                                                        .fill(props_fill)
+                                                                        .corner_radius(10.0);
+                                                                    if ui.add(props_btn).clicked() {
+                                                                        // Use the live in-progress
+                                                                        // list while the user is
+                                                                        // capturing a sequence on
+                                                                        // this mapping; otherwise
+                                                                        // read from the persisted
+                                                                        // target_keys.
+                                                                        let keys: Vec<String> = if mapping
+                                                                            .target_mode
+                                                                            == 2
+                                                                            && self
+                                                                                .editing_target_seq_idx
+                                                                                == Some(idx)
+                                                                            && !self
+                                                                                .editing_target_seq_list
+                                                                                .is_empty()
+                                                                        {
+                                                                            self
+                                                                                .editing_target_seq_list
+                                                                                .clone()
+                                                                        } else {
+                                                                            mapping
+                                                                                .target_keys
+                                                                                .iter()
+                                                                                .cloned()
+                                                                                .collect()
+                                                                        };
+                                                                        let hold: Vec<u8> = mapping
+                                                                            .hold_indices
+                                                                            .as_ref()
+                                                                            .map(|v| v.to_vec())
+                                                                            .unwrap_or_default();
+                                                                        let append: Vec<String> =
+                                                                            mapping
+                                                                                .append_keys
+                                                                                .as_ref()
+                                                                                .map(|v| v.to_vec())
+                                                                                .unwrap_or_default();
+                                                                        open_rule_props = Some((
+                                                                            idx, keys, hold, append,
+                                                                        ));
+                                                                    }
+                                                                },
+                                                            );
                                                         });
                                                         ui.add_space(6.0);
                                                         let is_capturing_target = self.key_capture_mode
@@ -1634,13 +1773,21 @@ impl SorahkGui {
                                                             })
                                                             .corner_radius(10.0);
 
+                                                            let target_width =
+                                                                ui.available_width().max(120.0);
                                                             let mut target_response = ui
-                                                                .add_sized([ui.available_width(), 30.0], target_btn);
-                                                            // Show full text on hover if truncated
-                                                            if !is_capturing_target && !target_full_text.is_empty() && target_full_text.chars().count() > BUTTON_TEXT_MAX_CHARS {
-                                                                target_response = target_response.on_hover_text(&target_full_text);
+                                                                .add_sized([target_width, 30.0], target_btn);
+                                                            if !is_capturing_target
+                                                                && !target_full_text.is_empty()
+                                                                && target_full_text.chars().count()
+                                                                    > BUTTON_TEXT_MAX_CHARS
+                                                            {
+                                                                target_response = target_response
+                                                                    .on_hover_text(&target_full_text);
                                                             }
-                                                            if target_response.clicked() && !self.just_captured_input {
+                                                            if target_response.clicked()
+                                                                && !self.just_captured_input
+                                                            {
                                                                 self.key_capture_mode =
                                                                     KeyCaptureMode::MappingTarget(idx);
                                                                 self.capture_pressed_keys.clear();
@@ -1745,6 +1892,26 @@ impl SorahkGui {
                                                                 if should_finish {
                                                                     // Sync editing list back to mapping
                                                                     mapping.target_keys = self.editing_target_seq_list.iter().cloned().collect();
+                                                                    // Drop any hold indices that no
+                                                                    // longer point into the new body.
+                                                                    // Pill-tag deletions already
+                                                                    // shift indices live, but a
+                                                                    // fresh capture may have
+                                                                    // shortened the list in ways the
+                                                                    // shift logic never saw.
+                                                                    let new_len =
+                                                                        mapping.target_keys.len();
+                                                                    if let Some(holds) =
+                                                                        mapping.hold_indices.as_mut()
+                                                                    {
+                                                                        holds.retain(|i| {
+                                                                            (*i as usize) < new_len
+                                                                        });
+                                                                        if holds.is_empty() {
+                                                                            mapping.hold_indices =
+                                                                                None;
+                                                                        }
+                                                                    }
                                                                     self.editing_target_seq_list.clear();
                                                                     self.editing_target_seq_idx = None;
                                                                     finalize_sequence_capture!(self);
@@ -1753,30 +1920,65 @@ impl SorahkGui {
                                                                     self.editing_target_seq_list.clear();
                                                                 }
                                                             } else {
-                                                                // Not capturing - show +Add button
-                                                                ui.horizontal(|ui| {
-                                                                    let add_seq_btn = egui::Button::new(
-                                                                        egui::RichText::new(t.add_button_text())
-                                                                            .size(13.0)
-                                                                            .color(egui::Color32::WHITE),
+                                                                // Not capturing: plain horizontal
+                                                                // rect that mirrors the Single /
+                                                                // Multi target button. Keeps a
+                                                                // static "click to set target"
+                                                                // label so the row never widens
+                                                                // based on content. Captured keys
+                                                                // still render as pill tags below.
+                                                                let seq_btn = egui::Button::new(
+                                                                    egui::RichText::new(
+                                                                        t.click_to_set_target(),
                                                                     )
-                                                                    .fill(if self.dark_mode {
-                                                                        egui::Color32::from_rgb(255, 140, 170)
+                                                                    .size(14.0)
+                                                                    .color(if self.dark_mode {
+                                                                        egui::Color32::WHITE
                                                                     } else {
-                                                                        egui::Color32::from_rgb(255, 170, 190)
-                                                                    })
-                                                                    .corner_radius(10.0);
-                                                                    if ui.add(add_seq_btn).on_hover_text(t.add_target_key_hover()).clicked() && !self.just_captured_input {
-                                                                        // Initialize editing list from current target keys
-                                                                        self.editing_target_seq_list = mapping.target_keys.iter().cloned().collect();
-                                                                        self.editing_target_seq_idx = Some(idx);
-                                                                        self.key_capture_mode = KeyCaptureMode::MappingTarget(idx);
-                                                                        self.capture_pressed_keys.clear();
-                                                                        self.capture_initial_pressed = Self::poll_all_pressed_keys();
-                                                                        self.app_state.set_raw_input_capture_mode(true);
-                                                                        self.just_captured_input = true;
-                                                                    }
-                                                                });
+                                                                        egui::Color32::from_rgb(
+                                                                            40, 40, 40,
+                                                                        )
+                                                                    }),
+                                                                )
+                                                                .fill(if self.dark_mode {
+                                                                    egui::Color32::from_rgb(60, 62, 72)
+                                                                } else {
+                                                                    egui::Color32::from_rgb(
+                                                                        245, 245, 250,
+                                                                    )
+                                                                })
+                                                                .corner_radius(10.0);
+                                                                let target_width =
+                                                                    ui.available_width().max(120.0);
+                                                                if ui
+                                                                    .add_sized(
+                                                                        [target_width, 30.0],
+                                                                        seq_btn,
+                                                                    )
+                                                                    .clicked()
+                                                                    && !self.just_captured_input
+                                                                {
+                                                                    self.editing_target_seq_list =
+                                                                        mapping
+                                                                            .target_keys
+                                                                            .iter()
+                                                                            .cloned()
+                                                                            .collect();
+                                                                    self.editing_target_seq_idx =
+                                                                        Some(idx);
+                                                                    self.key_capture_mode =
+                                                                        KeyCaptureMode::MappingTarget(
+                                                                            idx,
+                                                                        );
+                                                                    self.capture_pressed_keys.clear();
+                                                                    self.capture_initial_pressed =
+                                                                        Self::poll_all_pressed_keys();
+                                                                    self.app_state
+                                                                        .set_raw_input_capture_mode(
+                                                                            true,
+                                                                        );
+                                                                    self.just_captured_input = true;
+                                                                }
                                                             }
                                                         }
                                                         // Show target keys as pill tags when multiple targets exist or in sequence mode
@@ -1902,7 +2104,7 @@ impl SorahkGui {
                                                                                                     ui.label(egui::RichText::new(format!("{}", key_idx + 1)).size(9.0).strong().color(text_color));
                                                                                                     let short_name = if display_name.len() > 15 { format!("{}...", &display_name[..12]) } else { display_name };
                                                                                                     ui.label(egui::RichText::new(&short_name).size(11.0).color(text_color));
-                                                                                                    let del_btn = ui.add(egui::Button::new(egui::RichText::new("×").size(11.0).color(
+                                                                                                    let del_btn = ui.add(egui::Button::new(egui::RichText::new("🗑").size(11.0).color(
                                                                                                         if self.dark_mode { egui::Color32::from_rgb(180, 80, 100) }
                                                                                                         else { egui::Color32::from_rgb(200, 60, 80) }
                                                                                                     )).fill(egui::Color32::TRANSPARENT).frame(false).corner_radius(8.0));
@@ -1935,6 +2137,23 @@ impl SorahkGui {
                                                                 } else {
                                                                     // Normal mode: remove from mapping by index
                                                                     mapping.remove_target_key_at(remove_idx);
+                                                                    // Rewrite the hold-indices set so
+                                                                    // marks don't silently migrate to
+                                                                    // the wrong key after deletion.
+                                                                    if let Some(existing) =
+                                                                        mapping.hold_indices.as_mut()
+                                                                    {
+                                                                        let removed = remove_idx as u8;
+                                                                        existing.retain(|&mut i| i != removed);
+                                                                        for i in existing.iter_mut() {
+                                                                            if *i > removed {
+                                                                                *i -= 1;
+                                                                            }
+                                                                        }
+                                                                        if existing.is_empty() {
+                                                                            mapping.hold_indices = None;
+                                                                        }
+                                                                    }
                                                                 }
                                                             }
                                                         }
@@ -2288,6 +2507,19 @@ impl SorahkGui {
 
                                             if let Some(idx) = to_remove {
                                                 temp_config.mappings.remove(idx);
+                                            }
+
+                                            if let Some((idx, keys, hold, append)) =
+                                                open_rule_props
+                                            {
+                                                self.rule_props_editing_idx = Some(idx);
+                                                self.rule_properties_dialog = Some(
+                                                    crate::gui::rule_properties_dialog::RulePropertiesDialog::new(
+                                                        &keys,
+                                                        &hold,
+                                                        &append,
+                                                    ),
+                                                );
                                             }
 
                                             ui.add_space(12.0);
@@ -2834,7 +3066,7 @@ impl SorahkGui {
                                                                                                     // Delete button
                                                                                                     let del_btn = ui.add(
                                                                                                         egui::Button::new(
-                                                                                                            egui::RichText::new("×")
+                                                                                                            egui::RichText::new("🗑")
                                                                                                                 .size(11.0)
                                                                                                                 .color(if self.dark_mode {
                                                                                                                     egui::Color32::from_rgb(180, 80, 100)
@@ -2999,6 +3231,73 @@ impl SorahkGui {
                                                                 self.target_sequence_capture_list = self.new_mapping_target_keys.clone();
                                                             }
                                                         }
+
+                                                        // Right-aligned Rule Props button for the
+                                                        // new-mapping draft. Same visual slot as
+                                                        // the edit path so users build muscle
+                                                        // memory for the entry point.
+                                                        ui.with_layout(
+                                                            egui::Layout::right_to_left(
+                                                                egui::Align::Center,
+                                                            ),
+                                                            |ui| {
+                                                                let (props_fill, props_text) =
+                                                                    if self.dark_mode {
+                                                                        (
+                                                                            egui::Color32::from_rgb(
+                                                                                255, 140, 170,
+                                                                            ),
+                                                                            egui::Color32::WHITE,
+                                                                        )
+                                                                    } else {
+                                                                        (
+                                                                            egui::Color32::from_rgb(
+                                                                                255, 170, 190,
+                                                                            ),
+                                                                            egui::Color32::WHITE,
+                                                                        )
+                                                                    };
+                                                                let props_btn = egui::Button::new(
+                                                                    egui::RichText::new(
+                                                                        t.rule_props_button(),
+                                                                    )
+                                                                    .size(11.0)
+                                                                    .color(props_text),
+                                                                )
+                                                                .fill(props_fill)
+                                                                .corner_radius(10.0);
+                                                                if ui.add(props_btn).clicked() {
+                                                                    let keys: Vec<String> =
+                                                                        if target_mode == 2
+                                                                            && !self
+                                                                                .target_sequence_capture_list
+                                                                                .is_empty()
+                                                                        {
+                                                                            self
+                                                                                .target_sequence_capture_list
+                                                                                .clone()
+                                                                        } else {
+                                                                            self
+                                                                                .new_mapping_target_keys
+                                                                                .clone()
+                                                                        };
+                                                                    let hold = self
+                                                                        .new_mapping_hold_indices
+                                                                        .clone();
+                                                                    let append = self
+                                                                        .new_mapping_append_keys
+                                                                        .clone();
+                                                                    self.rule_props_editing_idx = None;
+                                                                    self.rule_properties_dialog = Some(
+                                                                        crate::gui::rule_properties_dialog::RulePropertiesDialog::new(
+                                                                            &keys,
+                                                                            &hold,
+                                                                            &append,
+                                                                        ),
+                                                                    );
+                                                                }
+                                                            },
+                                                        );
                                                     });
 
                                                     // Mode explanation
@@ -3154,64 +3453,46 @@ impl SorahkGui {
                                                                 }
                                                             });
                                                         } else {
-                                                            // Not capturing - show sequence capture button
-                                                            let seq_display = if self.target_sequence_capture_list.is_empty() {
-                                                                t.click_to_set_target().to_string()
-                                                            } else {
-                                                                let count = self.target_sequence_capture_list.len();
-                                                                if count <= 3 {
-                                                                    self.target_sequence_capture_list.join(" → ")
-                                                                } else {
-                                                                    let last = self.target_sequence_capture_list.last().map(|s| s.as_str()).unwrap_or("");
-                                                                    format!("{} keys: ... → {}", count, last)
-                                                                }
-                                                            };
-                                                            ui.horizontal(|ui| {
-                                                                let seq_btn = egui::Button::new(
-                                                                    egui::RichText::new(&seq_display)
-                                                                        .size(14.0)
-                                                                        .color(if self.dark_mode {
-                                                                            egui::Color32::WHITE
-                                                                        } else {
-                                                                            egui::Color32::from_rgb(40, 40, 40)
-                                                                        }),
+                                                            // Not capturing: plain horizontal rect
+                                                            // mirroring the Single / Multi target
+                                                            // button. Always shows the "click to
+                                                            // set target" label; captured keys
+                                                            // surface as pill tags below. Clicking
+                                                            // re-enters capture mode which opens
+                                                            // the amber preview frame above.
+                                                            let seq_btn = egui::Button::new(
+                                                                egui::RichText::new(
+                                                                    t.click_to_set_target(),
                                                                 )
-                                                                .fill(if self.dark_mode {
-                                                                    egui::Color32::from_rgb(60, 62, 72)
+                                                                .size(14.0)
+                                                                .color(if self.dark_mode {
+                                                                    egui::Color32::WHITE
                                                                 } else {
-                                                                    egui::Color32::from_rgb(245, 245, 250)
-                                                                })
-                                                                .corner_radius(10.0);
-                                                                if ui.add_sized([ui.available_width() - 70.0, 30.0], seq_btn).clicked() && !self.just_captured_input {
-                                                                    self.key_capture_mode = KeyCaptureMode::NewMappingTarget;
-                                                                    self.capture_pressed_keys.clear();
-                                                                    self.capture_initial_pressed = Self::poll_all_pressed_keys();
-                                                                    self.app_state.set_raw_input_capture_mode(true);
-                                                                    self.just_captured_input = true;
-                                                                }
-                                                                // +Add button for adding more keys
-                                                                if !self.target_sequence_capture_list.is_empty() {
-                                                                    ui.add_space(4.0);
-                                                                    let add_btn = egui::Button::new(
-                                                                        egui::RichText::new(t.add_button_text())
-                                                                            .size(12.0)
-                                                                            .color(egui::Color32::WHITE),
-                                                                    )
-                                                                    .fill(if self.dark_mode {
-                                                                        egui::Color32::from_rgb(255, 140, 170)
-                                                                    } else {
-                                                                        egui::Color32::from_rgb(255, 170, 190)
-                                                                    })
-                                                                    .corner_radius(8.0);
-                                                                    if ui.add(add_btn).clicked() && !self.just_captured_input {
-                                                                        self.key_capture_mode = KeyCaptureMode::NewMappingTarget;
-                                                                        self.capture_pressed_keys.clear();
-                                                                        self.capture_initial_pressed = Self::poll_all_pressed_keys();
-                                                                        self.app_state.set_raw_input_capture_mode(true);
-                                                                        self.just_captured_input = true;
-                                                                    }
-                                                                }
-                                                            });
+                                                                    egui::Color32::from_rgb(40, 40, 40)
+                                                                }),
+                                                            )
+                                                            .fill(if self.dark_mode {
+                                                                egui::Color32::from_rgb(60, 62, 72)
+                                                            } else {
+                                                                egui::Color32::from_rgb(245, 245, 250)
+                                                            })
+                                                            .corner_radius(10.0);
+                                                            let target_width =
+                                                                ui.available_width().max(120.0);
+                                                            if ui
+                                                                .add_sized([target_width, 30.0], seq_btn)
+                                                                .clicked()
+                                                                && !self.just_captured_input
+                                                            {
+                                                                self.key_capture_mode =
+                                                                    KeyCaptureMode::NewMappingTarget;
+                                                                self.capture_pressed_keys.clear();
+                                                                self.capture_initial_pressed =
+                                                                    Self::poll_all_pressed_keys();
+                                                                self.app_state
+                                                                    .set_raw_input_capture_mode(true);
+                                                                self.just_captured_input = true;
+                                                            }
                                                         }
                                                     } else {
                                                         // Single/Multi mode - original button style
@@ -3251,10 +3532,18 @@ impl SorahkGui {
                                                         })
                                                         .corner_radius(10.0);
 
-                                                        if ui.add_sized([ui.available_width(), 30.0], target_btn).clicked() && !self.just_captured_input {
-                                                            self.key_capture_mode = KeyCaptureMode::NewMappingTarget;
+                                                        let target_width =
+                                                            ui.available_width().max(120.0);
+                                                        if ui
+                                                            .add_sized([target_width, 30.0], target_btn)
+                                                            .clicked()
+                                                            && !self.just_captured_input
+                                                        {
+                                                            self.key_capture_mode =
+                                                                KeyCaptureMode::NewMappingTarget;
                                                             self.capture_pressed_keys.clear();
-                                                            self.capture_initial_pressed = Self::poll_all_pressed_keys();
+                                                            self.capture_initial_pressed =
+                                                                Self::poll_all_pressed_keys();
                                                         }
                                                     }
 
@@ -3376,7 +3665,7 @@ impl SorahkGui {
                                                                                                 ui.label(egui::RichText::new(format!("{}", key_idx + 1)).size(9.0).strong().color(text_color));
                                                                                                 let short_name = if display_name.len() > 15 { format!("{}...", &display_name[..12]) } else { display_name };
                                                                                                 ui.label(egui::RichText::new(&short_name).size(11.0).color(text_color));
-                                                                                                let del_btn = ui.add(egui::Button::new(egui::RichText::new("×").size(11.0).color(
+                                                                                                let del_btn = ui.add(egui::Button::new(egui::RichText::new("🗑").size(11.0).color(
                                                                                                     if self.dark_mode { egui::Color32::from_rgb(180, 80, 100) }
                                                                                                     else { egui::Color32::from_rgb(200, 60, 80) }
                                                                                                 )).fill(egui::Color32::TRANSPARENT).frame(false).corner_radius(8.0));
@@ -3412,6 +3701,18 @@ impl SorahkGui {
                                                             self.new_mapping_target.clear();
                                                         } else {
                                                             self.new_mapping_target = self.new_mapping_target_keys[0].clone();
+                                                        }
+                                                        // Keep the rule-properties draft aligned
+                                                        // with the new target layout: drop the mark
+                                                        // on the deleted index and shift higher
+                                                        // indices down by one.
+                                                        let removed = idx as u8;
+                                                        self.new_mapping_hold_indices
+                                                            .retain(|&i| i != removed);
+                                                        for i in self.new_mapping_hold_indices.iter_mut() {
+                                                            if *i > removed {
+                                                                *i -= 1;
+                                                            }
                                                         }
                                                     }
                                                     // Apply deferred finish/clear for sequence target capture
@@ -3752,6 +4053,45 @@ impl SorahkGui {
 
                                                         let turbo_enabled = self.new_mapping_turbo;
 
+                                                        // Flush rule-property draft when the user
+                                                        // configured hold indices or append keys.
+                                                        // Applies to every target mode since the
+                                                        // Rule Props dialog is now universal.
+                                                        let (new_hold, new_append) =
+                                                            if !self.new_mapping_hold_indices.is_empty()
+                                                                || !self.new_mapping_append_keys.is_empty()
+                                                            {
+                                                                let hold = if self
+                                                                    .new_mapping_hold_indices
+                                                                    .is_empty()
+                                                                {
+                                                                    None
+                                                                } else {
+                                                                    Some(
+                                                                        smallvec::SmallVec::from_vec(
+                                                                            self.new_mapping_hold_indices
+                                                                                .clone(),
+                                                                        ),
+                                                                    )
+                                                                };
+                                                                let append = if self
+                                                                    .new_mapping_append_keys
+                                                                    .is_empty()
+                                                                {
+                                                                    None
+                                                                } else {
+                                                                    Some(
+                                                                        smallvec::SmallVec::from_vec(
+                                                                            self.new_mapping_append_keys
+                                                                                .clone(),
+                                                                        ),
+                                                                    )
+                                                                };
+                                                                (hold, append)
+                                                            } else {
+                                                                (None, None)
+                                                            };
+
                                                         temp_config.mappings.push(KeyMapping {
                                                             trigger_key,
                                                             trigger_sequence,
@@ -3764,6 +4104,8 @@ impl SorahkGui {
                                                             turbo_enabled,
                                                             move_speed,
                                                             target_mode: self.new_mapping_target_mode,
+                                                            hold_indices: new_hold,
+                                                            append_keys: new_append,
                                                         });
 
                                                         // Clear input fields
@@ -3779,6 +4121,8 @@ impl SorahkGui {
                                                         self.new_mapping_is_sequence_mode = false;
                                                         self.new_mapping_target_mode = 0;
                                                         self.target_sequence_capture_list.clear();
+                                                        self.new_mapping_hold_indices.clear();
+                                                        self.new_mapping_append_keys.clear();
                                                         self.sequence_last_mouse_pos = None;
                                                         self.sequence_last_mouse_direction = None;
                                                         self.sequence_mouse_delta = egui::Vec2::ZERO;
@@ -4130,6 +4474,14 @@ impl SorahkGui {
             self.duplicate_mapping_error = None;
             self.duplicate_process_error = None;
             self.app_state.set_raw_input_capture_mode(false);
+            // Clear rule-properties draft so a leftover selection from a
+            // previous session doesn't auto-apply to the next draft.
+            self.new_mapping_hold_indices.clear();
+            self.new_mapping_append_keys.clear();
+            // Drop any in-flight rule-properties dialog so it can't outlive
+            // the settings session and write into a stale temp_config.
+            self.rule_properties_dialog = None;
+            self.rule_props_editing_idx = None;
 
             // Restore previous paused state after exiting settings
             if let Some(was_paused) = self.was_paused_before_settings.take()
@@ -4159,6 +4511,10 @@ impl SorahkGui {
             self.target_sequence_capture_list.clear();
             self.editing_target_seq_list.clear();
             self.editing_target_seq_idx = None;
+            self.new_mapping_hold_indices.clear();
+            self.new_mapping_append_keys.clear();
+            self.rule_properties_dialog = None;
+            self.rule_props_editing_idx = None;
             self.sequence_last_mouse_pos = None;
             self.sequence_last_mouse_direction = None;
             self.sequence_mouse_delta = egui::Vec2::ZERO;

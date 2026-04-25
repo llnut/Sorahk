@@ -212,5 +212,17 @@ pub(super) const fn translate(key: RawKey) -> &'static str {
         RawKey::DeleteIcon => "🗑",
         RawKey::KeysText => "keys",
         RawKey::TargetsText => "targets",
+
+        RawKey::RulePropsButton => "⚙ Add-ons",
+        RawKey::RulePropsDialogTitle => "Mapping Add-ons",
+        RawKey::RulePropsHint => {
+            "Tick the target keys you want to keep firing after the initial trigger, and add extra keys if you need them. Perfect for sustained sprints, charge-up combo inputs, and other hold-after-tap moves."
+        }
+        RawKey::RulePropsHoldColumn => "hold after",
+        RawKey::RulePropsAppendLabel => "Extra keys to hold",
+        RawKey::RulePropsAddAppend => "+ add key",
+        RawKey::RulePropsAppendPlaceholder => "click to capture a key",
+        RawKey::RulePropsSave => "Save",
+        RawKey::RulePropsCancel => "Cancel",
     }
 }

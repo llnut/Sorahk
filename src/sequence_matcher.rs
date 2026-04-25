@@ -133,7 +133,7 @@ impl SequenceMatcher {
                 };
 
                 new_seqs.push((sequence.clone(), last_device.clone()));
-                new_seqs.sort_unstable_by(|a, b| b.0.len().cmp(&a.0.len()));
+                new_seqs.sort_unstable_by_key(|entry| std::cmp::Reverse(entry.0.len()));
 
                 let new_ptr = Box::into_raw(Box::new(Arc::new(new_seqs)));
 

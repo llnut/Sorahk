@@ -184,7 +184,7 @@ Sorahk is a Windows application for automating repetitive key press operations. 
 ### User Interface
 
 - Graphical configuration management through egui framework
-- Multi-language support: English, Simplified Chinese, Traditional Chinese, Japanese
+- Multi-language support: English, Simplified Chinese, Traditional Chinese, Japanese, Korean
 - Light and dark theme options
 - System tray integration
 - Real-time status monitoring
@@ -207,6 +207,7 @@ Sorahk is a Windows application for automating repetitive key press operations. 
 - Sequence input triggers with configurable time windows
 - Sequential output targets with customizable intervals
 - Three target modes: Single, Multi, Sequence
+- Per-mapping add-on rules to keep chosen keys and extra keys pressed after the trigger
 - Individual turbo mode control per mapping
 - Adjustable repeat interval and press duration
 - Multiple simultaneous input mappings

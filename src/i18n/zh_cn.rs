@@ -200,5 +200,17 @@ pub(super) const fn translate(key: RawKey) -> &'static str {
         RawKey::DeleteIcon => "🗑",
         RawKey::KeysText => "个按键",
         RawKey::TargetsText => "个目标",
+
+        RawKey::RulePropsButton => "⚙ 附加规则",
+        RawKey::RulePropsDialogTitle => "附加规则设置",
+        RawKey::RulePropsHint => {
+            "勾选单次触发完毕后，后续要持续触发的目标键，也可以再追加其它按键。可利用此设置完成角色持续奔跑、蓄力搓招等功能。"
+        }
+        RawKey::RulePropsHoldColumn => "触发后保持",
+        RawKey::RulePropsAppendLabel => "追加持续按住的键",
+        RawKey::RulePropsAddAppend => "＋ 添加按键",
+        RawKey::RulePropsAppendPlaceholder => "点击录制按键",
+        RawKey::RulePropsSave => "保存",
+        RawKey::RulePropsCancel => "取消",
     }
 }

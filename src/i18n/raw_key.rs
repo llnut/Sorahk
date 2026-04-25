@@ -207,17 +207,29 @@ pub(super) enum RawKey {
     DeleteIcon,
     KeysText,
     TargetsText,
+
+    // Sequence Properties Dialog
+    RulePropsButton,
+    RulePropsDialogTitle,
+    RulePropsHint,
+    RulePropsHoldColumn,
+    RulePropsAppendLabel,
+    RulePropsAddAppend,
+    RulePropsAppendPlaceholder,
+    RulePropsSave,
+    RulePropsCancel,
 }
 
 /// Returns the translation for `key` in `lang`, resolved to a compile-time
 /// string literal. Dispatches to the matching per-language submodule which
 /// holds the actual table of arms.
 pub(super) const fn get_raw_translation(lang: Language, key: RawKey) -> &'static str {
-    use super::{en, ja, zh_cn, zh_tw};
+    use super::{en, ja, ko, zh_cn, zh_tw};
     match lang {
         Language::English => en::translate(key),
         Language::SimplifiedChinese => zh_cn::translate(key),
         Language::TraditionalChinese => zh_tw::translate(key),
         Language::Japanese => ja::translate(key),
+        Language::Korean => ko::translate(key),
     }
 }

@@ -40,6 +40,8 @@ fn test_state_input_mapping_lookup() {
         target_mode: 0,
         trigger_sequence: None,
         sequence_window_ms: 500,
+        hold_indices: None,
+        append_keys: None,
     }];
 
     let state = AppState::new(config).expect("Failed to create state");
@@ -147,6 +149,8 @@ fn test_state_multiple_mappings() {
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
+            hold_indices: None,
+            append_keys: None,
         },
         KeyMapping {
             trigger_key: "B".to_string(),
@@ -158,6 +162,8 @@ fn test_state_multiple_mappings() {
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
+            hold_indices: None,
+            append_keys: None,
         },
         KeyMapping {
             trigger_key: "C".to_string(),
@@ -169,6 +175,8 @@ fn test_state_multiple_mappings() {
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
+            hold_indices: None,
+            append_keys: None,
         },
     ];
 
@@ -214,6 +222,8 @@ fn test_state_config_reload_clears_mappings() {
         target_mode: 0,
         trigger_sequence: None,
         sequence_window_ms: 500,
+        hold_indices: None,
+        append_keys: None,
     }];
 
     let state = AppState::new(config.clone()).expect("Failed to create state");
@@ -243,6 +253,8 @@ fn test_state_turbo_enabled_in_mapping() {
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
+            hold_indices: None,
+            append_keys: None,
         },
         KeyMapping {
             trigger_key: "B".to_string(),
@@ -254,6 +266,8 @@ fn test_state_turbo_enabled_in_mapping() {
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
+            hold_indices: None,
+            append_keys: None,
         },
     ];
 

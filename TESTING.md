@@ -68,10 +68,10 @@ tests/
 
 | Module | Primary Focus |
 |--------|---------------|
-| **config.rs** | Configuration loading, saving, validation, error handling, TOML serialization, multiple target keys management (add, remove, clear, set operations), sequence trigger/target fields, target mode handling |
-| **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings (keyboard, mouse, HID devices), combo key parsing (including numpad and OEM keys), device type parsing (gamepad, joystick), mouse scroll direction parsing, output action handling (keyboard, mouse buttons, mouse movement, mouse scroll, sequential actions), state management, thread safety, atomic operations, lock-free concurrent data structures, batch INPUT event processing, extended scancode bitmap detection |
+| **config.rs** | Configuration loading, saving, validation, error handling, TOML serialization, multiple target keys management (add, remove, clear, set operations), sequence trigger/target fields, target mode handling, add-on rule fields, reset-to-defaults on malformed files |
+| **state.rs** | Key conversion (VK/scancode for all key types: standard, numpad, system, lock, OEM, mouse), input device mappings (keyboard, mouse, HID devices), combo key parsing (including numpad and OEM keys), device type parsing (gamepad, joystick), mouse scroll direction parsing, output action handling (keyboard, mouse buttons, mouse movement, mouse scroll, sequential actions, MappingHold that keeps chosen keys pressed after the trigger), state management, thread safety, atomic operations, lock-free concurrent data structures, batch INPUT event processing, extended scancode bitmap detection |
 | **sequence_matcher.rs** | Ring buffer implementation, input sequence recording, pattern matching algorithm, time window validation, input deduplication, device matching logic, transition tolerance, diagonal bidirectional matching, cache-aligned structures, atomic operations, lock-free sequence registration |
-| **i18n.rs** | Multi-language translations, formatting functions, translation completeness |
+| **i18n.rs** | Multi-language translations (English, Simplified Chinese, Traditional Chinese, Japanese, Korean), formatting functions, translation completeness, u8 encoding round-trip |
 | **keyboard.rs** | Worker pool creation, worker distribution stability, mapping cache retrieval, sequential action handling, turbo mode processing |
 | **mouse.rs** | Mouse button handling, message parsing, event processing, mouse movement turbo |
 | **rawinput.rs** | FNV-1a hash algorithm, device ID generation, VID/PID parsing, button counting, HID baseline management, combo key capture logic, sequence input recording |
@@ -91,6 +91,9 @@ Run `cargo test -- --list` to see all available test functions.
 - Multiple target keys functionality (add, remove, clear, display)
 - Sequence trigger and target fields persistence
 - Target mode serialization and deserialization
+- Add-on rule fields `hold_indices` and `append_keys`
+- `MappingHold` output built from the add-on fields
+- Reset to defaults when the config file fails to parse
 - Key name to VK code conversion
 - VK code to scancode mapping
 - Combo key parsing and validation

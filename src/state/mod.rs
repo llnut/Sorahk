@@ -1201,11 +1201,63 @@ impl AppState {
                 continue; // Skip if no valid actions
             }
 
-            // Create the final target action based on target_mode
-            let target_action = if actions.len() == 1 {
+            // Resolve rule-property metadata. Applies to any target mode
+            // when the user configured hold indices or append keys in
+            // the Rule Props dialog.
+            let has_hold = mapping.hold_indices.as_ref().is_some_and(|v| !v.is_empty());
+            let has_append = mapping.append_keys.as_ref().is_some_and(|v| !v.is_empty());
+            let has_rule_props = has_hold || has_append;
+
+            // Resolve the concrete hold_mask / append list now so we can
+            // decide whether the rule-properties metadata actually
+            // contributes any runtime behavior. Out-of-range hold indices
+            // and unparseable append names drop silently; if the resulting
+            // mask is empty AND append is empty, fall through to the
+            // classic playback variants instead of building a no-op
+            // MappingHold that would silently swallow the trigger.
+            let action_count = actions.len();
+            let mut hold_mask: u16 = 0;
+            if let Some(idxs) = &mapping.hold_indices {
+                for &i in idxs {
+                    let ui = i as usize;
+                    if ui < action_count && ui < 16 {
+                        hold_mask |= 1u16 << ui;
+                    }
+                }
+            }
+
+            let mut append_actions: SmallVec<[OutputAction; 4]> = SmallVec::new();
+            if let Some(names) = &mapping.append_keys {
+                for name in names {
+                    if let Some(action) = parsing::input_name_to_output(name) {
+                        let action = match action {
+                            OutputAction::MouseMove(direction, _) => {
+                                OutputAction::MouseMove(direction, move_speed)
+                            }
+                            OutputAction::MouseScroll(direction, _) => {
+                                OutputAction::MouseScroll(direction, move_speed)
+                            }
+                            other => other,
+                        };
+                        append_actions.push(action);
+                    }
+                }
+            }
+
+            let rule_props_effective =
+                has_rule_props && (hold_mask != 0 || !append_actions.is_empty());
+
+            let target_action = if rule_props_effective {
+                OutputAction::MappingHold {
+                    actions: Arc::new(actions),
+                    interval_ms: interval,
+                    hold_mask,
+                    append: Arc::new(append_actions),
+                    sequential: mapping.target_mode == 2,
+                }
+            } else if actions.len() == 1 {
                 actions.into_iter().next().unwrap()
             } else if mapping.target_mode == 2 {
-                // Sequence mode: output keys sequentially with interval between each
                 OutputAction::SequentialActions(Arc::new(actions), interval)
             } else {
                 // Single/Multi mode: output keys simultaneously

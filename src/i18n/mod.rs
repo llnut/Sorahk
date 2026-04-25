@@ -4,11 +4,12 @@
 //! `&'static str` values from compile-time constant tables. Lookup is a
 //! pointer dereference with no runtime allocation.
 //!
-//! The per-language string data lives in the `en`, `zh_cn`, `zh_tw`, and
-//! `ja` submodules. This module exposes the cached API surface.
+//! The per-language string data lives in the `en`, `zh_cn`, `zh_tw`,
+//! `ja`, and `ko` submodules. This module exposes the cached API surface.
 
 mod en;
 mod ja;
+mod ko;
 mod zh_cn;
 mod zh_tw;
 
@@ -34,6 +35,8 @@ pub enum Language {
     TraditionalChinese,
     /// Japanese
     Japanese,
+    /// Korean
+    Korean,
 }
 
 impl Language {
@@ -44,6 +47,7 @@ impl Language {
             Language::SimplifiedChinese,
             Language::TraditionalChinese,
             Language::Japanese,
+            Language::Korean,
         ]
     }
 
@@ -54,6 +58,7 @@ impl Language {
             Language::SimplifiedChinese => "简体中文",
             Language::TraditionalChinese => "繁體中文",
             Language::Japanese => "日本語",
+            Language::Korean => "한국어",
         }
     }
 
@@ -64,6 +69,7 @@ impl Language {
             Language::SimplifiedChinese => 1,
             Language::TraditionalChinese => 2,
             Language::Japanese => 3,
+            Language::Korean => 4,
         }
     }
 
@@ -73,6 +79,7 @@ impl Language {
             1 => Language::SimplifiedChinese,
             2 => Language::TraditionalChinese,
             3 => Language::Japanese,
+            4 => Language::Korean,
             _ => Language::English,
         }
     }
@@ -294,6 +301,17 @@ struct TranslationCache {
     delete_icon: &'static str,
     keys_text: &'static str,
     targets_text: &'static str,
+
+    // Sequence Properties Dialog
+    rule_props_button: &'static str,
+    rule_props_dialog_title: &'static str,
+    rule_props_hint: &'static str,
+    rule_props_hold_column: &'static str,
+    rule_props_append_label: &'static str,
+    rule_props_add_append: &'static str,
+    rule_props_append_placeholder: &'static str,
+    rule_props_save: &'static str,
+    rule_props_cancel: &'static str,
 }
 
 /// Pre-built translation tables, one per supported language. Built at
@@ -302,6 +320,7 @@ static EN_CACHE: TranslationCache = TranslationCache::new(Language::English);
 static ZH_CN_CACHE: TranslationCache = TranslationCache::new(Language::SimplifiedChinese);
 static ZH_TW_CACHE: TranslationCache = TranslationCache::new(Language::TraditionalChinese);
 static JA_CACHE: TranslationCache = TranslationCache::new(Language::Japanese);
+static KO_CACHE: TranslationCache = TranslationCache::new(Language::Korean);
 
 impl TranslationCache {
     /// Builds a translation cache at compile time for the given language.
@@ -633,6 +652,20 @@ impl TranslationCache {
             delete_icon: get_raw_translation(lang, RawKey::DeleteIcon),
             keys_text: get_raw_translation(lang, RawKey::KeysText),
             targets_text: get_raw_translation(lang, RawKey::TargetsText),
+
+            // Sequence Properties Dialog
+            rule_props_button: get_raw_translation(lang, RawKey::RulePropsButton),
+            rule_props_dialog_title: get_raw_translation(lang, RawKey::RulePropsDialogTitle),
+            rule_props_hint: get_raw_translation(lang, RawKey::RulePropsHint),
+            rule_props_hold_column: get_raw_translation(lang, RawKey::RulePropsHoldColumn),
+            rule_props_append_label: get_raw_translation(lang, RawKey::RulePropsAppendLabel),
+            rule_props_add_append: get_raw_translation(lang, RawKey::RulePropsAddAppend),
+            rule_props_append_placeholder: get_raw_translation(
+                lang,
+                RawKey::RulePropsAppendPlaceholder,
+            ),
+            rule_props_save: get_raw_translation(lang, RawKey::RulePropsSave),
+            rule_props_cancel: get_raw_translation(lang, RawKey::RulePropsCancel),
         }
     }
 }

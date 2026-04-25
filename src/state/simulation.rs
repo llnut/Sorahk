@@ -27,6 +27,57 @@ impl AppState {
                     }
                 }
             }
+            OutputAction::MappingHold {
+                actions,
+                interval_ms,
+                hold_mask,
+                append,
+                sequential,
+            } => {
+                if sequential {
+                    // Sequential playback (Sequence target mode). Held
+                    // indices only press; non-held indices run a full
+                    // press + hold + release cycle on their own.
+                    let last = actions.len().saturating_sub(1);
+                    for (idx, a) in actions.iter().enumerate() {
+                        if idx < 16 && (hold_mask & (1u16 << idx)) != 0 {
+                            self.simulate_initial_press(a);
+                        } else {
+                            self.simulate_action(a.clone(), duration);
+                        }
+                        if idx < last {
+                            std::thread::sleep(std::time::Duration::from_millis(interval_ms));
+                        }
+                    }
+                } else {
+                    // Simultaneous playback (Single / Multi target mode).
+                    // Press everything at once, sleep `duration`, then
+                    // release only the non-held indices. Held indices
+                    // stay pressed for the append phase.
+                    for a in actions.iter() {
+                        self.simulate_initial_press(a);
+                    }
+                    if duration > 0 {
+                        std::thread::sleep(std::time::Duration::from_millis(duration));
+                    }
+                    for (idx, a) in actions.iter().enumerate().rev() {
+                        let held = idx < 16 && (hold_mask & (1u16 << idx)) != 0;
+                        if !held {
+                            self.simulate_release(a);
+                        }
+                    }
+                }
+                // Append phase identical for both playback shapes. Holdable
+                // items stay held; edge-event items (MouseMove / Scroll)
+                // pulse once.
+                for a in append.iter() {
+                    if Self::is_holdable_primitive(a) {
+                        self.simulate_initial_press(a);
+                    } else {
+                        self.simulate_action(a.clone(), 0);
+                    }
+                }
+            }
             _ => {
                 // Held-style actions: KeyboardKey / KeyCombo / MouseButton /
                 // MultipleActions. The press + release halves go through the
@@ -181,8 +232,167 @@ impl AppState {
                     Self::collect_primitives(a, scs, btns);
                 }
             }
+            OutputAction::MappingHold {
+                actions,
+                hold_mask,
+                append,
+                ..
+            } => {
+                // Only collect primitives that outlive the sequence pass:
+                // the held subset plus the append list. Non-held body
+                // actions self-balance their press+release inside
+                // simulate_action and leave ref counts at zero.
+                for (idx, a) in actions.iter().enumerate() {
+                    if idx < 16 && (hold_mask & (1u16 << idx)) != 0 {
+                        Self::collect_primitives(a, scs, btns);
+                    }
+                }
+                for a in append.iter() {
+                    Self::collect_primitives(a, scs, btns);
+                }
+            }
             OutputAction::MouseMove(..) | OutputAction::MouseScroll(..) => {
                 // Edge-event primitives: no held state.
+            }
+        }
+    }
+
+    /// Classifies whether an action produces held keyboard / mouse button
+    /// primitives. Used by MappingHold to split append actions into
+    /// "press and keep held" vs "fire once as edge event".
+    #[inline(always)]
+    fn is_holdable_primitive(action: &OutputAction) -> bool {
+        match action {
+            OutputAction::KeyboardKey(_)
+            | OutputAction::KeyCombo(_)
+            | OutputAction::MouseButton(_) => true,
+            OutputAction::MultipleActions(nested) => nested.iter().all(Self::is_holdable_primitive),
+            _ => false,
+        }
+    }
+
+    /// Re-emits KEYDOWN / MOUSEDOWN for the held subset of a
+    /// `MappingHold`, without touching ref counts. Called on every
+    /// Windows auto-repeat tick (or synthetic repeat for non-keyboard
+    /// triggers) so the host OS keeps the held keys "warm" without
+    /// replaying the whole sequence.
+    #[inline]
+    pub fn simulate_hold_repeat(&self, action: &OutputAction) {
+        if let OutputAction::MappingHold {
+            actions,
+            hold_mask,
+            append,
+            ..
+        } = action
+        {
+            let mut scs: SmallVec<[u16; 8]> = SmallVec::new();
+            let mut btns: SmallVec<[MouseButton; 4]> = SmallVec::new();
+            for (idx, a) in actions.iter().enumerate() {
+                if idx < 16 && (hold_mask & (1u16 << idx)) != 0 {
+                    Self::collect_primitives(a, &mut scs, &mut btns);
+                }
+            }
+            for a in append.iter() {
+                Self::collect_primitives(a, &mut scs, &mut btns);
+            }
+
+            if scs.is_empty() && btns.is_empty() {
+                return;
+            }
+
+            let mut inputs: SmallVec<[INPUT; 12]> = SmallVec::new();
+            for &sc in &scs {
+                inputs.push(Self::build_key_input(sc, false));
+            }
+            for &btn in &btns {
+                inputs.push(Self::build_mouse_input(btn, false));
+            }
+            unsafe {
+                SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+            }
+        }
+    }
+
+    /// Runs one full press + hold + release cycle over the hold subset
+    /// and the append list of a `MappingHold`. Used by the turbo
+    /// worker so turbo-mode MappingHold targets pulse only the
+    /// user-configured "sequence properties" keys rather than looping
+    /// the whole sequence body. Body actions outside the hold subset
+    /// are ignored, which is what enables "double-tap to run then turbo
+    /// the held portion" style configurations.
+    ///
+    /// `duration` is the hold time; the caller controls the gap
+    /// between cycles via its own interval pacing.
+    #[inline]
+    pub fn simulate_hold_cycle(&self, action: &OutputAction, duration: u64) {
+        if let OutputAction::MappingHold {
+            actions,
+            hold_mask,
+            append,
+            ..
+        } = action
+        {
+            // Press phase.
+            for (idx, a) in actions.iter().enumerate() {
+                if idx < 16 && (hold_mask & (1u16 << idx)) != 0 {
+                    self.simulate_initial_press(a);
+                }
+            }
+            for a in append.iter() {
+                if Self::is_holdable_primitive(a) {
+                    self.simulate_initial_press(a);
+                } else {
+                    // Edge-event append (MouseMove / MouseScroll) fires
+                    // once per cycle — no held state to release later.
+                    self.simulate_action(a.clone(), 0);
+                }
+            }
+
+            if duration > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(duration));
+            }
+
+            // Release phase: body held set first (reversed), then append
+            // in reverse. Append items are typically modifier-like extras
+            // (LSHIFT, LCTRL) that users add to qualify the body, so they
+            // should outlive the body keys on release — releasing body
+            // first guarantees "Shift+A" tails with Shift still down for
+            // one tick, matching the ergonomic expectation.
+            for (idx, a) in actions.iter().enumerate().rev() {
+                if idx < 16 && (hold_mask & (1u16 << idx)) != 0 {
+                    self.simulate_release(a);
+                }
+            }
+            for a in append.iter().rev() {
+                if Self::is_holdable_primitive(a) {
+                    self.simulate_release(a);
+                }
+            }
+        }
+    }
+
+    /// Decrements the ref count for every action held by a
+    /// `MappingHold` and emits KEYUP / MOUSEUP on the final release.
+    /// Body held items release first (reversed), then append in reverse,
+    /// so modifier-like append keys outlive their body main key.
+    #[inline]
+    pub fn simulate_hold_release(&self, action: &OutputAction) {
+        if let OutputAction::MappingHold {
+            actions,
+            hold_mask,
+            append,
+            ..
+        } = action
+        {
+            for (idx, a) in actions.iter().enumerate().rev() {
+                if idx < 16 && (hold_mask & (1u16 << idx)) != 0 {
+                    self.simulate_release(a);
+                }
+            }
+            for a in append.iter().rev() {
+                if Self::is_holdable_primitive(a) {
+                    self.simulate_release(a);
+                }
             }
         }
     }

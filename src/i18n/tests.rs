@@ -11,11 +11,12 @@ fn test_language_default() {
 #[test]
 fn test_language_all() {
     let all_languages = Language::all();
-    assert_eq!(all_languages.len(), 4);
+    assert_eq!(all_languages.len(), 5);
     assert_eq!(all_languages[0], Language::English);
     assert_eq!(all_languages[1], Language::SimplifiedChinese);
     assert_eq!(all_languages[2], Language::TraditionalChinese);
     assert_eq!(all_languages[3], Language::Japanese);
+    assert_eq!(all_languages[4], Language::Korean);
 }
 
 #[test]
@@ -24,6 +25,7 @@ fn test_language_display_names() {
     assert_eq!(Language::SimplifiedChinese.display_name(), "简体中文");
     assert_eq!(Language::TraditionalChinese.display_name(), "繁體中文");
     assert_eq!(Language::Japanese.display_name(), "日本語");
+    assert_eq!(Language::Korean.display_name(), "한국어");
 }
 
 #[test]
@@ -76,6 +78,19 @@ fn test_cached_translations_japanese() {
     assert_eq!(translations.light_theme(), "☀  ライト");
     assert_eq!(translations.paused_status(), "一時停止中");
     assert_eq!(translations.running_status(), "連打中");
+}
+
+#[test]
+fn test_cached_translations_korean() {
+    let translations = CachedTranslations::new(Language::Korean);
+
+    assert!(translations.app_title().contains("Sorahk"));
+    assert_eq!(translations.settings_button(), "⚙  설정");
+    assert_eq!(translations.about_button(), "❤  정보");
+    assert_eq!(translations.dark_theme(), "🌙  다크");
+    assert_eq!(translations.light_theme(), "☀  라이트");
+    assert_eq!(translations.paused_status(), "일시 정지됨");
+    assert_eq!(translations.running_status(), "연타 중");
 }
 
 #[test]
@@ -195,6 +210,10 @@ fn test_yes_no_translations() {
     let ja = CachedTranslations::new(Language::Japanese);
     assert_eq!(ja.yes(), "はい");
     assert_eq!(ja.no(), "いいえ");
+
+    let ko = CachedTranslations::new(Language::Korean);
+    assert_eq!(ko.yes(), "예");
+    assert_eq!(ko.no(), "아니요");
 }
 
 #[test]
@@ -212,6 +231,7 @@ fn test_translation_consistency_across_languages() {
         Language::SimplifiedChinese,
         Language::TraditionalChinese,
         Language::Japanese,
+        Language::Korean,
     ];
 
     for lang in languages {
@@ -287,6 +307,19 @@ fn test_language_equality() {
     assert_ne!(Language::English, Language::SimplifiedChinese);
     assert_ne!(Language::SimplifiedChinese, Language::TraditionalChinese);
     assert_ne!(Language::TraditionalChinese, Language::Japanese);
+    assert_ne!(Language::Japanese, Language::Korean);
+}
+
+#[test]
+fn test_language_u8_roundtrip() {
+    // Confirms the `to_u8` / `from_u8` mapping stays stable so previously
+    // saved configs keep resolving to the same language after upgrades.
+    for lang in Language::all() {
+        let encoded = lang.to_u8();
+        let decoded = Language::from_u8(encoded);
+        assert_eq!(*lang, decoded, "roundtrip failed for {:?}", lang);
+    }
+    assert_eq!(Language::from_u8(4), Language::Korean);
 }
 
 #[test]

@@ -41,6 +41,8 @@ fn test_config_with_complex_mappings() {
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
+            hold_indices: None,
+            append_keys: None,
         },
         KeyMapping {
             trigger_key: "B".to_string(),
@@ -52,6 +54,8 @@ fn test_config_with_complex_mappings() {
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
+            hold_indices: None,
+            append_keys: None,
         },
         KeyMapping {
             trigger_key: "F1".to_string(),
@@ -63,6 +67,8 @@ fn test_config_with_complex_mappings() {
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
+            hold_indices: None,
+            append_keys: None,
         },
         KeyMapping {
             trigger_key: "LSHIFT".to_string(),
@@ -74,6 +80,8 @@ fn test_config_with_complex_mappings() {
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
+            hold_indices: None,
+            append_keys: None,
         },
     ];
 
@@ -129,6 +137,8 @@ fn test_config_maximum_mappings() {
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
+            hold_indices: None,
+            append_keys: None,
         })
         .collect();
 
@@ -211,6 +221,8 @@ fn test_config_multiple_target_keys() {
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
+            hold_indices: None,
+            append_keys: None,
         },
         KeyMapping {
             trigger_key: "E".to_string(),
@@ -225,6 +237,8 @@ fn test_config_multiple_target_keys() {
             move_speed: 10,
             trigger_sequence: None,
             sequence_window_ms: 500,
+            hold_indices: None,
+            append_keys: None,
         },
     ];
 
@@ -264,6 +278,8 @@ fn test_config_many_target_keys() {
         move_speed: 10,
         trigger_sequence: None,
         sequence_window_ms: 500,
+        hold_indices: None,
+        append_keys: None,
     }];
 
     config.save_to_file(&path).expect("Failed to save config");
