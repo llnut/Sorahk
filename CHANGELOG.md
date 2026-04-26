@@ -19,6 +19,7 @@ UI Improvements:
 - Make the sequence target button match the look of Single and Multi
 - Load Chinese, Japanese, and Korean system fonts at startup
 - Add live XInput deadzone and trigger threshold sliders in the device manager
+- Split settings_dialog into per-section modules
 
 Bug fixes:
 
