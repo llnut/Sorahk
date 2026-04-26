@@ -1,5 +1,7 @@
 //! Mouse scroll direction selection dialog component.
 
+use crate::gui::theme;
+use crate::gui::widgets::{self, text_size};
 use crate::i18n::CachedTranslations;
 use eframe::egui;
 
@@ -28,27 +30,17 @@ impl MouseScrollDialog {
         translations: &CachedTranslations,
     ) -> bool {
         let t = translations;
+        let c = theme::colors(dark_mode);
 
-        let (bg_color, title_color, button_bg, button_hover_bg, text_color, text_hover_color) =
-            if dark_mode {
-                (
-                    egui::Color32::from_rgb(30, 32, 42),
-                    egui::Color32::from_rgb(173, 216, 230),
-                    egui::Color32::from_rgb(60, 55, 75),
-                    egui::Color32::from_rgb(80, 70, 100),
-                    egui::Color32::from_rgb(200, 230, 255),
-                    egui::Color32::from_rgb(220, 240, 255),
-                )
-            } else {
-                (
-                    egui::Color32::from_rgb(248, 252, 255),
-                    egui::Color32::from_rgb(100, 149, 237),
-                    egui::Color32::from_rgb(240, 248, 255),
-                    egui::Color32::from_rgb(225, 240, 255),
-                    egui::Color32::from_rgb(80, 120, 160),
-                    egui::Color32::from_rgb(90, 130, 170),
-                )
-            };
+        // Hover and pressed bg for scroll buttons stay as inline tints
+        // because the palette has no mid-tone entry suited to this
+        // tinted-blue picker. Default bg uses c.bg_card_hover.
+        let button_bg = c.bg_card_hover;
+        let button_hover_bg = if dark_mode {
+            egui::Color32::from_rgb(80, 70, 100)
+        } else {
+            egui::Color32::from_rgb(225, 240, 255)
+        };
 
         let mut should_close = false;
 
@@ -61,42 +53,41 @@ impl MouseScrollDialog {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .frame(
                 egui::Frame::window(&ctx.style())
-                    .fill(bg_color)
-                    .corner_radius(egui::CornerRadius::same(20))
+                    .fill(c.bg_card)
+                    .corner_radius(egui::CornerRadius::same(widgets::radius::DIALOG))
                     .stroke(egui::Stroke::NONE)
                     .shadow(egui::epaint::Shadow {
                         offset: [0, 5],
                         blur: 22,
                         spread: 2,
-                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 45),
+                        color: theme::overlay::SHADOW_HEAVY,
                     }),
             )
             .show(ctx, |ui| {
                 ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                     ui.add_space(20.0);
 
-                    // Title
+                    // Title.
                     ui.label(
                         egui::RichText::new(t.mouse_scroll_direction_label())
-                            .size(20.0)
+                            .size(text_size::TITLE)
                             .strong()
-                            .color(title_color),
+                            .color(c.title_primary),
                     );
 
                     ui.add_space(25.0);
 
                     // Scroll Up button
-                    let up_btn = render_scroll_button(
+                    if render_scroll_button(
                         ui,
                         t.mouse_scroll_up(),
                         dark_mode,
                         button_bg,
                         button_hover_bg,
-                        text_color,
-                        text_hover_color,
-                    );
-
-                    if up_btn.clicked() {
+                        c.fg_primary,
+                    )
+                    .clicked()
+                    {
                         self.selected_direction = Some("SCROLL_UP".to_string());
                         should_close = true;
                     }
@@ -104,17 +95,16 @@ impl MouseScrollDialog {
                     ui.add_space(8.0);
 
                     // Middle Mouse Button
-                    let middle_btn = render_scroll_button(
+                    if render_scroll_button(
                         ui,
                         t.mouse_middle_button(),
                         dark_mode,
                         button_bg,
                         button_hover_bg,
-                        text_color,
-                        text_hover_color,
-                    );
-
-                    if middle_btn.clicked() {
+                        c.fg_primary,
+                    )
+                    .clicked()
+                    {
                         self.selected_direction = Some("MBUTTON".to_string());
                         should_close = true;
                     }
@@ -122,37 +112,31 @@ impl MouseScrollDialog {
                     ui.add_space(8.0);
 
                     // Scroll Down button
-                    let down_btn = render_scroll_button(
+                    if render_scroll_button(
                         ui,
                         t.mouse_scroll_down(),
                         dark_mode,
                         button_bg,
                         button_hover_bg,
-                        text_color,
-                        text_hover_color,
-                    );
-
-                    if down_btn.clicked() {
+                        c.fg_primary,
+                    )
+                    .clicked()
+                    {
                         self.selected_direction = Some("SCROLL_DOWN".to_string());
                         should_close = true;
                     }
 
                     ui.add_space(20.0);
 
-                    // Cancel button
-                    if ui
-                        .add_sized(
-                            [180.0, 32.0],
-                            egui::Button::new(
-                                egui::RichText::new(t.cancel_close_button())
-                                    .size(14.0)
-                                    .color(egui::Color32::WHITE),
-                            )
-                            .fill(egui::Color32::from_rgb(147, 197, 253))
-                            .corner_radius(15.0),
-                        )
-                        .clicked()
-                    {
+                    // Cancel button.
+                    let cancel_btn = egui::Button::new(
+                        egui::RichText::new(t.cancel_close_button())
+                            .size(text_size::NORMAL)
+                            .color(c.fg_inverse),
+                    )
+                    .fill(c.accent_secondary)
+                    .corner_radius(15.0);
+                    if ui.add_sized([180.0, 32.0], cancel_btn).clicked() {
                         should_close = true;
                     }
 
@@ -164,7 +148,9 @@ impl MouseScrollDialog {
     }
 }
 
-/// Render a scroll direction button with hover effects
+/// Custom-painted scroll-direction button. Hover/pressed states use inline
+/// RGB tints because the theme palette has no mid-tone equivalent suited
+/// to this small picker dialog.
 fn render_scroll_button(
     ui: &mut egui::Ui,
     label: &str,
@@ -172,13 +158,10 @@ fn render_scroll_button(
     button_bg: egui::Color32,
     button_hover_bg: egui::Color32,
     text_color: egui::Color32,
-    text_hover_color: egui::Color32,
 ) -> egui::Response {
-    let (desired_size, corner_radius) = ([220.0, 50.0], 12.0);
-    let (rect, response) = ui.allocate_exact_size(
-        egui::vec2(desired_size[0], desired_size[1]),
-        egui::Sense::click(),
-    );
+    let corner_radius = widgets::radius::BUTTON as f32;
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(220.0, 50.0), egui::Sense::click());
 
     if ui.is_rect_visible(rect) {
         let is_hovered = response.hovered();
@@ -196,20 +179,14 @@ fn render_scroll_button(
             button_bg
         };
 
-        let fg_color = if is_hovered || is_pressed {
-            text_hover_color
-        } else {
-            text_color
-        };
-
         ui.painter().rect_filled(rect, corner_radius, bg_color);
 
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
             label,
-            egui::FontId::proportional(16.0),
-            fg_color,
+            egui::FontId::proportional(text_size::SUBTITLE),
+            text_color,
         );
 
         if is_hovered {

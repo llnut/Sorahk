@@ -11,6 +11,8 @@ use eframe::egui;
 use smallvec::SmallVec;
 
 use crate::gui::SorahkGui;
+use crate::gui::theme;
+use crate::gui::widgets::{self, text_size};
 use crate::i18n::CachedTranslations;
 
 /// Snapshot returned when the user confirms the dialog.
@@ -107,28 +109,7 @@ impl RulePropertiesDialog {
         self.drive_capture();
 
         let t = translations;
-        let (bg_color, title_color, body_color, pill_bg, accent, accent_hover, muted) = if dark_mode
-        {
-            (
-                egui::Color32::from_rgb(30, 32, 42),
-                egui::Color32::from_rgb(255, 182, 193),
-                egui::Color32::from_rgb(210, 210, 220),
-                egui::Color32::from_rgb(55, 58, 72),
-                egui::Color32::from_rgb(180, 160, 230),
-                egui::Color32::from_rgb(200, 180, 245),
-                egui::Color32::from_rgb(140, 140, 160),
-            )
-        } else {
-            (
-                egui::Color32::from_rgb(252, 248, 255),
-                egui::Color32::from_rgb(219, 112, 147),
-                egui::Color32::from_rgb(60, 50, 80),
-                egui::Color32::from_rgb(245, 238, 252),
-                egui::Color32::from_rgb(210, 190, 240),
-                egui::Color32::from_rgb(225, 210, 250),
-                egui::Color32::from_rgb(150, 140, 170),
-            )
-        };
+        let c = theme::colors(dark_mode);
 
         let mut should_close = false;
 
@@ -141,14 +122,14 @@ impl RulePropertiesDialog {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .frame(
                 egui::Frame::window(&ctx.style())
-                    .fill(bg_color)
-                    .corner_radius(egui::CornerRadius::same(20))
+                    .fill(c.bg_card)
+                    .corner_radius(egui::CornerRadius::same(widgets::radius::DIALOG))
                     .stroke(egui::Stroke::NONE)
                     .shadow(egui::epaint::Shadow {
                         offset: [0, 5],
                         blur: 22,
                         spread: 2,
-                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 45),
+                        color: theme::overlay::SHADOW_HEAVY,
                     }),
             )
             .show(ctx, |ui| {
@@ -156,9 +137,9 @@ impl RulePropertiesDialog {
                     ui.add_space(18.0);
                     ui.label(
                         egui::RichText::new(t.rule_props_dialog_title())
-                            .size(20.0)
+                            .size(text_size::TITLE)
                             .strong()
-                            .color(title_color),
+                            .color(c.accent_pink),
                     );
                     ui.add_space(8.0);
                 });
@@ -166,8 +147,8 @@ impl RulePropertiesDialog {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
                         egui::RichText::new(t.rule_props_hint())
-                            .size(12.0)
-                            .color(muted),
+                            .size(text_size::COMPACT)
+                            .color(c.fg_muted),
                     );
                 });
 
@@ -175,14 +156,14 @@ impl RulePropertiesDialog {
 
                 ui.label(
                     egui::RichText::new(t.rule_props_hold_column())
-                        .size(13.0)
-                        .color(muted),
+                        .size(text_size::BODY)
+                        .color(c.fg_muted),
                 );
                 ui.add_space(4.0);
 
                 egui::Frame::NONE
-                    .fill(pill_bg)
-                    .corner_radius(egui::CornerRadius::same(12))
+                    .fill(c.bg_card_hover)
+                    .corner_radius(egui::CornerRadius::same(widgets::radius::BUTTON))
                     .inner_margin(egui::Margin::same(10))
                     .show(ui, |ui| {
                         egui::ScrollArea::vertical()
@@ -190,7 +171,11 @@ impl RulePropertiesDialog {
                             .auto_shrink([false, true])
                             .show(ui, |ui| {
                                 if self.body_keys.is_empty() {
-                                    ui.label(egui::RichText::new("—").size(13.0).color(muted));
+                                    ui.label(
+                                        egui::RichText::new("—")
+                                            .size(text_size::BODY)
+                                            .color(c.fg_muted),
+                                    );
                                 } else {
                                     for (idx, key) in self.body_keys.iter().enumerate() {
                                         ui.horizontal(|ui| {
@@ -216,14 +201,14 @@ impl RulePropertiesDialog {
                                                 idx_rect.left_center(),
                                                 egui::Align2::LEFT_CENTER,
                                                 format!("#{idx}"),
-                                                egui::FontId::proportional(12.0),
-                                                muted,
+                                                egui::FontId::proportional(text_size::COMPACT),
+                                                c.fg_muted,
                                             );
                                             ui.label(
                                                 egui::RichText::new(key)
-                                                    .size(14.0)
+                                                    .size(text_size::NORMAL)
                                                     .strong()
-                                                    .color(body_color),
+                                                    .color(c.fg_primary),
                                             );
                                             ui.with_layout(
                                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -233,8 +218,8 @@ impl RulePropertiesDialog {
                                                         ui.checkbox(
                                                             &mut self.hold_flags[idx],
                                                             egui::RichText::new(label)
-                                                                .size(12.0)
-                                                                .color(body_color),
+                                                                .size(text_size::COMPACT)
+                                                                .color(c.fg_primary),
                                                         );
                                                     }
                                                 },
@@ -249,42 +234,40 @@ impl RulePropertiesDialog {
 
                 ui.label(
                     egui::RichText::new(t.rule_props_append_label())
-                        .size(13.0)
-                        .color(muted),
+                        .size(text_size::BODY)
+                        .color(c.fg_muted),
                 );
                 ui.add_space(4.0);
 
                 egui::Frame::NONE
-                    .fill(pill_bg)
-                    .corner_radius(egui::CornerRadius::same(12))
+                    .fill(c.bg_card_hover)
+                    .corner_radius(egui::CornerRadius::same(widgets::radius::BUTTON))
                     .inner_margin(egui::Margin::same(10))
                     .show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
                             let mut remove_idx: Option<usize> = None;
                             for (idx, key) in self.append_keys.iter().enumerate() {
-                                egui::Frame::NONE
-                                    .fill(accent)
-                                    .corner_radius(egui::CornerRadius::same(8))
-                                    .inner_margin(egui::Margin::symmetric(8, 4))
-                                    .show(ui, |ui| {
-                                        ui.label(
-                                            egui::RichText::new(key)
-                                                .size(13.0)
-                                                .color(egui::Color32::WHITE)
-                                                .strong(),
-                                        );
-                                        if ui
-                                            .add(
-                                                egui::Button::new(
-                                                    egui::RichText::new(t.delete_icon()).size(12.0),
-                                                )
-                                                .fill(egui::Color32::TRANSPARENT),
+                                widgets::pill_frame(c.accent_secondary).show(ui, |ui| {
+                                    ui.label(
+                                        egui::RichText::new(key)
+                                            .size(text_size::BODY)
+                                            .color(c.fg_inverse)
+                                            .strong(),
+                                    );
+                                    if ui
+                                        .add(
+                                            egui::Button::new(
+                                                egui::RichText::new(t.delete_icon())
+                                                    .size(text_size::COMPACT)
+                                                    .color(c.fg_inverse),
                                             )
-                                            .clicked()
-                                        {
-                                            remove_idx = Some(idx);
-                                        }
-                                    });
+                                            .fill(egui::Color32::TRANSPARENT),
+                                        )
+                                        .clicked()
+                                    {
+                                        remove_idx = Some(idx);
+                                    }
+                                });
                             }
                             if let Some(i) = remove_idx {
                                 self.append_keys.remove(i);
@@ -293,18 +276,18 @@ impl RulePropertiesDialog {
                             if self.capturing_append {
                                 ui.label(
                                     egui::RichText::new(t.rule_props_append_placeholder())
-                                        .size(12.0)
+                                        .size(text_size::COMPACT)
                                         .italics()
-                                        .color(muted),
+                                        .color(c.fg_muted),
                                 );
                                 if ui
                                     .add(
                                         egui::Button::new(
                                             egui::RichText::new(t.cancel_close_button())
-                                                .size(12.0)
-                                                .color(egui::Color32::WHITE),
+                                                .size(text_size::COMPACT)
+                                                .color(c.fg_inverse),
                                         )
-                                        .fill(egui::Color32::from_rgb(216, 191, 216))
+                                        .fill(c.accent_secondary)
                                         .corner_radius(10.0),
                                     )
                                     .clicked()
@@ -317,11 +300,11 @@ impl RulePropertiesDialog {
                                 .add(
                                     egui::Button::new(
                                         egui::RichText::new(t.rule_props_add_append())
-                                            .size(13.0)
-                                            .color(egui::Color32::WHITE)
+                                            .size(text_size::BODY)
+                                            .color(c.fg_inverse)
                                             .strong(),
                                     )
-                                    .fill(accent_hover)
+                                    .fill(c.accent_secondary)
                                     .corner_radius(10.0),
                                 )
                                 .clicked()
@@ -335,30 +318,26 @@ impl RulePropertiesDialog {
 
                 ui.add_space(18.0);
 
-                // Layout matches the global Settings dialog: Save on the
-                // left (primary, green) and Cancel on the right.
+                // Save on the left, Cancel on the right. Compact
+                // fixed-width buttons, centered horizontally so the
+                // footer stays lighter than the global Settings footer.
+                const FOOTER_BTN_W: f32 = 120.0;
+                const FOOTER_BTN_H: f32 = 32.0;
+                const FOOTER_GAP: f32 = 12.0;
+                let footer_total = FOOTER_BTN_W * 2.0 + FOOTER_GAP;
                 ui.horizontal(|ui| {
-                    let width = (ui.available_width() - 12.0) / 2.0;
-                    let save_fill = if dark_mode {
-                        egui::Color32::from_rgb(120, 220, 140)
-                    } else {
-                        egui::Color32::from_rgb(140, 230, 150)
-                    };
-                    let cancel_fill = if dark_mode {
-                        egui::Color32::from_rgb(220, 180, 210)
-                    } else {
-                        egui::Color32::from_rgb(230, 200, 220)
-                    };
+                    let pad = ((ui.available_width() - footer_total) / 2.0).max(0.0);
+                    ui.add_space(pad);
                     if ui
                         .add_sized(
-                            [width, 34.0],
+                            [FOOTER_BTN_W, FOOTER_BTN_H],
                             egui::Button::new(
                                 egui::RichText::new(t.rule_props_save())
-                                    .size(14.0)
-                                    .color(egui::Color32::WHITE)
+                                    .size(text_size::NORMAL)
+                                    .color(c.fg_inverse)
                                     .strong(),
                             )
-                            .fill(save_fill)
+                            .fill(c.accent_success)
                             .corner_radius(15.0),
                         )
                         .clicked()
@@ -377,17 +356,17 @@ impl RulePropertiesDialog {
                         });
                         should_close = true;
                     }
-                    ui.add_space(12.0);
+                    ui.add_space(FOOTER_GAP);
                     if ui
                         .add_sized(
-                            [width, 34.0],
+                            [FOOTER_BTN_W, FOOTER_BTN_H],
                             egui::Button::new(
                                 egui::RichText::new(t.rule_props_cancel())
-                                    .size(14.0)
-                                    .color(egui::Color32::WHITE)
+                                    .size(text_size::NORMAL)
+                                    .color(c.fg_inverse)
                                     .strong(),
                             )
-                            .fill(cancel_fill)
+                            .fill(c.accent_secondary)
                             .corner_radius(15.0),
                         )
                         .clicked()

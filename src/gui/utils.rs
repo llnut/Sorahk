@@ -114,6 +114,90 @@ pub fn create_icon() -> egui::IconData {
     }
 }
 
+/// Returns true if the target key names a mouse movement action.
+#[inline]
+pub fn is_mouse_move_target(target: &str) -> bool {
+    let upper = target.to_uppercase();
+    matches!(
+        upper.as_str(),
+        "MOUSE_UP"
+            | "MOUSE_DOWN"
+            | "MOUSE_LEFT"
+            | "MOUSE_RIGHT"
+            | "MOUSE_UP_LEFT"
+            | "MOUSE_UP_RIGHT"
+            | "MOUSE_DOWN_LEFT"
+            | "MOUSE_DOWN_RIGHT"
+            | "MOUSEUP"
+            | "MOUSEDOWN"
+            | "MOUSELEFT"
+            | "MOUSERIGHT"
+            | "MOVE_UP"
+            | "MOVE_DOWN"
+            | "MOVE_LEFT"
+            | "MOVE_RIGHT"
+            | "M_UP"
+            | "M_DOWN"
+            | "M_LEFT"
+            | "M_RIGHT"
+            | "MOUSEUPLEFT"
+            | "MOUSEUPRIGHT"
+            | "MOUSEDOWNLEFT"
+            | "MOUSEDOWNRIGHT"
+            | "M_UP_LEFT"
+            | "M_UP_RIGHT"
+            | "M_DOWN_LEFT"
+            | "M_DOWN_RIGHT"
+    )
+}
+
+/// Returns true if the target key names a mouse scroll action.
+#[inline]
+pub fn is_mouse_scroll_target(target: &str) -> bool {
+    let upper = target.to_uppercase();
+    matches!(
+        upper.as_str(),
+        "SCROLL_UP"
+            | "SCROLLUP"
+            | "WHEEL_UP"
+            | "WHEELUP"
+            | "SCROLL_DOWN"
+            | "SCROLLDOWN"
+            | "WHEEL_DOWN"
+            | "WHEELDOWN"
+    )
+}
+
+/// Converts a mouse delta vector into one of 8 cardinal direction names.
+/// Uses screen coordinates where +Y points down and -Y points up.
+#[inline]
+pub fn mouse_delta_to_direction(delta: egui::Vec2, threshold: f32) -> Option<&'static str> {
+    let mag_sq = delta.x * delta.x + delta.y * delta.y;
+    if mag_sq < threshold * threshold {
+        return None;
+    }
+
+    let angle = delta.y.atan2(delta.x).to_degrees();
+
+    Some(if (-22.5..22.5).contains(&angle) {
+        "MOUSE_RIGHT"
+    } else if (22.5..67.5).contains(&angle) {
+        "MOUSE_DOWN_RIGHT"
+    } else if (67.5..112.5).contains(&angle) {
+        "MOUSE_DOWN"
+    } else if (112.5..157.5).contains(&angle) {
+        "MOUSE_DOWN_LEFT"
+    } else if !(-157.5..157.5).contains(&angle) {
+        "MOUSE_LEFT"
+    } else if (-157.5..-112.5).contains(&angle) {
+        "MOUSE_UP_LEFT"
+    } else if (-112.5..-67.5).contains(&angle) {
+        "MOUSE_UP"
+    } else {
+        "MOUSE_UP_RIGHT"
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +271,57 @@ mod tests {
             (icon.width * icon.height * 4) as usize,
             "RGBA data size should match width * height * 4"
         );
+    }
+
+    #[test]
+    fn is_mouse_move_target_recognizes_all_canonical() {
+        for k in ["MOUSE_UP", "MOUSE_DOWN", "MOUSE_LEFT", "MOUSE_RIGHT",
+                  "MOUSE_UP_LEFT", "MOUSE_UP_RIGHT", "MOUSE_DOWN_LEFT", "MOUSE_DOWN_RIGHT"] {
+            assert!(is_mouse_move_target(k), "{k} should be move target");
+            assert!(is_mouse_move_target(&k.to_lowercase()), "lowercase {k}");
+        }
+    }
+
+    #[test]
+    fn is_mouse_move_target_rejects_buttons_and_other() {
+        for k in ["LBUTTON", "RBUTTON", "A", "F1", "SCROLL_UP", ""] {
+            assert!(!is_mouse_move_target(k), "{k} should NOT be move target");
+        }
+    }
+
+    #[test]
+    fn is_mouse_scroll_target_recognizes_canonical() {
+        for k in ["SCROLL_UP", "SCROLL_DOWN", "WHEEL_UP", "WHEEL_DOWN"] {
+            assert!(is_mouse_scroll_target(k));
+            assert!(is_mouse_scroll_target(&k.to_lowercase()));
+        }
+        assert!(!is_mouse_scroll_target("MOUSE_UP"));
+        assert!(!is_mouse_scroll_target("A"));
+    }
+
+    #[test]
+    fn mouse_delta_to_direction_below_threshold_is_none() {
+        let small = egui::Vec2::new(5.0, 5.0);
+        assert_eq!(mouse_delta_to_direction(small, 30.0), None);
+    }
+
+    #[test]
+    fn mouse_delta_to_direction_eight_directions() {
+        let r = 100.0;
+        use std::f32::consts::PI;
+        let cases = [
+            (0.0_f32, "MOUSE_RIGHT"),
+            (PI / 4.0, "MOUSE_DOWN_RIGHT"),
+            (PI / 2.0, "MOUSE_DOWN"),
+            (3.0 * PI / 4.0, "MOUSE_DOWN_LEFT"),
+            (PI, "MOUSE_LEFT"),
+            (-3.0 * PI / 4.0, "MOUSE_UP_LEFT"),
+            (-PI / 2.0, "MOUSE_UP"),
+            (-PI / 4.0, "MOUSE_UP_RIGHT"),
+        ];
+        for (angle, expected) in cases {
+            let v = egui::Vec2::new(angle.cos() * r, angle.sin() * r);
+            assert_eq!(mouse_delta_to_direction(v, 30.0), Some(expected), "angle {angle}");
+        }
     }
 }

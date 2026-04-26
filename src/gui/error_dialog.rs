@@ -1,5 +1,7 @@
 //! Error dialog for displaying critical errors.
 
+use crate::gui::theme::{self, ThemeCache};
+use crate::gui::widgets::{self, ButtonKind, text_size};
 use crate::gui::fonts;
 use crate::gui::utils::create_icon;
 use crate::i18n::{CachedTranslations, Language};
@@ -11,85 +13,71 @@ struct ErrorDialog {
     error_msg: String,
     /// Cached translations
     translations: CachedTranslations,
+    /// Pre-computed dark theme visuals.
+    theme_cache: ThemeCache,
 }
 
 impl eframe::App for ErrorDialog {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let t = &self.translations;
+        let c = theme::colors(true);
 
-        // Apply anime theme with no borders
-        let mut visuals = egui::Visuals::dark();
-        visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(18);
-        visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(18);
-        visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(18);
-        visuals.widgets.active.corner_radius = egui::CornerRadius::same(18);
-        visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
-        visuals.window_fill = egui::Color32::from_rgb(32, 34, 45);
-        visuals.panel_fill = egui::Color32::from_rgb(32, 34, 45);
-        visuals.window_shadow = egui::epaint::Shadow {
-            offset: [0, 4],
-            blur: 10,
-            spread: 3,
-            color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 60),
-        };
-        ctx.set_visuals(visuals);
+        ctx.set_visuals(self.theme_cache.dark.clone());
 
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(egui::Color32::from_rgb(32, 34, 45)))
+        // Bottom-anchored close button so its position is independent of
+        // the message card's content height.
+        egui::TopBottomPanel::bottom("error_close_panel")
+            .frame(egui::Frame::NONE.fill(c.bg_window))
+            .show_separator_line(false)
+            .min_height(64.0)
             .show(ctx, |ui| {
-                ui.add_space(20.0);
+                ui.add_space(8.0);
+                ui.vertical_centered(|ui| {
+                    let btn =
+                        widgets::themed_button(t.error_close_button(), ButtonKind::Pink, true);
+                    if ui.add_sized([120.0, 36.0], btn).clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+            });
 
-                // Error icon and title
+        // Central content with symmetric horizontal padding applied via
+        // the panel frame inner_margin. More reliable than outer_margin
+        // when the parent layout is left-aligned.
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::NONE
+                    .fill(c.bg_window)
+                    .inner_margin(egui::Margin::symmetric(20, 0)),
+            )
+            .show(ctx, |ui| {
+                ui.add_space(15.0);
+
                 ui.vertical_centered(|ui| {
                     ui.label(
                         egui::RichText::new(t.error_title())
-                            .size(24.0)
-                            .color(egui::Color32::from_rgb(255, 100, 130))
+                            .size(text_size::TITLE)
+                            .color(c.accent_danger)
                             .strong(),
                     );
                 });
 
-                ui.add_space(20.0);
+                ui.add_space(15.0);
 
-                // Error message card
-                egui::Frame::NONE
-                    .fill(egui::Color32::from_rgb(45, 40, 52))
-                    .corner_radius(egui::CornerRadius::same(16))
-                    .inner_margin(egui::Margin::same(18))
-                    .shadow(egui::epaint::Shadow {
-                        offset: [0, 2],
-                        blur: 8,
-                        spread: 0,
-                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 35),
-                    })
+                // Subtract the card_frame inner margin plus a small buffer
+                // so the bottom corner_radius stays visible.
+                let card_inner_margin_total = widgets::spacing::LARGE * 2.0;
+                let remaining = (ui.available_height() - 5.0 - card_inner_margin_total).max(0.0);
+                widgets::card_frame(true)
+                    .fill(c.bg_card_hover)
                     .show(ui, |ui| {
+                        ui.set_min_height(remaining);
                         ui.label(
                             egui::RichText::new(&self.error_msg)
-                                .size(14.0)
-                                .color(egui::Color32::from_rgb(255, 210, 230)),
+                                .size(text_size::NORMAL)
+                                .color(c.fg_primary),
                         );
                     });
-
-                ui.add_space(20.0);
-
-                // Close button
-                ui.vertical_centered(|ui| {
-                    let close_btn = egui::Button::new(
-                        egui::RichText::new(t.error_close_button())
-                            .size(16.0)
-                            .color(egui::Color32::WHITE),
-                    )
-                    .fill(egui::Color32::from_rgb(255, 182, 193))
-                    .corner_radius(15.0);
-
-                    if ui.add_sized([120.0, 36.0], close_btn).clicked() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                });
-
-                ui.add_space(10.0);
             });
     }
 }
@@ -126,6 +114,7 @@ pub fn show_error(error_msg: &str) -> anyhow::Result<()> {
             Ok(Box::new(ErrorDialog {
                 error_msg: error_msg.to_string(),
                 translations: CachedTranslations::new(language),
+                theme_cache: ThemeCache::new(),
             }))
         }),
     )

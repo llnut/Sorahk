@@ -5,6 +5,7 @@
 
 use crate::config::DeviceApiPreference;
 use crate::gui::device_info::{get_device_model, get_hid_device_type, get_vendor_name};
+use crate::gui::theme;
 use crate::i18n::CachedTranslations;
 use eframe::egui;
 
@@ -235,20 +236,9 @@ impl DeviceManagerDialog {
             self.vibration_test_until = None;
         }
 
-        // Theme colors
-        let (bg_color, title_color, _text_color) = if dark_mode {
-            (
-                egui::Color32::from_rgb(30, 32, 42),
-                egui::Color32::from_rgb(255, 182, 193),
-                egui::Color32::from_rgb(220, 220, 220),
-            )
-        } else {
-            (
-                egui::Color32::from_rgb(252, 248, 255),
-                egui::Color32::from_rgb(219, 112, 147),
-                egui::Color32::from_rgb(60, 60, 60),
-            )
-        };
+        let c = theme::colors(dark_mode);
+        let bg_color = c.bg_card;
+        let title_color = c.accent_pink;
 
         egui::Window::new("device_manager")
             .id(egui::Id::new("device_manager_window"))
@@ -266,7 +256,7 @@ impl DeviceManagerDialog {
                         offset: [0, 5],
                         blur: 22,
                         spread: 2,
-                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 45),
+                        color: theme::overlay::SHADOW_HEAVY,
                     }),
             )
             .show(ctx, |ui| {
@@ -285,14 +275,8 @@ impl DeviceManagerDialog {
                 });
 
                 // Header with refresh button
-                let header_bg = if dark_mode {
-                    egui::Color32::from_rgb(40, 40, 50)
-                } else {
-                    egui::Color32::from_rgb(250, 240, 255)
-                };
-
                 egui::Frame::NONE
-                    .fill(header_bg)
+                    .fill(c.bg_card_hover)
                     .corner_radius(15.0)
                     .inner_margin(egui::Margin::symmetric(16, 12))
                     .show(ui, |ui| {
@@ -301,11 +285,7 @@ impl DeviceManagerDialog {
                                 egui::RichText::new(t.connected_devices_title())
                                     .size(16.0)
                                     .strong()
-                                    .color(if dark_mode {
-                                        egui::Color32::from_rgb(200, 180, 255)
-                                    } else {
-                                        egui::Color32::from_rgb(150, 100, 200)
-                                    }),
+                                    .color(c.accent_secondary),
                             );
 
                             ui.with_layout(
@@ -316,11 +296,7 @@ impl DeviceManagerDialog {
                                             .size(13.0)
                                             .color(egui::Color32::WHITE),
                                     )
-                                    .fill(if dark_mode {
-                                        egui::Color32::from_rgb(120, 100, 180)
-                                    } else {
-                                        egui::Color32::from_rgb(180, 150, 230)
-                                    })
+                                    .fill(c.accent_secondary)
                                     .corner_radius(12.0);
 
                                     if ui.add(refresh_btn).clicked() {
@@ -356,7 +332,7 @@ impl DeviceManagerDialog {
                                     .color(egui::Color32::WHITE)
                                     .strong(),
                             )
-                            .fill(egui::Color32::from_rgb(216, 191, 216))
+                            .fill(theme::colors(dark_mode).accent_secondary)
                             .corner_radius(15.0),
                         )
                         .clicked()
@@ -380,14 +356,10 @@ impl DeviceManagerDialog {
         t: &CachedTranslations,
         activated_devices: &std::collections::HashSet<(u16, u16)>,
     ) {
-        let section_bg = if dark_mode {
-            egui::Color32::from_rgb(40, 42, 50)
-        } else {
-            egui::Color32::from_rgb(245, 238, 252)
-        };
+        let c = theme::colors(dark_mode);
 
         egui::Frame::NONE
-            .fill(section_bg)
+            .fill(c.bg_card_hover)
             .corner_radius(18.0)
             .inner_margin(egui::Margin::same(16))
             .show(ui, |ui| {
@@ -395,11 +367,7 @@ impl DeviceManagerDialog {
                     egui::RichText::new(t.xinput_controllers_title())
                         .size(16.0)
                         .strong()
-                        .color(if dark_mode {
-                            egui::Color32::from_rgb(150, 200, 255)
-                        } else {
-                            egui::Color32::from_rgb(100, 120, 200)
-                        }),
+                        .color(c.accent_primary),
                 );
 
                 ui.add_space(10.0);
@@ -439,20 +407,10 @@ impl DeviceManagerDialog {
         t: &CachedTranslations,
         activated_devices: &std::collections::HashSet<(u16, u16)>,
     ) {
-        let card_bg = if dark_mode {
-            egui::Color32::from_rgb(48, 50, 60)
-        } else {
-            egui::Color32::from_rgb(245, 238, 252)
-        };
-
-        let accent_color = if dark_mode {
-            egui::Color32::from_rgb(150, 180, 255)
-        } else {
-            egui::Color32::from_rgb(120, 80, 180)
-        };
+        let c = theme::colors(dark_mode);
 
         egui::Frame::NONE
-            .fill(card_bg)
+            .fill(c.bg_card_hover)
             .corner_radius(15.0)
             .inner_margin(egui::Margin::same(14))
             .stroke(egui::Stroke::new(
@@ -483,7 +441,7 @@ impl DeviceManagerDialog {
                             egui::RichText::new(&title)
                                 .size(15.0)
                                 .strong()
-                                .color(accent_color),
+                                .color(c.accent_secondary),
                         );
 
                         // Subtitle with vendor and technical info
@@ -515,11 +473,7 @@ impl DeviceManagerDialog {
                                 .size(12.0)
                                 .color(egui::Color32::WHITE),
                         )
-                        .fill(if dark_mode {
-                            egui::Color32::from_rgb(100, 120, 180)
-                        } else {
-                            egui::Color32::from_rgb(180, 160, 230)
-                        })
+                        .fill(c.accent_primary)
                         .corner_radius(10.0);
 
                         if ui.add(settings_btn).clicked() {
@@ -544,11 +498,7 @@ impl DeviceManagerDialog {
                                     .size(12.0)
                                     .color(egui::Color32::WHITE),
                             )
-                            .fill(if dark_mode {
-                                egui::Color32::from_rgb(100, 200, 150)
-                            } else {
-                                egui::Color32::from_rgb(150, 230, 180)
-                            })
+                            .fill(c.accent_success)
                             .corner_radius(10.0);
 
                             if ui.add(reactivate_btn).clicked() {
@@ -579,14 +529,10 @@ impl DeviceManagerDialog {
         dark_mode: bool,
         t: &CachedTranslations,
     ) {
-        let panel_bg = if dark_mode {
-            egui::Color32::from_rgb(40, 42, 52)
-        } else {
-            egui::Color32::from_rgb(242, 235, 250)
-        };
+        let c = theme::colors(dark_mode);
 
         egui::Frame::NONE
-            .fill(panel_bg)
+            .fill(c.bg_card_hover)
             .corner_radius(12.0)
             .inner_margin(egui::Margin::symmetric(16, 14))
             .show(ui, |ui| {
@@ -600,11 +546,7 @@ impl DeviceManagerDialog {
                             egui::RichText::new(t.vibration_control_title())
                                 .size(15.0)
                                 .strong()
-                                .color(if dark_mode {
-                                    egui::Color32::from_rgb(200, 150, 255)
-                                } else {
-                                    egui::Color32::from_rgb(130, 80, 180)
-                                }),
+                                .color(c.accent_secondary),
                         );
                         ui.add_space(10.0);
 
@@ -649,11 +591,7 @@ impl DeviceManagerDialog {
                                 egui::RichText::new(t.test_vibration_button())
                                     .color(egui::Color32::WHITE),
                             )
-                            .fill(if dark_mode {
-                                egui::Color32::from_rgb(100, 200, 150)
-                            } else {
-                                egui::Color32::from_rgb(150, 230, 180)
-                            })
+                            .fill(c.accent_success)
                             .corner_radius(8.0);
 
                             if ui.add(test_btn).clicked() {
@@ -664,11 +602,7 @@ impl DeviceManagerDialog {
                                 egui::RichText::new(t.stop_vibration_button())
                                     .color(egui::Color32::WHITE),
                             )
-                            .fill(if dark_mode {
-                                egui::Color32::from_rgb(200, 100, 120)
-                            } else {
-                                egui::Color32::from_rgb(255, 150, 170)
-                            })
+                            .fill(c.accent_danger)
                             .corner_radius(8.0);
 
                             if ui.add(stop_btn).clicked() {
@@ -687,11 +621,7 @@ impl DeviceManagerDialog {
                             egui::RichText::new(t.deadzone_settings_title())
                                 .size(15.0)
                                 .strong()
-                                .color(if dark_mode {
-                                    egui::Color32::from_rgb(150, 200, 255)
-                                } else {
-                                    egui::Color32::from_rgb(80, 120, 180)
-                                }),
+                                .color(c.accent_primary),
                         );
                         ui.add_space(10.0);
 
@@ -743,11 +673,7 @@ impl DeviceManagerDialog {
                         egui::RichText::new(t.preferred_api_label())
                             .size(14.0)
                             .strong()
-                            .color(if dark_mode {
-                                egui::Color32::from_rgb(200, 180, 255)
-                            } else {
-                                egui::Color32::from_rgb(120, 80, 180)
-                            }),
+                            .color(c.accent_secondary),
                     );
 
                     let device_key = (device.vid, device.pid);
@@ -810,14 +736,10 @@ impl DeviceManagerDialog {
         t: &CachedTranslations,
         activated_devices: &std::collections::HashSet<(u16, u16)>,
     ) {
-        let section_bg = if dark_mode {
-            egui::Color32::from_rgb(40, 42, 50)
-        } else {
-            egui::Color32::from_rgb(238, 248, 242)
-        };
+        let c = theme::colors(dark_mode);
 
         egui::Frame::NONE
-            .fill(section_bg)
+            .fill(c.bg_card_hover)
             .corner_radius(18.0)
             .inner_margin(egui::Margin::same(16))
             .show(ui, |ui| {
@@ -829,21 +751,13 @@ impl DeviceManagerDialog {
                         egui::RichText::new(t.hid_devices_title())
                             .size(16.0)
                             .strong()
-                            .color(if dark_mode {
-                                egui::Color32::from_rgb(200, 255, 150)
-                            } else {
-                                egui::Color32::from_rgb(80, 150, 90)
-                            }),
+                            .color(c.accent_success),
                     );
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Cute filter toggle button
                         let filter_bg = if self.show_all_hid_devices {
-                            if dark_mode {
-                                egui::Color32::from_rgb(120, 200, 140)
-                            } else {
-                                egui::Color32::from_rgb(150, 230, 170)
-                            }
+                            c.accent_success
                         } else if dark_mode {
                             egui::Color32::from_rgb(80, 80, 90)
                         } else {
@@ -930,20 +844,10 @@ impl DeviceManagerDialog {
         activated_devices: &std::collections::HashSet<(u16, u16)>,
         t: &CachedTranslations,
     ) {
-        let card_bg = if dark_mode {
-            egui::Color32::from_rgb(48, 50, 60)
-        } else {
-            egui::Color32::from_rgb(238, 248, 242)
-        };
-
-        let accent_color = if dark_mode {
-            egui::Color32::from_rgb(150, 255, 180)
-        } else {
-            egui::Color32::from_rgb(60, 140, 80)
-        };
+        let c = theme::colors(dark_mode);
 
         egui::Frame::NONE
-            .fill(card_bg)
+            .fill(c.bg_card_hover)
             .corner_radius(15.0)
             .inner_margin(egui::Margin::same(14))
             .stroke(egui::Stroke::new(
@@ -982,7 +886,7 @@ impl DeviceManagerDialog {
                             egui::RichText::new(&display_title)
                                 .size(15.0)
                                 .strong()
-                                .color(accent_color),
+                                .color(c.accent_success),
                         );
 
                         // Subtitle with vendor and technical info
@@ -1016,11 +920,7 @@ impl DeviceManagerDialog {
                                     .size(12.0)
                                     .color(egui::Color32::WHITE),
                             )
-                            .fill(if dark_mode {
-                                egui::Color32::from_rgb(100, 200, 150)
-                            } else {
-                                egui::Color32::from_rgb(150, 230, 180)
-                            })
+                            .fill(c.accent_success)
                             .corner_radius(10.0);
 
                             if ui.add(reactivate_btn).clicked() {

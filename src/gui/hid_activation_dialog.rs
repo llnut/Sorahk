@@ -1,6 +1,8 @@
 //! HID device activation dialog for establishing device baseline.
 
 use crate::gui::device_info::{get_device_model, get_hid_device_type, get_vendor_name};
+use crate::gui::theme;
+use crate::gui::widgets::{self, text_size};
 use crate::i18n::CachedTranslations;
 use eframe::egui;
 use std::time::Instant;
@@ -67,30 +69,15 @@ impl HidActivationDialog {
         translations: &CachedTranslations,
     ) -> bool {
         let t = translations;
+        let c = theme::colors(dark_mode);
 
-        // Theme colors
-        let (bg_color, title_color, text_color, success_color, warning_color, card_bg, warning_bg) =
-            if dark_mode {
-                (
-                    egui::Color32::from_rgb(30, 32, 42),
-                    egui::Color32::from_rgb(255, 182, 193),
-                    egui::Color32::from_rgb(220, 220, 220),
-                    egui::Color32::from_rgb(144, 238, 144),
-                    egui::Color32::from_rgb(255, 200, 100),
-                    egui::Color32::from_rgb(40, 40, 50),
-                    egui::Color32::from_rgba_premultiplied(80, 60, 30, 40), // Dark mode: darker warning bg
-                )
-            } else {
-                (
-                    egui::Color32::from_rgb(252, 248, 255),
-                    egui::Color32::from_rgb(219, 112, 147),
-                    egui::Color32::from_rgb(60, 60, 60),
-                    egui::Color32::from_rgb(60, 179, 113),
-                    egui::Color32::from_rgb(255, 140, 0),
-                    egui::Color32::from_rgb(250, 240, 255),
-                    egui::Color32::from_rgba_premultiplied(255, 200, 100, 30), // Light mode: bright warning bg
-                )
-            };
+        // Translucent warning tint stays inline; the palette has no clean
+        // equivalent for the "outline + soft fill" warning box.
+        let warning_bg = if dark_mode {
+            egui::Color32::from_rgba_premultiplied(80, 60, 30, 40)
+        } else {
+            egui::Color32::from_rgba_premultiplied(255, 200, 100, 30)
+        };
 
         let mut should_close = false;
 
@@ -104,10 +91,12 @@ impl HidActivationDialog {
             .order(egui::Order::Foreground) // Always on top
             .frame(
                 egui::Frame::window(&ctx.style())
-                    .fill(bg_color)
-                    .corner_radius(egui::CornerRadius::same(20))
+                    .fill(c.bg_card)
+                    .corner_radius(egui::CornerRadius::same(widgets::radius::DIALOG))
                     .stroke(egui::Stroke::NONE)
                     .shadow(egui::epaint::Shadow {
+                        // Heavier shadow than other dialogs because this
+                        // panel renders on the Foreground order layer.
                         offset: [0, 8],
                         blur: 28,
                         spread: 3,
@@ -118,7 +107,7 @@ impl HidActivationDialog {
                 ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                     ui.add_space(30.0);
 
-                    // Title with animation
+                    // Title with state-dependent color/animation
                     match &self.state {
                         ActivationState::WaitingForPress | ActivationState::WaitingForRelease => {
                             let time = ui.input(|i| i.time);
@@ -127,24 +116,24 @@ impl HidActivationDialog {
 
                             ui.label(
                                 egui::RichText::new(t.hid_activation_title())
-                                    .size(28.0)
-                                    .color(title_color)
+                                    .size(text_size::HERO)
+                                    .color(c.accent_pink)
                                     .strong(),
                             );
                         }
                         ActivationState::Success => {
                             ui.label(
                                 egui::RichText::new(t.hid_activation_success_title())
-                                    .size(32.0)
-                                    .color(success_color)
+                                    .size(text_size::HERO)
+                                    .color(c.accent_success)
                                     .strong(),
                             );
                         }
                         ActivationState::Failed(_) => {
                             ui.label(
                                 egui::RichText::new(t.hid_activation_failed_title())
-                                    .size(28.0)
-                                    .color(egui::Color32::from_rgb(255, 100, 130))
+                                    .size(text_size::HERO)
+                                    .color(c.accent_danger)
                                     .strong(),
                             );
                         }
@@ -152,22 +141,23 @@ impl HidActivationDialog {
 
                     ui.add_space(20.0);
 
-                    // Device name card with enhanced information
+                    // Device-name card. The asymmetric inner_margin is
+                    // intentional for this style, so an inline Frame
+                    // stays here instead of widgets::card_frame.
                     egui::Frame::NONE
-                        .fill(card_bg)
-                        .corner_radius(egui::CornerRadius::same(12))
+                        .fill(c.bg_card_hover)
+                        .corner_radius(egui::CornerRadius::same(widgets::radius::BUTTON))
                         .inner_margin(egui::Margin::symmetric(16, 12))
                         .shadow(egui::epaint::Shadow {
                             offset: [0, 2],
                             blur: 6,
                             spread: 0,
-                            color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 25),
+                            color: theme::overlay::SHADOW_LIGHT,
                         })
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
 
                             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                                // Display device icon based on type
                                 let device_type = get_hid_device_type(self.usage_page, self.usage);
                                 let device_icon = match device_type {
                                     "Gamepad" | "Joystick" | "Multi-axis Controller" => "🎮",
@@ -179,7 +169,6 @@ impl HidActivationDialog {
                                 ui.label(egui::RichText::new(device_icon).size(20.0));
                                 ui.add_space(6.0);
 
-                                // Display model name or device name
                                 let display_name =
                                     if let Some(model) = get_device_model(self.vid, self.pid) {
                                         model.to_string()
@@ -191,14 +180,13 @@ impl HidActivationDialog {
 
                                 ui.label(
                                     egui::RichText::new(&display_name)
-                                        .size(16.0)
+                                        .size(text_size::SUBTITLE)
                                         .strong()
-                                        .color(text_color),
+                                        .color(c.fg_primary),
                                 );
 
                                 ui.add_space(4.0);
 
-                                // Display vendor and technical info
                                 let mut info_parts = vec![];
                                 if let Some(vendor) = get_vendor_name(self.vid) {
                                     info_parts.push(vendor.to_string());
@@ -208,8 +196,8 @@ impl HidActivationDialog {
                                 if !info_parts.is_empty() {
                                     ui.label(
                                         egui::RichText::new(info_parts.join(" │ "))
-                                            .size(12.0)
-                                            .color(egui::Color32::from_rgb(150, 150, 150)),
+                                            .size(text_size::COMPACT)
+                                            .color(c.fg_muted),
                                     );
                                 }
                             });
@@ -217,53 +205,55 @@ impl HidActivationDialog {
 
                     ui.add_space(25.0);
 
-                    // State-specific content
+                    // State-specific content.
                     match &self.state {
                         ActivationState::WaitingForPress => {
                             ui.label(
                                 egui::RichText::new(t.hid_activation_press_prompt())
-                                    .size(18.0)
-                                    .color(title_color)
+                                    .size(text_size::SECTION)
+                                    .color(c.accent_pink)
                                     .strong(),
                             );
 
                             ui.add_space(15.0);
 
-                            // Warning box
+                            // Warning box: translucent fill + warning-color stroke.
                             egui::Frame::NONE
                                 .fill(warning_bg)
                                 .corner_radius(egui::CornerRadius::same(10))
                                 .inner_margin(egui::Margin::same(15))
-                                .stroke(egui::Stroke::new(2.0, warning_color))
+                                .stroke(egui::Stroke::new(2.0, c.accent_warning))
                                 .show(ui, |ui| {
                                     ui.vertical_centered(|ui| {
                                         ui.label(
                                             egui::RichText::new(t.hid_activation_warning_title())
-                                                .size(15.0)
-                                                .color(warning_color)
+                                                .size(text_size::SUBTITLE)
+                                                .color(c.accent_warning)
                                                 .strong(),
                                         );
                                         ui.add_space(8.0);
                                         ui.label(
                                             egui::RichText::new(t.hid_activation_warning_1())
-                                                .size(13.0)
-                                                .color(text_color),
+                                                .size(text_size::BODY)
+                                                .color(c.fg_primary),
                                         );
                                         ui.label(
                                             egui::RichText::new(t.hid_activation_warning_2())
-                                                .size(13.0)
-                                                .color(text_color),
+                                                .size(text_size::BODY)
+                                                .color(c.fg_primary),
                                         );
                                         ui.label(
                                             egui::RichText::new(t.hid_activation_warning_3())
-                                                .size(13.0)
-                                                .color(text_color),
+                                                .size(text_size::BODY)
+                                                .color(c.fg_primary),
                                         );
                                     });
                                 });
                         }
 
                         ActivationState::WaitingForRelease => {
+                            // Pulse color stays inline because the math
+                            // interpolates between specific base RGB values.
                             let time = ui.input(|i| i.time);
                             let pulse = ((time * 3.0).sin() + 1.0) / 2.0;
                             let pulse_color = egui::Color32::from_rgb(
@@ -274,7 +264,7 @@ impl HidActivationDialog {
 
                             ui.label(
                                 egui::RichText::new(t.hid_activation_release_prompt())
-                                    .size(18.0)
+                                    .size(text_size::SECTION)
                                     .color(pulse_color)
                                     .strong(),
                             );
@@ -288,30 +278,30 @@ impl HidActivationDialog {
                                 self.success_time = Some(Instant::now());
                             }
 
-                            // Stars animation
+                            // Decorative stars animation, sized via inline literal.
                             let stars = "✨ ⭐ 💫 🌟 ✨ ⭐ 💫 🌟";
-                            ui.label(egui::RichText::new(stars).size(24.0).color(success_color));
+                            ui.label(egui::RichText::new(stars).size(24.0).color(c.accent_success));
 
                             ui.add_space(10.0);
 
                             ui.label(
                                 egui::RichText::new(t.hid_activation_success_message())
-                                    .size(16.0)
-                                    .color(text_color),
+                                    .size(text_size::SUBTITLE)
+                                    .color(c.fg_primary),
                             );
 
                             ui.label(
                                 egui::RichText::new(t.hid_activation_success_hint())
-                                    .size(14.0)
-                                    .color(text_color),
+                                    .size(text_size::NORMAL)
+                                    .color(c.fg_primary),
                             );
 
                             if self.animation_progress >= 1.0 {
                                 ui.add_space(15.0);
                                 ui.label(
                                     egui::RichText::new(t.hid_activation_auto_close())
-                                        .size(12.0)
-                                        .color(egui::Color32::from_rgb(150, 150, 150))
+                                        .size(text_size::COMPACT)
+                                        .color(c.fg_muted)
                                         .italics(),
                                 );
 
@@ -328,16 +318,18 @@ impl HidActivationDialog {
                                     t.hid_activation_error(),
                                     error_msg
                                 ))
-                                .size(14.0)
-                                .color(egui::Color32::from_rgb(255, 100, 130)),
+                                .size(text_size::NORMAL)
+                                .color(c.accent_danger),
                             );
 
                             ui.add_space(15.0);
 
                             let retry_btn = egui::Button::new(
-                                egui::RichText::new(t.hid_activation_retry()).size(16.0),
+                                egui::RichText::new(t.hid_activation_retry())
+                                    .size(text_size::SUBTITLE)
+                                    .color(c.fg_inverse),
                             )
-                            .fill(egui::Color32::from_rgb(255, 182, 193))
+                            .fill(c.accent_primary)
                             .corner_radius(12.0);
 
                             if ui.add_sized([120.0, 40.0], retry_btn).clicked() {
@@ -350,21 +342,21 @@ impl HidActivationDialog {
 
                     ui.add_space(30.0);
 
-                    // Bottom buttons
+                    // Cancel button only while waiting; success / failed states
+                    // close themselves.
                     if matches!(
                         self.state,
                         ActivationState::WaitingForPress | ActivationState::WaitingForRelease
                     ) {
                         ui.add_space(20.0);
 
-                        // Close button matching device_manager_dialog style
                         let cancel_btn = egui::Button::new(
                             egui::RichText::new(t.hid_activation_cancel())
-                                .size(15.0)
-                                .color(egui::Color32::WHITE)
+                                .size(text_size::SUBTITLE)
+                                .color(c.fg_inverse)
                                 .strong(),
                         )
-                        .fill(egui::Color32::from_rgb(216, 191, 216))
+                        .fill(c.accent_secondary)
                         .corner_radius(15.0);
 
                         if ui.add_sized([260.0, 32.0], cancel_btn).clicked() {

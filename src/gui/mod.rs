@@ -14,8 +14,10 @@ mod mouse_direction_dialog;
 mod mouse_scroll_dialog;
 mod rule_properties_dialog;
 mod settings_dialog;
+mod theme;
 mod types;
 mod utils;
+mod widgets;
 
 use crate::config::AppConfig;
 use crate::gui::types::KeyCaptureMode;
@@ -155,10 +157,8 @@ pub struct SorahkGui {
     duplicate_mapping_error: Option<String>,
     /// Error message for duplicate process
     duplicate_process_error: Option<String>,
-    /// Cached dark theme visuals
-    cached_dark_visuals: egui::Visuals,
-    /// Cached light theme visuals
-    cached_light_visuals: egui::Visuals,
+    /// Pre-computed dark/light theme visuals.
+    theme_cache: theme::ThemeCache,
 }
 
 impl SorahkGui {
@@ -166,8 +166,7 @@ impl SorahkGui {
     pub fn new(app_state: Arc<AppState>, config: AppConfig) -> Self {
         let dark_mode = config.dark_mode;
         let translations = CachedTranslations::new(config.language);
-        let cached_dark_visuals = Self::create_dark_visuals();
-        let cached_light_visuals = Self::create_light_visuals();
+        let theme_cache = theme::ThemeCache::new();
         let parsed_switch_key = Self::parse_switch_key(&config.switch_key);
 
         Self {
@@ -221,8 +220,7 @@ impl SorahkGui {
             was_paused_before_settings: None,
             duplicate_mapping_error: None,
             duplicate_process_error: None,
-            cached_dark_visuals,
-            cached_light_visuals,
+            theme_cache,
         }
     }
 
@@ -266,88 +264,6 @@ impl SorahkGui {
         }
 
         ParsedSwitchKey::Combo { modifiers, keys }
-    }
-
-    /// Creates dark theme visuals configuration.
-    fn create_dark_visuals() -> egui::Visuals {
-        let mut visuals = egui::Visuals::dark();
-
-        // Apply rounded corners for anime-style appearance
-        visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(18);
-        visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(18);
-        visuals.widgets.active.corner_radius = egui::CornerRadius::same(18);
-        visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(12);
-        visuals.widgets.open.corner_radius = egui::CornerRadius::same(18);
-
-        // Remove all borders for clean flat design
-        visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
-        visuals.selection.stroke.width = 0.0;
-
-        // Dark mode: deep purple-blue gradient
-        visuals.window_fill = egui::Color32::from_rgb(25, 27, 35);
-        visuals.panel_fill = egui::Color32::from_rgb(30, 32, 40);
-        visuals.faint_bg_color = egui::Color32::from_rgb(35, 37, 45);
-        visuals.widgets.noninteractive.weak_bg_fill = egui::Color32::from_rgb(38, 40, 50);
-        visuals.extreme_bg_color = egui::Color32::from_rgb(42, 44, 55);
-
-        visuals.window_shadow = egui::epaint::Shadow {
-            offset: [0, 4],
-            blur: 18,
-            spread: 0,
-            color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 25),
-        };
-        visuals.popup_shadow = egui::epaint::Shadow {
-            offset: [0, 3],
-            blur: 12,
-            spread: 0,
-            color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 20),
-        };
-
-        visuals
-    }
-
-    /// Creates light theme visuals configuration.
-    fn create_light_visuals() -> egui::Visuals {
-        let mut visuals = egui::Visuals::light();
-
-        // Apply rounded corners for anime-style appearance
-        visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(18);
-        visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(18);
-        visuals.widgets.active.corner_radius = egui::CornerRadius::same(18);
-        visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(12);
-        visuals.widgets.open.corner_radius = egui::CornerRadius::same(18);
-
-        // Remove all borders for clean flat design
-        visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
-        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
-        visuals.selection.stroke.width = 0.0;
-
-        // Light mode: soft lavender gradient with enhanced contrast
-        visuals.window_fill = egui::Color32::from_rgb(240, 235, 245);
-        visuals.panel_fill = egui::Color32::from_rgb(238, 233, 243);
-        visuals.faint_bg_color = egui::Color32::from_rgb(245, 240, 250);
-        visuals.widgets.noninteractive.weak_bg_fill = egui::Color32::from_rgb(250, 245, 255);
-        visuals.extreme_bg_color = egui::Color32::from_rgb(235, 230, 245);
-
-        visuals.window_shadow = egui::epaint::Shadow {
-            offset: [0, 4],
-            blur: 18,
-            spread: 0,
-            color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 25),
-        };
-        visuals.popup_shadow = egui::epaint::Shadow {
-            offset: [0, 3],
-            blur: 12,
-            spread: 0,
-            color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 20),
-        };
-
-        visuals
     }
 
     /// Launches the GUI application.

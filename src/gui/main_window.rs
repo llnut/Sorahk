@@ -2,84 +2,11 @@
 
 use crate::gui::SorahkGui;
 use crate::gui::about_dialog::render_about_dialog;
+use crate::gui::utils::{is_mouse_move_target, is_mouse_scroll_target};
+use crate::gui::theme;
+use crate::gui::widgets::{arrow_separator_width, estimate_pill_width_display};
 use crate::state::NotificationEvent;
 use eframe::egui;
-
-/// Check if target key is a mouse movement action.
-fn is_mouse_move_target(target: &str) -> bool {
-    let upper = target.to_uppercase();
-    matches!(
-        upper.as_str(),
-        "MOUSE_UP"
-            | "MOUSE_DOWN"
-            | "MOUSE_LEFT"
-            | "MOUSE_RIGHT"
-            | "MOUSE_UP_LEFT"
-            | "MOUSE_UP_RIGHT"
-            | "MOUSE_DOWN_LEFT"
-            | "MOUSE_DOWN_RIGHT"
-            | "MOUSEUP"
-            | "MOUSEDOWN"
-            | "MOUSELEFT"
-            | "MOUSERIGHT"
-            | "MOVE_UP"
-            | "MOVE_DOWN"
-            | "MOVE_LEFT"
-            | "MOVE_RIGHT"
-            | "M_UP"
-            | "M_DOWN"
-            | "M_LEFT"
-            | "M_RIGHT"
-            | "MOUSEUPLEFT"
-            | "MOUSEUPRIGHT"
-            | "MOUSEDOWNLEFT"
-            | "MOUSEDOWNRIGHT"
-            | "M_UP_LEFT"
-            | "M_UP_RIGHT"
-            | "M_DOWN_LEFT"
-            | "M_DOWN_RIGHT"
-    )
-}
-
-/// Check if target key is a mouse scroll action.
-fn is_mouse_scroll_target(target: &str) -> bool {
-    let upper = target.to_uppercase();
-    matches!(
-        upper.as_str(),
-        "SCROLL_UP"
-            | "SCROLLUP"
-            | "WHEEL_UP"
-            | "WHEELUP"
-            | "SCROLL_DOWN"
-            | "SCROLLDOWN"
-            | "WHEEL_DOWN"
-            | "WHEELDOWN"
-    )
-}
-
-/// Estimates the display width of a sequence key pill.
-#[inline]
-fn estimate_sequence_pill_width(key: &str) -> f32 {
-    const MAX_DISPLAY_LEN: usize = 25;
-    let display_len = key.len().min(MAX_DISPLAY_LEN);
-    let base_padding = 16.0; // horizontal padding (8 * 2)
-    let char_width = 7.0;
-    base_padding + (display_len as f32 * char_width)
-}
-
-/// Estimates the display width of a target key pill.
-#[inline]
-fn estimate_target_pill_width(key: &str) -> f32 {
-    let base_padding = 20.0; // horizontal padding (10 * 2)
-    let char_width = 7.5;
-    base_padding + (key.len() as f32 * char_width)
-}
-
-/// Width of arrow separator "→".
-#[inline]
-const fn arrow_separator_width() -> f32 {
-    20.0
-}
 
 /// Cached frame state to avoid repeated atomic operations.
 struct FrameState {
@@ -193,12 +120,7 @@ impl eframe::App for SorahkGui {
         }
 
         // Apply cached visuals based on theme
-        let visuals = if self.dark_mode {
-            &self.cached_dark_visuals
-        } else {
-            &self.cached_light_visuals
-        };
-        ctx.set_visuals(visuals.clone());
+        ctx.set_visuals(self.theme_cache.visuals(self.dark_mode).clone());
 
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
 
@@ -474,11 +396,8 @@ impl SorahkGui {
             ctx.request_repaint();
         }
 
-        let dialog_bg = if self.dark_mode {
-            egui::Color32::from_rgb(30, 32, 42)
-        } else {
-            egui::Color32::from_rgb(252, 248, 255)
-        };
+        let c = theme::colors(self.dark_mode);
+        let dialog_bg = c.bg_card;
 
         let window = egui::Window::new("")
             .title_bar(false)
@@ -499,7 +418,7 @@ impl SorahkGui {
                         offset: [0, 4],
                         blur: 10,
                         spread: 2,
-                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 40),
+                        color: theme::overlay::SHADOW_HEAVY,
                     }),
             );
 
@@ -511,11 +430,7 @@ impl SorahkGui {
                     egui::RichText::new(t.close_window_title())
                         .size(22.0)
                         .strong()
-                        .color(if self.dark_mode {
-                            egui::Color32::from_rgb(255, 182, 193)
-                        } else {
-                            egui::Color32::from_rgb(219, 112, 147)
-                        }),
+                        .color(c.accent_pink),
                 );
 
                 ui.add_space(8.0);
@@ -523,11 +438,7 @@ impl SorahkGui {
                     egui::RichText::new(t.close_subtitle())
                         .size(13.0)
                         .italics()
-                        .color(if self.dark_mode {
-                            egui::Color32::from_rgb(180, 180, 180)
-                        } else {
-                            egui::Color32::from_rgb(120, 120, 120)
-                        }),
+                        .color(c.fg_muted),
                 );
 
                 ui.add_space(30.0);
@@ -543,11 +454,7 @@ impl SorahkGui {
                             .color(egui::Color32::WHITE)
                             .strong(),
                     )
-                    .fill(if self.dark_mode {
-                        egui::Color32::from_rgb(180, 160, 230)
-                    } else {
-                        egui::Color32::from_rgb(210, 190, 240)
-                    })
+                    .fill(theme::colors(self.dark_mode).accent_primary)
                     .corner_radius(15.0);
 
                     if ui
@@ -567,11 +474,7 @@ impl SorahkGui {
                         .color(egui::Color32::WHITE)
                         .strong(),
                 )
-                .fill(if self.dark_mode {
-                    egui::Color32::from_rgb(220, 180, 210)
-                } else {
-                    egui::Color32::from_rgb(230, 200, 220)
-                })
+                .fill(theme::colors(self.dark_mode).accent_danger)
                 .corner_radius(15.0);
 
                 if ui
@@ -587,17 +490,9 @@ impl SorahkGui {
                 let cancel_btn = egui::Button::new(
                     egui::RichText::new(t.cancel_close_button())
                         .size(13.0)
-                        .color(if self.dark_mode {
-                            egui::Color32::from_rgb(200, 200, 200)
-                        } else {
-                            egui::Color32::from_rgb(80, 80, 80)
-                        }),
+                        .color(egui::Color32::WHITE),
                 )
-                .fill(if self.dark_mode {
-                    egui::Color32::from_rgb(60, 60, 60)
-                } else {
-                    egui::Color32::from_rgb(230, 230, 230)
-                })
+                .fill(theme::colors(self.dark_mode).accent_secondary)
                 .corner_radius(10.0);
 
                 if ui
@@ -683,11 +578,7 @@ impl SorahkGui {
 
     /// Renders the main content panel with all UI components.
     fn render_main_content(&mut self, ctx: &egui::Context, frame_state: &FrameState) {
-        let panel_bg = if self.dark_mode {
-            egui::Color32::from_rgb(30, 32, 42)
-        } else {
-            egui::Color32::from_rgb(252, 248, 255)
-        };
+        let panel_bg = theme::colors(self.dark_mode).bg_card;
 
         egui::CentralPanel::default()
             .frame(
@@ -720,6 +611,7 @@ impl SorahkGui {
     /// Renders the title bar with theme toggle and menu buttons.
     fn render_title_bar(&mut self, ui: &mut egui::Ui) {
         let t = &self.translations;
+        let c = theme::colors(self.dark_mode);
 
         ui.horizontal(|ui| {
             ui.add_space(15.0);
@@ -728,11 +620,7 @@ impl SorahkGui {
                 egui::RichText::new(t.app_title())
                     .size(18.0)
                     .strong()
-                    .color(if self.dark_mode {
-                        egui::Color32::from_rgb(176, 224, 230)
-                    } else {
-                        egui::Color32::from_rgb(135, 206, 235)
-                    }),
+                    .color(c.title_primary),
             );
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -772,7 +660,7 @@ impl SorahkGui {
                         .size(13.0)
                         .color(egui::Color32::WHITE),
                 )
-                .fill(egui::Color32::from_rgb(135, 206, 235))
+                .fill(theme::colors(self.dark_mode).accent_primary)
                 .corner_radius(12.0);
 
                 if ui.add(settings_btn).clicked() {
@@ -796,7 +684,7 @@ impl SorahkGui {
                         .size(13.0)
                         .color(egui::Color32::WHITE),
                 )
-                .fill(egui::Color32::from_rgb(152, 181, 226))
+                .fill(theme::colors(self.dark_mode).accent_success)
                 .corner_radius(12.0);
 
                 if ui.add(device_manager_btn).clicked() {
@@ -810,7 +698,7 @@ impl SorahkGui {
                         .size(13.0)
                         .color(egui::Color32::WHITE),
                 )
-                .fill(egui::Color32::from_rgb(216, 191, 216))
+                .fill(theme::colors(self.dark_mode).accent_secondary)
                 .corner_radius(12.0);
 
                 if ui.add(about_btn).clicked() {
@@ -823,11 +711,8 @@ impl SorahkGui {
     /// Renders the status card with pause/resume and exit controls.
     fn render_status_card(&mut self, ui: &mut egui::Ui, frame_state: &FrameState) {
         let t = &self.translations;
-        let card_bg = if self.dark_mode {
-            egui::Color32::from_rgb(40, 42, 50)
-        } else {
-            egui::Color32::from_rgb(245, 238, 252)
-        };
+        let c = theme::colors(self.dark_mode);
+        let card_bg = c.bg_card_hover;
 
         egui::Frame::NONE
             .fill(card_bg)
@@ -841,23 +726,15 @@ impl SorahkGui {
                         egui::RichText::new(t.status_title())
                             .size(16.0)
                             .strong()
-                            .color(if self.dark_mode {
-                                egui::Color32::from_rgb(200, 180, 255)
-                            } else {
-                                egui::Color32::from_rgb(150, 100, 200)
-                            }),
+                            .color(c.accent_secondary),
                     );
 
                     ui.add_space(10.0);
 
                     let (icon, text, color) = if frame_state.is_paused {
-                        ("⏸", t.paused_status(), egui::Color32::from_rgb(255, 140, 0))
+                        ("⏸", t.paused_status(), c.status_paused)
                     } else {
-                        (
-                            "▶",
-                            t.running_status(),
-                            egui::Color32::from_rgb(34, 139, 34),
-                        )
+                        ("▶", t.running_status(), c.status_active)
                     };
 
                     ui.label(egui::RichText::new(icon).size(18.0).color(color));
@@ -870,11 +747,7 @@ impl SorahkGui {
                                     t.format_worker_count(frame_state.worker_count),
                                 )
                                 .size(13.0)
-                                .color(if self.dark_mode {
-                                    egui::Color32::from_rgb(135, 206, 235)
-                                } else {
-                                    egui::Color32::from_rgb(70, 130, 180)
-                                }),
+                                .color(c.accent_primary),
                             );
                         }
                     });
@@ -887,23 +760,9 @@ impl SorahkGui {
                     let height = 32.0;
 
                     let (text, color) = if frame_state.is_paused {
-                        (
-                            t.start_button(),
-                            if self.dark_mode {
-                                egui::Color32::from_rgb(120, 220, 140)
-                            } else {
-                                egui::Color32::from_rgb(140, 230, 150)
-                            },
-                        )
+                        (t.start_button(), c.accent_success)
                     } else {
-                        (
-                            t.pause_button(),
-                            if self.dark_mode {
-                                egui::Color32::from_rgb(255, 200, 130)
-                            } else {
-                                egui::Color32::from_rgb(255, 215, 170)
-                            },
-                        )
+                        (t.pause_button(), c.accent_warning)
                     };
 
                     let toggle_btn = egui::Button::new(
@@ -935,11 +794,7 @@ impl SorahkGui {
                             .color(egui::Color32::WHITE)
                             .strong(),
                     )
-                    .fill(if self.dark_mode {
-                        egui::Color32::from_rgb(220, 180, 210)
-                    } else {
-                        egui::Color32::from_rgb(230, 200, 220)
-                    })
+                    .fill(theme::colors(self.dark_mode).accent_danger)
                     .corner_radius(15.0);
 
                     if ui.add_sized([width, height], exit_btn).clicked() {
@@ -953,11 +808,8 @@ impl SorahkGui {
     /// Renders the hotkey settings card displaying the toggle key.
     fn render_hotkey_card(&self, ui: &mut egui::Ui) {
         let t = &self.translations;
-        let card_bg = if self.dark_mode {
-            egui::Color32::from_rgb(40, 42, 50)
-        } else {
-            egui::Color32::from_rgb(245, 238, 252)
-        };
+        let c = theme::colors(self.dark_mode);
+        let card_bg = c.bg_card_hover;
 
         egui::Frame::NONE
             .fill(card_bg)
@@ -970,31 +822,21 @@ impl SorahkGui {
                     egui::RichText::new(t.hotkey_settings_title())
                         .size(16.0)
                         .strong()
-                        .color(if self.dark_mode {
-                            egui::Color32::from_rgb(200, 180, 255)
-                        } else {
-                            egui::Color32::from_rgb(100, 120, 200)
-                        }),
+                        .color(c.accent_secondary),
                 );
 
                 ui.add_space(8.0);
 
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(t.toggle_key_label()).size(14.0).color(
-                        if self.dark_mode {
-                            egui::Color32::from_rgb(200, 200, 200)
-                        } else {
-                            egui::Color32::from_rgb(40, 40, 40)
-                        },
-                    ));
+                    ui.label(
+                        egui::RichText::new(t.toggle_key_label())
+                            .size(14.0)
+                            .color(c.fg_primary),
+                    );
                     ui.label(
                         egui::RichText::new(&self.config.switch_key)
                             .size(15.0)
-                            .color(if self.dark_mode {
-                                egui::Color32::from_rgb(135, 206, 235)
-                            } else {
-                                egui::Color32::from_rgb(0, 100, 200)
-                            })
+                            .color(c.accent_primary)
                             .strong(),
                     );
                 });
@@ -1004,11 +846,8 @@ impl SorahkGui {
     /// Renders the global configuration card with application settings.
     fn render_config_card(&self, ui: &mut egui::Ui) {
         let t = &self.translations;
-        let card_bg = if self.dark_mode {
-            egui::Color32::from_rgb(40, 42, 50)
-        } else {
-            egui::Color32::from_rgb(245, 238, 252)
-        };
+        let c = theme::colors(self.dark_mode);
+        let card_bg = c.bg_card_hover;
 
         egui::Frame::NONE
             .fill(card_bg)
@@ -1021,11 +860,7 @@ impl SorahkGui {
                     egui::RichText::new(t.config_settings_title())
                         .size(16.0)
                         .strong()
-                        .color(if self.dark_mode {
-                            egui::Color32::from_rgb(200, 180, 255)
-                        } else {
-                            egui::Color32::from_rgb(150, 100, 200)
-                        }),
+                        .color(c.accent_secondary),
                 );
 
                 ui.add_space(8.0);
@@ -1078,23 +913,16 @@ impl SorahkGui {
 
     /// Renders a single configuration row with label and value.
     fn render_config_row(&self, ui: &mut egui::Ui, label: &str, value: &str) {
+        let c = theme::colors(self.dark_mode);
         ui.label(
             egui::RichText::new(label)
                 .size(14.0)
-                .color(if self.dark_mode {
-                    egui::Color32::from_rgb(200, 200, 200)
-                } else {
-                    egui::Color32::from_rgb(40, 40, 40)
-                }),
+                .color(c.fg_primary),
         );
         ui.label(
             egui::RichText::new(value)
                 .size(14.0)
-                .color(if self.dark_mode {
-                    egui::Color32::from_rgb(135, 206, 235)
-                } else {
-                    egui::Color32::from_rgb(0, 100, 200)
-                }),
+                .color(c.accent_primary),
         );
         ui.end_row();
     }
@@ -1102,27 +930,14 @@ impl SorahkGui {
     /// Renders a single boolean configuration row with checkmark.
     fn render_bool_row(&self, ui: &mut egui::Ui, label: &str, value: bool) {
         let t = &self.translations;
+        let c = theme::colors(self.dark_mode);
         ui.label(
             egui::RichText::new(label)
                 .size(14.0)
-                .color(if self.dark_mode {
-                    egui::Color32::from_rgb(200, 200, 200)
-                } else {
-                    egui::Color32::from_rgb(40, 40, 40)
-                }),
+                .color(c.fg_primary),
         );
         let text = if value { t.yes() } else { t.no() };
-        let color = if value {
-            if self.dark_mode {
-                egui::Color32::from_rgb(144, 238, 144)
-            } else {
-                egui::Color32::from_rgb(34, 139, 34)
-            }
-        } else if self.dark_mode {
-            egui::Color32::from_rgb(255, 182, 193)
-        } else {
-            egui::Color32::from_rgb(220, 20, 60)
-        };
+        let color = if value { c.accent_success } else { c.accent_pink };
         ui.label(egui::RichText::new(text).size(14.0).color(color));
         ui.end_row();
     }
@@ -1130,11 +945,8 @@ impl SorahkGui {
     /// Renders the key mappings card showing all configured mappings.
     fn render_mappings_card(&self, ui: &mut egui::Ui) {
         let t = &self.translations;
-        let card_bg = if self.dark_mode {
-            egui::Color32::from_rgb(40, 42, 50)
-        } else {
-            egui::Color32::from_rgb(245, 238, 252)
-        };
+        let c = theme::colors(self.dark_mode);
+        let card_bg = c.bg_card_hover;
 
         egui::Frame::NONE
             .fill(card_bg)
@@ -1147,11 +959,7 @@ impl SorahkGui {
                     egui::RichText::new(t.key_mappings_title())
                         .size(16.0)
                         .strong()
-                        .color(if self.dark_mode {
-                            egui::Color32::from_rgb(200, 180, 255)
-                        } else {
-                            egui::Color32::from_rgb(80, 150, 90)
-                        }),
+                        .color(c.accent_secondary),
                 );
                 ui.add_space(12.0);
 
@@ -1181,27 +989,19 @@ impl SorahkGui {
         idx: usize,
     ) {
         let t = &self.translations;
+        let c = theme::colors(self.dark_mode);
+        // Mapping cards sit one elevation step above the list container.
+        // No stroke; fill alone provides visual separation.
         let card_bg = if self.dark_mode {
-            egui::Color32::from_rgb(48, 50, 60)
+            egui::Color32::from_rgb(60, 62, 75)
         } else {
-            egui::Color32::from_rgb(255, 250, 255)
-        };
-
-        let border_color = if self.dark_mode {
-            egui::Color32::from_rgba_premultiplied(255, 182, 193, 40)
-        } else {
-            egui::Color32::from_rgba_premultiplied(255, 182, 193, 80)
+            egui::Color32::from_rgb(255, 253, 255)
         };
 
         egui::Frame::NONE
             .fill(card_bg)
             .corner_radius(egui::CornerRadius::same(16))
             .inner_margin(egui::Margin::same(14))
-            .stroke(if self.dark_mode {
-                egui::Stroke::NONE
-            } else {
-                egui::Stroke::new(1.5, border_color)
-            })
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
 
@@ -1212,11 +1012,7 @@ impl SorahkGui {
                         egui::RichText::new(format!("#{}", idx + 1))
                             .size(14.0)
                             .strong()
-                            .color(if self.dark_mode {
-                                egui::Color32::from_rgb(255, 182, 193)
-                            } else {
-                                egui::Color32::from_rgb(255, 105, 180)
-                            }),
+                            .color(c.accent_pink),
                     );
 
                     ui.add_space(8.0);
@@ -1224,33 +1020,9 @@ impl SorahkGui {
                     // Trigger mode badge
                     let (trigger_badge_text, trigger_badge_bg, trigger_badge_fg) =
                         if mapping.is_sequence_trigger() {
-                            (
-                                t.trigger_mode_sequence_badge(),
-                                if self.dark_mode {
-                                    egui::Color32::from_rgb(255, 182, 193)
-                                } else {
-                                    egui::Color32::from_rgb(255, 218, 224)
-                                },
-                                if self.dark_mode {
-                                    egui::Color32::from_rgb(80, 20, 40)
-                                } else {
-                                    egui::Color32::from_rgb(220, 80, 120)
-                                },
-                            )
+                            (t.trigger_mode_sequence_badge(), c.pill_keyboard, c.fg_primary)
                         } else {
-                            (
-                                t.trigger_mode_single_badge(),
-                                if self.dark_mode {
-                                    egui::Color32::from_rgb(135, 206, 235)
-                                } else {
-                                    egui::Color32::from_rgb(173, 216, 230)
-                                },
-                                if self.dark_mode {
-                                    egui::Color32::from_rgb(20, 60, 80)
-                                } else {
-                                    egui::Color32::from_rgb(40, 80, 120)
-                                },
-                            )
+                            (t.trigger_mode_single_badge(), c.pill_target, c.fg_primary)
                         };
 
                     egui::Frame::NONE
@@ -1270,45 +1042,9 @@ impl SorahkGui {
 
                     // Target mode badge
                     let (target_badge_text, target_badge_bg, target_badge_fg) = match target_mode {
-                        2 => (
-                            t.target_mode_sequence_badge(),
-                            if self.dark_mode {
-                                egui::Color32::from_rgb(255, 182, 193)
-                            } else {
-                                egui::Color32::from_rgb(255, 218, 224)
-                            },
-                            if self.dark_mode {
-                                egui::Color32::from_rgb(80, 20, 40)
-                            } else {
-                                egui::Color32::from_rgb(220, 80, 120)
-                            },
-                        ),
-                        1 => (
-                            t.target_mode_multi_badge(),
-                            if self.dark_mode {
-                                egui::Color32::from_rgb(135, 206, 235)
-                            } else {
-                                egui::Color32::from_rgb(173, 216, 230)
-                            },
-                            if self.dark_mode {
-                                egui::Color32::from_rgb(20, 60, 80)
-                            } else {
-                                egui::Color32::from_rgb(40, 80, 120)
-                            },
-                        ),
-                        _ => (
-                            t.target_mode_single_badge(),
-                            if self.dark_mode {
-                                egui::Color32::from_rgb(135, 206, 235)
-                            } else {
-                                egui::Color32::from_rgb(173, 216, 230)
-                            },
-                            if self.dark_mode {
-                                egui::Color32::from_rgb(20, 60, 80)
-                            } else {
-                                egui::Color32::from_rgb(40, 80, 120)
-                            },
-                        ),
+                        2 => (t.target_mode_sequence_badge(), c.pill_keyboard, c.fg_primary),
+                        1 => (t.target_mode_multi_badge(), c.pill_target, c.fg_primary),
+                        _ => (t.target_mode_single_badge(), c.pill_target, c.fg_primary),
                     };
 
                     egui::Frame::NONE
@@ -1328,11 +1064,7 @@ impl SorahkGui {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if mapping.turbo_enabled {
                             egui::Frame::NONE
-                                .fill(if self.dark_mode {
-                                    egui::Color32::from_rgb(255, 200, 130)
-                                } else {
-                                    egui::Color32::from_rgb(255, 235, 180)
-                                })
+                                .fill(c.accent_warning)
                                 .corner_radius(egui::CornerRadius::same(8))
                                 .inner_margin(egui::Margin::symmetric(8, 4))
                                 .show(ui, |ui| {
@@ -1352,13 +1084,11 @@ impl SorahkGui {
 
                 // Trigger section with label
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(t.trigger_short()).size(13.0).color(
-                        if self.dark_mode {
-                            egui::Color32::from_rgb(200, 200, 220)
-                        } else {
-                            egui::Color32::from_rgb(80, 80, 100)
-                        },
-                    ));
+                    ui.label(
+                        egui::RichText::new(t.trigger_short())
+                            .size(13.0)
+                            .color(c.fg_muted),
+                    );
                 });
 
                 ui.add_space(4.0);
@@ -1378,7 +1108,7 @@ impl SorahkGui {
                             let mut current_width = 0.0f32;
 
                             for (key_idx, key) in seq_keys.iter().enumerate() {
-                                let pill_width = estimate_sequence_pill_width(key);
+                                let pill_width = estimate_pill_width_display(key);
                                 let s_width = if key_idx < seq_keys.len() - 1 {
                                     sep_width
                                 } else {
@@ -1412,11 +1142,7 @@ impl SorahkGui {
                                         };
 
                                         let frame = egui::Frame::NONE
-                                            .fill(if self.dark_mode {
-                                                egui::Color32::from_rgb(255, 182, 193)
-                                            } else {
-                                                egui::Color32::from_rgb(255, 218, 224)
-                                            })
+                                            .fill(c.pill_keyboard)
                                             .corner_radius(egui::CornerRadius::same(8))
                                             .inner_margin(egui::Margin::symmetric(8, 4))
                                             .show(ui, |ui| {
@@ -1424,11 +1150,7 @@ impl SorahkGui {
                                                     egui::RichText::new(&display)
                                                         .size(12.0)
                                                         .strong()
-                                                        .color(if self.dark_mode {
-                                                            egui::Color32::from_rgb(80, 20, 40)
-                                                        } else {
-                                                            egui::Color32::from_rgb(180, 60, 100)
-                                                        }),
+                                                        .color(c.fg_primary),
                                                 );
                                             });
 
@@ -1437,13 +1159,11 @@ impl SorahkGui {
                                         }
 
                                         if key_idx < seq_keys.len() - 1 {
-                                            ui.label(egui::RichText::new("→").size(12.0).color(
-                                                if self.dark_mode {
-                                                    egui::Color32::from_rgb(255, 150, 170)
-                                                } else {
-                                                    egui::Color32::from_rgb(255, 120, 150)
-                                                },
-                                            ));
+                                            ui.label(
+                                                egui::RichText::new("→")
+                                                    .size(12.0)
+                                                    .color(c.accent_pink),
+                                            );
                                         }
                                     }
                                 });
@@ -1452,13 +1172,9 @@ impl SorahkGui {
                         }
                     }
                 } else {
-                    // Single key mode - use light blue background for better contrast
+                    // Single key mode
                     egui::Frame::NONE
-                        .fill(if self.dark_mode {
-                            egui::Color32::from_rgb(55, 65, 85)
-                        } else {
-                            egui::Color32::from_rgb(220, 235, 250)
-                        })
+                        .fill(c.bg_card_hover)
                         .corner_radius(egui::CornerRadius::same(10))
                         .inner_margin(egui::Margin::symmetric(12, 6))
                         .show(ui, |ui| {
@@ -1466,11 +1182,7 @@ impl SorahkGui {
                                 egui::RichText::new(&mapping.trigger_key)
                                     .size(13.0)
                                     .strong()
-                                    .color(if self.dark_mode {
-                                        egui::Color32::from_rgb(255, 200, 130)
-                                    } else {
-                                        egui::Color32::from_rgb(40, 80, 140)
-                                    }),
+                                    .color(c.accent_warning),
                             );
                         });
                 }
@@ -1479,13 +1191,11 @@ impl SorahkGui {
 
                 // Target section with label
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(t.target_short()).size(13.0).color(
-                        if self.dark_mode {
-                            egui::Color32::from_rgb(200, 200, 220)
-                        } else {
-                            egui::Color32::from_rgb(80, 80, 100)
-                        },
-                    ));
+                    ui.label(
+                        egui::RichText::new(t.target_short())
+                            .size(13.0)
+                            .color(c.fg_muted),
+                    );
                 });
 
                 ui.add_space(4.0);
@@ -1508,7 +1218,7 @@ impl SorahkGui {
                     let mut current_width = 0.0f32;
 
                     for (key_idx, key) in target_keys.iter().enumerate() {
-                        let pill_width = estimate_target_pill_width(key);
+                        let pill_width = estimate_pill_width_display(key);
                         let s_width = if key_idx < target_keys.len() - 1 && target_mode != 0 {
                             sep_width
                         } else {
@@ -1533,33 +1243,11 @@ impl SorahkGui {
                             ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
                             for &key_idx in row {
                                 let target = &target_keys[key_idx];
-                                // Sequence mode uses pink, Single/Multi use blue
+                                // Sequence mode uses pink pills, Single/Multi use blue pills
                                 let (fill_color, text_color) = if target_mode == 2 {
-                                    (
-                                        if self.dark_mode {
-                                            egui::Color32::from_rgb(255, 182, 193)
-                                        } else {
-                                            egui::Color32::from_rgb(255, 218, 224)
-                                        },
-                                        if self.dark_mode {
-                                            egui::Color32::from_rgb(80, 20, 40)
-                                        } else {
-                                            egui::Color32::from_rgb(220, 80, 120)
-                                        },
-                                    )
+                                    (c.pill_keyboard, c.fg_primary)
                                 } else {
-                                    (
-                                        if self.dark_mode {
-                                            egui::Color32::from_rgb(135, 206, 235)
-                                        } else {
-                                            egui::Color32::from_rgb(173, 216, 230)
-                                        },
-                                        if self.dark_mode {
-                                            egui::Color32::from_rgb(20, 60, 80)
-                                        } else {
-                                            egui::Color32::from_rgb(40, 80, 120)
-                                        },
-                                    )
+                                    (c.pill_target, c.fg_primary)
                                 };
 
                                 egui::Frame::NONE
@@ -1578,15 +1266,9 @@ impl SorahkGui {
                                 // Separator between keys
                                 if key_idx < target_keys.len() - 1 && !sep_char.is_empty() {
                                     let sep_color = if target_mode == 2 {
-                                        if self.dark_mode {
-                                            egui::Color32::from_rgb(255, 150, 170)
-                                        } else {
-                                            egui::Color32::from_rgb(255, 120, 150)
-                                        }
-                                    } else if self.dark_mode {
-                                        egui::Color32::from_rgb(135, 206, 235)
+                                        c.accent_pink
                                     } else {
-                                        egui::Color32::from_rgb(70, 130, 180)
+                                        c.accent_primary
                                     };
                                     ui.label(
                                         egui::RichText::new(sep_char).size(13.0).color(sep_color),
@@ -1602,11 +1284,7 @@ impl SorahkGui {
 
                 // Details row with clearer labels
                 ui.horizontal_wrapped(|ui| {
-                    let detail_color = if self.dark_mode {
-                        egui::Color32::from_rgb(170, 170, 190)
-                    } else {
-                        egui::Color32::from_rgb(100, 100, 120)
-                    };
+                    let detail_color = c.fg_muted;
 
                     let first_target = mapping
                         .get_target_keys()

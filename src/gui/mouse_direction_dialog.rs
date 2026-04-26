@@ -1,5 +1,7 @@
 //! Mouse direction selection dialog.
 
+use crate::gui::theme;
+use crate::gui::widgets::{self, text_size};
 use crate::i18n::CachedTranslations;
 use eframe::egui;
 
@@ -28,27 +30,17 @@ impl MouseDirectionDialog {
         translations: &CachedTranslations,
     ) -> bool {
         let t = translations;
+        let c = theme::colors(dark_mode);
 
-        let (bg_color, title_color, button_bg, button_hover_bg, text_color, text_hover_color) =
-            if dark_mode {
-                (
-                    egui::Color32::from_rgb(30, 32, 42),
-                    egui::Color32::from_rgb(255, 182, 193),
-                    egui::Color32::from_rgb(60, 55, 75),
-                    egui::Color32::from_rgb(80, 70, 100),
-                    egui::Color32::from_rgb(255, 200, 220),
-                    egui::Color32::from_rgb(255, 220, 235),
-                )
-            } else {
-                (
-                    egui::Color32::from_rgb(252, 248, 255),
-                    egui::Color32::from_rgb(219, 112, 147),
-                    egui::Color32::from_rgb(255, 240, 250),
-                    egui::Color32::from_rgb(255, 225, 245),
-                    egui::Color32::from_rgb(140, 80, 120),
-                    egui::Color32::from_rgb(160, 90, 130),
-                )
-            };
+        // Hover and pressed bg for direction buttons stay as inline tints
+        // because the palette has no mid-tone entry suited to this 9-cell
+        // picker grid. The default bg uses c.bg_card_hover.
+        let button_bg = c.bg_card_hover;
+        let button_hover_bg = if dark_mode {
+            egui::Color32::from_rgb(60, 55, 75)
+        } else {
+            egui::Color32::from_rgb(255, 225, 245)
+        };
 
         let mut should_close = false;
 
@@ -61,31 +53,31 @@ impl MouseDirectionDialog {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .frame(
                 egui::Frame::window(&ctx.style())
-                    .fill(bg_color)
-                    .corner_radius(egui::CornerRadius::same(20))
+                    .fill(c.bg_card)
+                    .corner_radius(egui::CornerRadius::same(widgets::radius::DIALOG))
                     .stroke(egui::Stroke::NONE)
                     .shadow(egui::epaint::Shadow {
                         offset: [0, 5],
                         blur: 22,
                         spread: 2,
-                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 45),
+                        color: theme::overlay::SHADOW_HEAVY,
                     }),
             )
             .show(ctx, |ui| {
                 ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                     ui.add_space(20.0);
 
-                    // Title
+                    // Title.
                     ui.label(
                         egui::RichText::new(t.mouse_move_direction_label())
-                            .size(20.0)
+                            .size(text_size::TITLE)
                             .strong()
-                            .color(title_color),
+                            .color(c.accent_pink),
                     );
 
                     ui.add_space(25.0);
 
-                    // Direction grid - centered
+                    // Direction grid centered horizontally.
                     ui.horizontal(|ui| {
                         ui.add_space((ui.available_width() - (100.0 * 3.0 + 8.0 * 2.0)) / 2.0);
                         egui::Grid::new("mouse_direction_grid_dialog")
@@ -98,8 +90,7 @@ impl MouseDirectionDialog {
                                     dark_mode,
                                     button_bg,
                                     button_hover_bg,
-                                    text_color,
-                                    text_hover_color,
+                                    c.fg_primary,
                                 )
                                 .clicked()
                                 {
@@ -112,8 +103,7 @@ impl MouseDirectionDialog {
                                     dark_mode,
                                     button_bg,
                                     button_hover_bg,
-                                    text_color,
-                                    text_hover_color,
+                                    c.fg_primary,
                                 )
                                 .clicked()
                                 {
@@ -126,8 +116,7 @@ impl MouseDirectionDialog {
                                     dark_mode,
                                     button_bg,
                                     button_hover_bg,
-                                    text_color,
-                                    text_hover_color,
+                                    c.fg_primary,
                                 )
                                 .clicked()
                                 {
@@ -136,15 +125,14 @@ impl MouseDirectionDialog {
                                 }
                                 ui.end_row();
 
-                                // Row 2: Left, (Center), Right
+                                // Row 2: Left, mouse icon, Right.
                                 if render_direction_button(
                                     ui,
                                     t.mouse_move_left(),
                                     dark_mode,
                                     button_bg,
                                     button_hover_bg,
-                                    text_color,
-                                    text_hover_color,
+                                    c.fg_primary,
                                 )
                                 .clicked()
                                 {
@@ -152,7 +140,7 @@ impl MouseDirectionDialog {
                                     should_close = true;
                                 }
 
-                                // Center mouse icon
+                                // Decorative center mouse icon.
                                 let (rect, _response) = ui.allocate_exact_size(
                                     egui::vec2(100.0, 60.0),
                                     egui::Sense::hover(),
@@ -162,7 +150,7 @@ impl MouseDirectionDialog {
                                     egui::Align2::CENTER_CENTER,
                                     "🖱",
                                     egui::FontId::proportional(32.0),
-                                    text_color,
+                                    c.fg_primary,
                                 );
 
                                 if render_direction_button(
@@ -171,8 +159,7 @@ impl MouseDirectionDialog {
                                     dark_mode,
                                     button_bg,
                                     button_hover_bg,
-                                    text_color,
-                                    text_hover_color,
+                                    c.fg_primary,
                                 )
                                 .clicked()
                                 {
@@ -188,8 +175,7 @@ impl MouseDirectionDialog {
                                     dark_mode,
                                     button_bg,
                                     button_hover_bg,
-                                    text_color,
-                                    text_hover_color,
+                                    c.fg_primary,
                                 )
                                 .clicked()
                                 {
@@ -202,8 +188,7 @@ impl MouseDirectionDialog {
                                     dark_mode,
                                     button_bg,
                                     button_hover_bg,
-                                    text_color,
-                                    text_hover_color,
+                                    c.fg_primary,
                                 )
                                 .clicked()
                                 {
@@ -216,8 +201,7 @@ impl MouseDirectionDialog {
                                     dark_mode,
                                     button_bg,
                                     button_hover_bg,
-                                    text_color,
-                                    text_hover_color,
+                                    c.fg_primary,
                                 )
                                 .clicked()
                                 {
@@ -230,20 +214,15 @@ impl MouseDirectionDialog {
 
                     ui.add_space(20.0);
 
-                    // Cancel button
-                    if ui
-                        .add_sized(
-                            [180.0, 32.0],
-                            egui::Button::new(
-                                egui::RichText::new(t.cancel_close_button())
-                                    .size(14.0)
-                                    .color(egui::Color32::WHITE),
-                            )
-                            .fill(egui::Color32::from_rgb(216, 191, 216))
-                            .corner_radius(15.0),
-                        )
-                        .clicked()
-                    {
+                    // Cancel button.
+                    let cancel_btn = egui::Button::new(
+                        egui::RichText::new(t.cancel_close_button())
+                            .size(text_size::NORMAL)
+                            .color(c.fg_inverse),
+                    )
+                    .fill(c.accent_secondary)
+                    .corner_radius(15.0);
+                    if ui.add_sized([180.0, 32.0], cancel_btn).clicked() {
                         should_close = true;
                     }
 
@@ -255,7 +234,9 @@ impl MouseDirectionDialog {
     }
 }
 
-/// Renders a direction button with consistent styling
+/// Custom-painted direction button. Hover/pressed states use inline RGB
+/// tints because the theme palette has no mid-tone equivalents specifically
+/// suited to this 9-cell picker grid.
 fn render_direction_button(
     ui: &mut egui::Ui,
     label: &str,
@@ -263,13 +244,10 @@ fn render_direction_button(
     button_bg: egui::Color32,
     button_hover_bg: egui::Color32,
     text_color: egui::Color32,
-    text_hover_color: egui::Color32,
 ) -> egui::Response {
-    let (desired_size, corner_radius) = ([100.0, 60.0], 12.0);
-    let (rect, response) = ui.allocate_exact_size(
-        egui::vec2(desired_size[0], desired_size[1]),
-        egui::Sense::click(),
-    );
+    let corner_radius = widgets::radius::BUTTON as f32;
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(100.0, 60.0), egui::Sense::click());
 
     if ui.is_rect_visible(rect) {
         let is_hovered = response.hovered();
@@ -287,20 +265,14 @@ fn render_direction_button(
             button_bg
         };
 
-        let fg_color = if is_hovered || is_pressed {
-            text_hover_color
-        } else {
-            text_color
-        };
-
         ui.painter().rect_filled(rect, corner_radius, bg_color);
 
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
             label,
-            egui::FontId::proportional(13.0),
-            fg_color,
+            egui::FontId::proportional(text_size::BODY),
+            text_color,
         );
     }
 
