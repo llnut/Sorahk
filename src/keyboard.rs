@@ -43,8 +43,22 @@ impl<A> DeviceSimState<A> {
     /// Creates a turbo entry. Turbo entries never drive the synthetic
     /// repeat pump because `simulate_action` already paces the output
     /// cycle itself.
+    ///
+    /// `is_sequential_hold` must be set per-target so the worker's turbo
+    /// dispatch in `handle_input_event` and `handle_timeout` routes the
+    /// recurring tick to `simulate_hold_cycle` for `MappingHold` targets
+    /// rather than falling through to `simulate_action`. The latter
+    /// presses every body action without releasing the append list,
+    /// leaving the append refcount permanently above zero after the
+    /// second tick.
     #[inline(always)]
-    fn new_turbo(target_action: A, interval: u64, event_duration: u64, now: Instant) -> Self {
+    fn new_turbo(
+        target_action: A,
+        interval: u64,
+        event_duration: u64,
+        now: Instant,
+        is_sequential_hold: bool,
+    ) -> Self {
         Self {
             last_time: now,
             interval,
@@ -55,7 +69,7 @@ impl<A> DeviceSimState<A> {
             synthetic_repeat: false,
             is_holdable: false,
             is_sequential: false,
-            is_sequential_hold: false,
+            is_sequential_hold,
         }
     }
 
@@ -530,6 +544,8 @@ impl KeyboardHook {
                 } else if let Some(mapping) = state.get_input_mapping(&device) {
                     let target_action_clone = mapping.target_action.clone();
                     let turbo_enabled = mapping.turbo_enabled;
+                    let is_sequential = is_sequential_action(&mapping.target_action);
+                    let is_sequential_hold = is_sequential_hold_action(&mapping.target_action);
 
                     let sim = if turbo_enabled {
                         DeviceSimState::new_turbo(
@@ -537,12 +553,11 @@ impl KeyboardHook {
                             mapping.interval,
                             mapping.event_duration,
                             now,
+                            is_sequential_hold,
                         )
                     } else {
                         let synthetic_repeat = Self::needs_synthetic_repeat(&device);
                         let is_holdable = is_holdable_action(&mapping.target_action);
-                        let is_sequential = is_sequential_action(&mapping.target_action);
-                        let is_sequential_hold = is_sequential_hold_action(&mapping.target_action);
                         DeviceSimState::new_non_turbo(
                             mapping.target_action,
                             mapping.interval,
@@ -557,7 +572,7 @@ impl KeyboardHook {
                     device_states.insert(device, sim);
 
                     if turbo_enabled {
-                        if is_sequential_hold_action(&target_action_clone) {
+                        if is_sequential_hold {
                             // Turbo's first shot only needs to pulse the
                             // sequence-properties subset; the full body
                             // is not played at all in turbo mode.
@@ -565,9 +580,7 @@ impl KeyboardHook {
                         } else {
                             state.simulate_action(target_action_clone, mapping.event_duration);
                         }
-                    } else if is_sequential_action(&target_action_clone)
-                        || is_sequential_hold_action(&target_action_clone)
-                    {
+                    } else if is_sequential || is_sequential_hold {
                         // First fire of a sequential (loop or hold) target
                         // runs the whole chain. For MappingHold, the
                         // simulate_action arm leaves the held subset and
@@ -1026,13 +1039,6 @@ impl KeyboardHook {
                     return;
                 }
 
-                // New mouse movement - clear all existing directions first
-                *active_directions = 0;
-                for slot in direction_devices.iter_mut() {
-                    *slot = None;
-                }
-                *has_first_speed = false;
-
                 // New key press - check cache first
                 if let Some(&(dir_idx, speed, interval, turbo_enabled)) = mapping_cache.get(&device)
                 {
@@ -1429,6 +1435,112 @@ mod tests {
             assert!(*count > 0, "All workers should receive some keys");
             assert!(*count < 256, "No worker should receive all keys");
         }
+    }
+
+    #[test]
+    fn test_is_sequential_hold_action_classification() {
+        use crate::state::OutputAction;
+        use smallvec::SmallVec;
+        use std::sync::Arc;
+
+        // Only MappingHold counts as sequential-hold. The turbo dispatch
+        // relies on this matrix to route MappingHold targets through
+        // simulate_hold_cycle instead of simulate_action.
+        let mapping_hold = OutputAction::MappingHold {
+            actions: Arc::new(SmallVec::new()),
+            interval_ms: 0,
+            hold_mask: 0,
+            append: Arc::new(SmallVec::new()),
+            sequential: false,
+        };
+        assert!(is_sequential_hold_action(&mapping_hold));
+
+        assert!(!is_sequential_hold_action(&OutputAction::KeyboardKey(0x41)));
+        assert!(!is_sequential_hold_action(&OutputAction::KeyCombo(
+            Arc::from([0x11u16, 0x41u16].as_slice())
+        )));
+        assert!(!is_sequential_hold_action(&OutputAction::MouseButton(
+            crate::state::MouseButton::Left
+        )));
+        assert!(!is_sequential_hold_action(&OutputAction::MultipleActions(
+            Arc::new(SmallVec::new())
+        )));
+        assert!(!is_sequential_hold_action(&OutputAction::SequentialActions(
+            Arc::new(SmallVec::new()),
+            0
+        )));
+    }
+
+    #[test]
+    fn test_new_turbo_propagates_sequential_hold() {
+        use crate::state::OutputAction;
+        use smallvec::SmallVec;
+        use std::sync::Arc;
+
+        let now = Instant::now();
+        let mapping_hold = OutputAction::MappingHold {
+            actions: Arc::new(SmallVec::new()),
+            interval_ms: 0,
+            hold_mask: 0,
+            append: Arc::new(SmallVec::new()),
+            sequential: false,
+        };
+        let plain_key = OutputAction::KeyboardKey(0x41);
+
+        // Construct turbo state through the same field the worker reads.
+        // Compute the flag exactly as handle_input_event does.
+        let sim_held = DeviceSimState::new_turbo(
+            mapping_hold.clone(),
+            10,
+            5,
+            now,
+            is_sequential_hold_action(&mapping_hold),
+        );
+        assert!(
+            sim_held.is_sequential_hold,
+            "turbo entry for MappingHold must record the flag so recurring \
+             ticks route to simulate_hold_cycle"
+        );
+
+        let sim_plain = DeviceSimState::new_turbo(
+            plain_key.clone(),
+            10,
+            5,
+            now,
+            is_sequential_hold_action(&plain_key),
+        );
+        assert!(
+            !sim_plain.is_sequential_hold,
+            "non-MappingHold turbo targets must keep the flag false so \
+             recurring ticks stay on simulate_action"
+        );
+    }
+
+    #[test]
+    fn test_new_non_turbo_propagates_sequential_hold() {
+        use crate::state::OutputAction;
+        use smallvec::SmallVec;
+        use std::sync::Arc;
+
+        let now = Instant::now();
+        let mapping_hold = OutputAction::MappingHold {
+            actions: Arc::new(SmallVec::new()),
+            interval_ms: 0,
+            hold_mask: 0,
+            append: Arc::new(SmallVec::new()),
+            sequential: false,
+        };
+        let sim = DeviceSimState::new_non_turbo(
+            mapping_hold,
+            10,
+            5,
+            now,
+            false,
+            false,
+            false,
+            true,
+        );
+        assert!(sim.is_sequential_hold);
     }
 
     #[test]
