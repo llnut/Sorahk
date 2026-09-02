@@ -115,6 +115,8 @@ pub struct SorahkGui {
     new_mapping_turbo: bool,
     /// New mapping move speed input
     new_mapping_move_speed: String,
+    /// New mapping note input
+    new_mapping_note: String,
     /// New process name input
     new_process_name: String,
     /// Current key capture state
@@ -157,6 +159,14 @@ pub struct SorahkGui {
     duplicate_mapping_error: Option<String>,
     /// Error message for duplicate process
     duplicate_process_error: Option<String>,
+    /// Preset save name input visibility
+    show_preset_name_input: bool,
+    /// Preset save name input text
+    preset_name_input: String,
+    /// Preset rename target name (old name to replace)
+    preset_rename_target: String,
+    /// Preset rename input text
+    preset_rename_input: String,
     /// Pre-computed dark/light theme visuals.
     theme_cache: theme::ThemeCache,
 }
@@ -200,6 +210,7 @@ impl SorahkGui {
             new_mapping_duration: String::new(),
             new_mapping_turbo: true,
             new_mapping_move_speed: "5".to_string(),
+            new_mapping_note: String::new(),
             new_process_name: String::new(),
             key_capture_mode: KeyCaptureMode::None,
             just_captured_input: false,
@@ -220,6 +231,10 @@ impl SorahkGui {
             was_paused_before_settings: None,
             duplicate_mapping_error: None,
             duplicate_process_error: None,
+            show_preset_name_input: false,
+            preset_name_input: String::new(),
+            preset_rename_target: String::new(),
+            preset_rename_input: String::new(),
             theme_cache,
         }
     }

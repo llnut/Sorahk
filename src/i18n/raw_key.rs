@@ -218,6 +218,16 @@ pub(super) enum RawKey {
     RulePropsAppendPlaceholder,
     RulePropsSave,
     RulePropsCancel,
+
+    // Preset Management
+    PresetTitle,
+    PresetSaveBtn,
+    PresetDeleteBtn,
+    PresetRenameBtn,
+    PresetNameHint,
+    NoPreset,
+    NoteLabel,
+    NoteHint,
 }
 
 /// Returns the translation for `key` in `lang`, resolved to a compile-time

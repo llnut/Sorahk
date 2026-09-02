@@ -51,6 +51,7 @@ pub(super) fn render_mapping_editor_section(
     new_mapping_turbo: &mut bool,
     new_mapping_hold_indices: &mut Vec<u8>,
     new_mapping_append_keys: &mut Vec<String>,
+    new_mapping_note: &mut String,
     app_state: &Arc<AppState>,
     dark_mode: bool,
     translations: CachedTranslations,
@@ -1624,6 +1625,7 @@ pub(super) fn render_mapping_editor_section(
                     target_mode: (*new_mapping_target_mode),
                     hold_indices: new_hold,
                     append_keys: new_append,
+                    note: new_mapping_note.clone(),
                 });
 
                 // Clear input fields
@@ -1641,6 +1643,7 @@ pub(super) fn render_mapping_editor_section(
                 target_sequence_capture_list.clear();
                 new_mapping_hold_indices.clear();
                 new_mapping_append_keys.clear();
+                (*new_mapping_note).clear();
                 *sequence_last_mouse_pos = None;
                 *sequence_last_mouse_direction = None;
                 *sequence_mouse_delta = egui::Vec2::ZERO;

@@ -224,5 +224,14 @@ pub(super) const fn translate(key: RawKey) -> &'static str {
         RawKey::RulePropsAppendPlaceholder => "click to capture a key",
         RawKey::RulePropsSave => "Save",
         RawKey::RulePropsCancel => "Cancel",
+
+        RawKey::PresetTitle => "📦 Preset Management",
+        RawKey::PresetSaveBtn => "💾 Save Preset",
+        RawKey::PresetDeleteBtn => "🗑 Delete",
+        RawKey::PresetRenameBtn => "✏ Rename",
+        RawKey::PresetNameHint => "Preset name...",
+        RawKey::NoPreset => "(None)",
+        RawKey::NoteLabel => "Note:",
+        RawKey::NoteHint => "Enter note...",
     }
 }

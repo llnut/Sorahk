@@ -139,6 +139,12 @@ pub struct AppConfig {
     /// Device API preferences (VID:PID -> API preference)
     #[serde(default)]
     pub device_api_preferences: HashMap<String, DeviceApiPreference>,
+    /// Saved presets (named mapping snapshots)
+    #[serde(default)]
+    pub presets: Vec<Preset>,
+    /// Currently active preset name (empty = none)
+    #[serde(default)]
+    pub current_preset: String,
 }
 
 /// HID device baseline configuration for button state detection.
@@ -148,6 +154,16 @@ pub struct HidDeviceBaseline {
     pub device_id: String,
     /// Baseline HID data (idle state with no buttons pressed)
     pub baseline_data: Vec<u8>,
+}
+
+/// Preset configuration storing a named snapshot of mappings.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Preset {
+    /// Preset display name
+    pub name: String,
+    /// Key mappings included in this preset
+    #[serde(default)]
+    pub mappings: Vec<KeyMapping>,
 }
 
 /// Key mapping configuration for trigger-target pairs.
@@ -181,6 +197,9 @@ pub struct KeyMapping {
     /// Mouse move speed in pixels per move (only for mouse movement)
     #[serde(default = "default_move_speed")]
     pub move_speed: i32,
+    /// User note/remark for this mapping
+    #[serde(default)]
+    pub note: String,
     /// 0-based positions within `target_keys` that stay pressed after
     /// the body plays. Values past `target_keys.len()` or 16 are ignored
     /// at runtime.
@@ -318,6 +337,7 @@ impl Default for AppConfig {
                 event_duration: None,
                 turbo_enabled: true,
                 move_speed: 10,
+                note: String::new(),
                 target_mode: 0,
                 hold_indices: None,
                 append_keys: None,
@@ -331,6 +351,11 @@ impl Default for AppConfig {
             rawinput_capture_mode: default_capture_mode(),
             xinput_capture_mode: default_xinput_capture_mode(),
             device_api_preferences: HashMap::new(),
+            presets: vec![Preset {
+                name: "无".to_string(),
+                mappings: Vec::new(),
+            }],
+            current_preset: String::new(),
         }
     }
 }
@@ -725,6 +750,12 @@ impl AppConfig {
                     "turbo_enabled = {}        # Enable turbo mode (true = auto-repeat, false = follow trigger press/release)\n",
                     mapping.turbo_enabled
                 ));
+                if !mapping.note.is_empty() {
+                    result.push_str(&format!(
+                        "note = \"{}\"             # User note\n",
+                        mapping.note
+                    ));
+                }
 
                 // Rule properties: only emit when non-empty. `None` and empty
                 // vectors keep the TOML clean so legacy configs stay lean.
@@ -758,6 +789,67 @@ impl AppConfig {
 
                 result.push('\n');
             }
+        }
+
+        // Append presets
+        if !self.presets.is_empty() {
+            result.push_str("# ─── Presets ───\n");
+            result.push_str("# Named mapping presets for quick switching\n");
+            for preset in &self.presets {
+                result.push_str("[[presets]]\n");
+                result.push_str(&format!("name = \"{}\"\n", preset.name));
+                if preset.mappings.is_empty() {
+                    result.push_str("mappings = []\n");
+                }
+                for mapping in &preset.mappings {
+                    result.push_str(&format!(
+                        "[[presets.mappings]]\n\
+                         trigger_key = \"{}\"\n",
+                        mapping.trigger_key
+                    ));
+                    if mapping.target_keys.len() == 1 {
+                        result.push_str(&format!(
+                            "target_keys = [\"{}\"]\n",
+                            mapping.target_keys[0]
+                        ));
+                    } else if mapping.target_keys.len() > 1 {
+                        result.push_str("target_keys = [");
+                        for (i, key) in mapping.target_keys.iter().enumerate() {
+                            if i > 0 {
+                                result.push_str(", ");
+                            }
+                            result.push('"');
+                            result.push_str(key);
+                            result.push('"');
+                        }
+                        result.push_str("]\n");
+                    }
+                    if let Some(interval) = mapping.interval {
+                        result.push_str(&format!("interval = {}\n", interval));
+                    }
+                    if let Some(duration) = mapping.event_duration {
+                        result.push_str(&format!("event_duration = {}\n", duration));
+                    }
+                    result.push_str(&format!("move_speed = {}\n", mapping.move_speed));
+                    result.push_str(&format!(
+                        "turbo_enabled = {}\n",
+                        mapping.turbo_enabled
+                    ));
+                    if !mapping.note.is_empty() {
+                        result.push_str(&format!("note = \"{}\"\n", mapping.note));
+                    }
+                }
+                result.push('\n');
+            }
+        }
+
+        // Append current_preset if set
+        if !self.current_preset.is_empty() {
+            result.push_str("# ─── Active Preset ───\n");
+            result.push_str(&format!(
+                "current_preset = \"{}\"\n\n",
+                self.current_preset
+            ));
         }
 
         // Append HID device baselines
@@ -832,6 +924,7 @@ mod tests {
         assert_eq!(config.worker_count, 0);
         assert!(config.process_whitelist.is_empty());
         assert_eq!(config.mappings.len(), 1);
+        assert_eq!(config.presets.len(), 1);
     }
 
     #[test]
@@ -990,6 +1083,7 @@ mod tests {
             event_duration: Some(8),
             turbo_enabled: true,
             move_speed: 10,
+            note: String::new(),
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
@@ -1012,6 +1106,7 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            note: String::new(),
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
@@ -1091,6 +1186,7 @@ mod tests {
                 event_duration: Some(5),
                 turbo_enabled: true,
                 move_speed: 10,
+                note: String::new(),
                 target_mode: 0,
                 trigger_sequence: None,
                 sequence_window_ms: 500,
@@ -1104,6 +1200,7 @@ mod tests {
                 event_duration: None,
                 turbo_enabled: true,
                 move_speed: 10,
+                note: String::new(),
                 target_mode: 0,
                 trigger_sequence: None,
                 sequence_window_ms: 500,
@@ -1117,6 +1214,7 @@ mod tests {
                 event_duration: Some(10),
                 turbo_enabled: true,
                 move_speed: 10,
+                note: String::new(),
                 target_mode: 0,
                 trigger_sequence: None,
                 sequence_window_ms: 500,
@@ -1326,6 +1424,7 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            note: String::new(),
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
@@ -1346,6 +1445,7 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            note: String::new(),
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
@@ -1366,6 +1466,7 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            note: String::new(),
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
@@ -1386,6 +1487,7 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            note: String::new(),
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
@@ -1411,6 +1513,7 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            note: String::new(),
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
@@ -1439,6 +1542,7 @@ mod tests {
                 event_duration: None,
                 turbo_enabled: true,
                 move_speed: 10,
+                note: String::new(),
                 target_mode: 0,
                 trigger_sequence: None,
                 sequence_window_ms: 500,
@@ -1455,6 +1559,7 @@ mod tests {
                 event_duration: None,
                 turbo_enabled: true,
                 move_speed: 10,
+                note: String::new(),
                 target_mode: 0,
                 trigger_sequence: None,
                 sequence_window_ms: 500,
@@ -1506,6 +1611,7 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            note: String::new(),
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
@@ -1532,6 +1638,7 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            note: String::new(),
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
@@ -1568,6 +1675,7 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 10,
+            note: String::new(),
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,
@@ -1600,6 +1708,7 @@ mod tests {
             event_duration: Some(5),
             turbo_enabled: false,
             move_speed: 5,
+            note: String::new(),
             target_mode: 2,
             trigger_sequence: None,
             sequence_window_ms: 500,
@@ -1642,6 +1751,7 @@ mod tests {
             event_duration: None,
             turbo_enabled: true,
             move_speed: 5,
+            note: String::new(),
             target_mode: 0,
             trigger_sequence: None,
             sequence_window_ms: 500,

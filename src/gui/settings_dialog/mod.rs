@@ -127,6 +127,10 @@ impl SorahkGui {
                                         &mut self.capture_initial_pressed,
                                         &mut self.capture_pressed_keys,
                                         &mut self.just_captured_input,
+                                        &mut self.show_preset_name_input,
+                                        &mut self.preset_name_input,
+                                        &mut self.preset_rename_target,
+                                        &mut self.preset_rename_input,
                                         &self.app_state,
                                         self.dark_mode,
                                         self.translations,
@@ -216,9 +220,10 @@ impl SorahkGui {
                                                 &mut self.new_mapping_sequence_window,
                                                 &mut self.new_mapping_is_sequence_mode,
                                                 &mut self.new_mapping_turbo,
-                                                &mut self.new_mapping_hold_indices,
-                                                &mut self.new_mapping_append_keys,
-                                                &self.app_state,
+                                            &mut self.new_mapping_hold_indices,
+                                            &mut self.new_mapping_append_keys,
+                                            &mut self.new_mapping_note,
+                                            &self.app_state,
                                                 self.dark_mode,
                                                 self.translations,
                                             );
@@ -298,7 +303,16 @@ impl SorahkGui {
 
         // Handle save/cancel outside the window closure
         if should_save {
-            if let Some(temp_config) = &self.temp_config {
+            if let Some(mut temp_config) = self.temp_config.take() {
+                // Update active preset mappings before saving
+                if !temp_config.current_preset.is_empty() {
+                    if let Some(preset) = temp_config.presets.iter_mut()
+                        .find(|p| p.name == temp_config.current_preset)
+                    {
+                        preset.mappings = temp_config.mappings.clone();
+                    }
+                }
+
                 // Check if always_on_top changed
                 let always_on_top_changed = temp_config.always_on_top != self.config.always_on_top;
                 // Check if dark_mode changed
@@ -345,7 +359,6 @@ impl SorahkGui {
                 }
             }
             self.show_settings_dialog = false;
-            self.temp_config = None;
             self.key_capture_mode = KeyCaptureMode::None;
             self.duplicate_mapping_error = None;
             self.duplicate_process_error = None;
@@ -358,6 +371,8 @@ impl SorahkGui {
             // the settings session and write into a stale temp_config.
             self.rule_properties_dialog = None;
             self.rule_props_editing_idx = None;
+            self.preset_rename_target.clear();
+            self.preset_rename_input.clear();
 
             // Restore previous paused state after exiting settings
             if let Some(was_paused) = self.was_paused_before_settings.take()
@@ -394,6 +409,9 @@ impl SorahkGui {
             self.sequence_last_mouse_pos = None;
             self.sequence_last_mouse_direction = None;
             self.sequence_mouse_delta = egui::Vec2::ZERO;
+            self.new_mapping_note.clear();
+            self.preset_rename_target.clear();
+            self.preset_rename_input.clear();
 
             // Restore previous paused state after exiting settings
             if let Some(was_paused) = self.was_paused_before_settings.take()

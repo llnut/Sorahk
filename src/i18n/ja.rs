@@ -214,5 +214,14 @@ pub(super) const fn translate(key: RawKey) -> &'static str {
         RawKey::RulePropsAppendPlaceholder => "クリックしてキーを記録",
         RawKey::RulePropsSave => "保存",
         RawKey::RulePropsCancel => "キャンセル",
+
+        RawKey::PresetTitle => "📦 プリセット管理",
+        RawKey::PresetSaveBtn => "💾 プリセット保存",
+        RawKey::PresetDeleteBtn => "🗑 削除",
+        RawKey::PresetRenameBtn => "✏ リネーム",
+        RawKey::PresetNameHint => "プリセット名...",
+        RawKey::NoPreset => "（なし）",
+        RawKey::NoteLabel => "メモ:",
+        RawKey::NoteHint => "メモを入力...",
     }
 }

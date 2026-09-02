@@ -224,5 +224,14 @@ pub(super) const fn translate(key: RawKey) -> &'static str {
         RawKey::RulePropsAppendPlaceholder => "클릭하여 키를 입력하세요",
         RawKey::RulePropsSave => "저장",
         RawKey::RulePropsCancel => "취소",
+
+        RawKey::PresetTitle => "📦 프리셋 관리",
+        RawKey::PresetSaveBtn => "💾 프리셋 저장",
+        RawKey::PresetDeleteBtn => "🗑 삭제",
+        RawKey::PresetRenameBtn => "✏ 이름 변경",
+        RawKey::PresetNameHint => "프리셋 이름...",
+        RawKey::NoPreset => "(없음)",
+        RawKey::NoteLabel => "메모:",
+        RawKey::NoteHint => "메모 입력...",
     }
 }

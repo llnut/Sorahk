@@ -687,6 +687,32 @@ impl CachedTranslations {
         self.inner.rule_props_cancel
     }
 
+    // Preset Management
+    pub fn preset_title(&self) -> &str {
+        self.inner.preset_title
+    }
+    pub fn preset_save_btn(&self) -> &str {
+        self.inner.preset_save_btn
+    }
+    pub fn preset_delete_btn(&self) -> &str {
+        self.inner.preset_delete_btn
+    }
+    pub fn preset_rename_btn(&self) -> &str {
+        self.inner.preset_rename_btn
+    }
+    pub fn preset_name_hint(&self) -> &str {
+        self.inner.preset_name_hint
+    }
+    pub fn no_preset(&self) -> &str {
+        self.inner.no_preset
+    }
+    pub fn note_label(&self) -> &str {
+        self.inner.note_label
+    }
+    pub fn note_hint(&self) -> &str {
+        self.inner.note_hint
+    }
+
     /// Format keys count with localized text
     /// Optimized to minimize allocations with pre-sized capacity
     #[inline]

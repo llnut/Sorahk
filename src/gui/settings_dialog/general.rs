@@ -22,6 +22,10 @@ pub(super) fn render_general_section(
     capture_initial_pressed: &mut HashSet<u32>,
     capture_pressed_keys: &mut HashSet<u32>,
     just_captured_input: &mut bool,
+    show_preset_name_input: &mut bool,
+    preset_name_input: &mut String,
+    preset_rename_target: &mut String,
+    preset_rename_input: &mut String,
     app_state: &Arc<AppState>,
     dark_mode: bool,
     translations: CachedTranslations,
@@ -164,6 +168,335 @@ pub(super) fn render_general_section(
                         egui::Color32::from_rgb(120, 120, 140)
                     }),
             );
+        });
+
+    ui.add_space(8.0);
+
+    // Preset Management Section
+    let card_bg = if dark_mode {
+        egui::Color32::from_rgb(45, 47, 58)
+    } else {
+        egui::Color32::from_rgb(255, 250, 255)
+    };
+
+    egui::Frame::NONE
+        .fill(card_bg)
+        .corner_radius(egui::CornerRadius::same(15))
+        .inner_margin(egui::Margin::same(16))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.label(
+                egui::RichText::new(t.preset_title())
+                    .size(16.0)
+                    .strong()
+                    .color(if dark_mode {
+                        egui::Color32::from_rgb(200, 180, 255)
+                    } else {
+                        egui::Color32::from_rgb(100, 120, 200)
+                    }),
+            );
+            ui.add_space(6.0);
+
+            let available = ui.available_width();
+            egui::Grid::new("preset_grid")
+                .num_columns(2)
+                .spacing([20.0, 8.0])
+                .min_col_width(available * 0.35)
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(t.preset_name_hint())
+                            .size(13.0)
+                            .color(if dark_mode {
+                                egui::Color32::from_rgb(200, 200, 220)
+                            } else {
+                                egui::Color32::from_rgb(80, 80, 100)
+                            }),
+                    );
+                    ui.horizontal(|ui| {
+                        let name_edit = egui::TextEdit::singleline(
+                            &mut *preset_name_input,
+                        )
+                        .hint_text(t.preset_name_hint())
+                        .background_color(if dark_mode {
+                            egui::Color32::from_rgb(50, 50, 50)
+                        } else {
+                            egui::Color32::from_rgb(220, 220, 220)
+                        })
+                        .desired_width(130.0);
+                        ui.add(name_edit);
+
+                        ui.add_space(6.0);
+
+                        let save_btn = egui::Button::new(
+                            egui::RichText::new(t.preset_save_btn())
+                                .size(12.0)
+                                .color(egui::Color32::WHITE),
+                        )
+                        .fill(if dark_mode {
+                            egui::Color32::from_rgb(100, 180, 240)
+                        } else {
+                            egui::Color32::from_rgb(150, 200, 250)
+                        })
+                        .corner_radius(8.0);
+
+                        if ui.add(save_btn).clicked()
+                            && !preset_name_input.is_empty()
+                        {
+                            let name = preset_name_input.clone();
+                            let existing_mappings =
+                                temp_config.mappings.clone();
+                            if let Some(existing) = temp_config
+                                .presets
+                                .iter_mut()
+                                .find(|p| p.name == name)
+                            {
+                                existing.mappings = existing_mappings;
+                            } else {
+                                temp_config.presets.push(
+                                    crate::config::Preset {
+                                        name,
+                                        mappings: existing_mappings,
+                                    },
+                                );
+                            }
+                            preset_name_input.clear();
+                            *show_preset_name_input = false;
+                        }
+                    });
+                    ui.end_row();
+                });
+
+            ui.add_space(8.0);
+
+            // Existing preset list
+            if !temp_config.presets.is_empty() {
+                ui.label(
+                    egui::RichText::new(t.preset_title())
+                        .size(13.0)
+                        .strong()
+                        .color(if dark_mode {
+                            egui::Color32::from_rgb(200, 180, 255)
+                        } else {
+                            egui::Color32::from_rgb(100, 120, 200)
+                        }),
+                );
+                ui.add_space(4.0);
+
+                let mut to_delete: Option<usize> = None;
+                let mut to_load: Option<usize> = None;
+                let mut to_rename: Option<(usize, String)> = None;
+
+                for (p_idx, preset) in
+                    temp_config.presets.iter().enumerate()
+                {
+                    ui.horizontal(|ui| {
+                        let is_active = temp_config.current_preset
+                            == preset.name;
+                        let name_color = if is_active {
+                            if dark_mode {
+                                egui::Color32::from_rgb(
+                                    135, 206, 235,
+                                )
+                            } else {
+                                egui::Color32::from_rgb(
+                                    70, 130, 180,
+                                )
+                            }
+                        } else if dark_mode {
+                            egui::Color32::from_rgb(
+                                200, 200, 220,
+                            )
+                        } else {
+                            egui::Color32::from_rgb(
+                                80, 80, 100,
+                            )
+                        };
+
+                        let display_name = if is_active {
+                            format!("{} ✓", preset.name)
+                        } else {
+                            preset.name.clone()
+                        };
+
+                        let rename_active = *preset_rename_target
+                            == preset.name;
+                        if rename_active {
+                            let rename_edit = egui::TextEdit::singleline(
+                                &mut *preset_rename_input,
+                            )
+                            .hint_text(t.preset_name_hint())
+                            .background_color(
+                                if dark_mode {
+                                    egui::Color32::from_rgb(
+                                        50, 50, 50,
+                                    )
+                                } else {
+                                    egui::Color32::from_rgb(
+                                        220, 220, 220,
+                                    )
+                                },
+                            )
+                            .desired_width(120.0);
+                            if ui
+                                .add(rename_edit)
+                                .lost_focus()
+                                && ui.input(|i| {
+                                    i.key_pressed(
+                                        egui::Key::Enter,
+                                    )
+                                })
+                            {
+                                let new_name =
+                                    preset_rename_input
+                                        .clone();
+                                if !new_name.is_empty()
+                                    && new_name
+                                        != preset.name
+                                {
+                                    to_rename = Some((
+                                        p_idx,
+                                        new_name,
+                                    ));
+                                }
+                                preset_rename_target
+                                    .clear();
+                                preset_rename_input
+                                    .clear();
+                            }
+                        } else {
+                            if ui
+                                .selectable_label(
+                                    is_active,
+                                    egui::RichText::new(
+                                        &display_name,
+                                    )
+                                    .size(13.0)
+                                    .color(name_color),
+                                )
+                                .clicked()
+                            {
+                                to_load = Some(p_idx);
+                            }
+                        }
+
+                        let load_btn = egui::Button::new(
+                            egui::RichText::new("▶")
+                                .size(11.0)
+                                .color(egui::Color32::WHITE),
+                        )
+                        .fill(if dark_mode {
+                            egui::Color32::from_rgb(
+                                100, 180, 240,
+                            )
+                        } else {
+                            egui::Color32::from_rgb(
+                                150, 200, 250,
+                            )
+                        })
+                        .corner_radius(8.0);
+
+                        if ui
+                            .add_sized(
+                                [22.0, 22.0],
+                                load_btn,
+                            )
+                            .clicked()
+                        {
+                            to_load = Some(p_idx);
+                        }
+
+                        let rename_btn = egui::Button::new(
+                            egui::RichText::new(
+                                t.preset_rename_btn(),
+                            )
+                            .size(11.0)
+                            .color(egui::Color32::WHITE),
+                        )
+                        .fill(if dark_mode {
+                            egui::Color32::from_rgb(
+                                220, 160, 100,
+                            )
+                        } else {
+                            egui::Color32::from_rgb(
+                                255, 200, 130,
+                            )
+                        })
+                        .corner_radius(8.0);
+
+                        if ui
+                            .add_sized(
+                                [30.0, 22.0],
+                                rename_btn,
+                            )
+                            .clicked()
+                        {
+                            *preset_rename_target =
+                                preset.name.clone();
+                            *preset_rename_input =
+                                preset.name.clone();
+                        }
+
+                        let delete_btn = egui::Button::new(
+                            egui::RichText::new(
+                                t.preset_delete_btn(),
+                            )
+                            .size(11.0)
+                            .color(egui::Color32::WHITE),
+                        )
+                        .fill(if dark_mode {
+                            egui::Color32::from_rgb(
+                                230, 100, 100,
+                            )
+                        } else {
+                            egui::Color32::from_rgb(
+                                250, 150, 150,
+                            )
+                        })
+                        .corner_radius(8.0);
+
+                        if ui
+                            .add_sized(
+                                [30.0, 22.0],
+                                delete_btn,
+                            )
+                            .clicked()
+                        {
+                            to_delete = Some(p_idx);
+                        }
+                    });
+                }
+
+                if let Some(p_idx) = to_load {
+                    let preset =
+                        temp_config.presets[p_idx]
+                            .clone();
+                    temp_config.mappings =
+                        preset.mappings;
+                    temp_config.current_preset =
+                        preset.name;
+                }
+
+                if let Some((p_idx, new_name)) = to_rename {
+                    if !temp_config.presets.iter().any(|p| p.name == new_name) {
+                        if temp_config.current_preset == temp_config.presets[p_idx].name {
+                            temp_config.current_preset = new_name.clone();
+                        }
+                        temp_config.presets[p_idx].name = new_name;
+                    }
+                }
+
+                if let Some(p_idx) = to_delete {
+                    let name =
+                        temp_config.presets[p_idx]
+                            .name
+                            .clone();
+                    if temp_config.current_preset == name {
+                        temp_config.current_preset
+                            .clear();
+                    }
+                    temp_config.presets.remove(p_idx);
+                }
+            }
         });
 
     ui.add_space(8.0);

@@ -212,5 +212,14 @@ pub(super) const fn translate(key: RawKey) -> &'static str {
         RawKey::RulePropsAppendPlaceholder => "点击录制按键",
         RawKey::RulePropsSave => "保存",
         RawKey::RulePropsCancel => "取消",
+
+        RawKey::PresetTitle => "📦 预设管理",
+        RawKey::PresetSaveBtn => "💾 保存预设",
+        RawKey::PresetDeleteBtn => "🗑 删除",
+        RawKey::PresetRenameBtn => "✏ 重命名",
+        RawKey::PresetNameHint => "预设名称...",
+        RawKey::NoPreset => "（无）",
+        RawKey::NoteLabel => "备注:",
+        RawKey::NoteHint => "输入备注内容...",
     }
 }

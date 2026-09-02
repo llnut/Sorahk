@@ -88,13 +88,18 @@ fn main() -> Result<()> {
     if app_state.show_tray_icon() {
         let tray_state = app_state.clone();
         thread::spawn(move || {
-            let mut tray =
-                TrayIcon::new(tray_state.should_exit.clone()).expect("Failed to create tray icon");
-            let language = tray_state.language();
-            let translations = crate::i18n::CachedTranslations::new(language);
-            let msg = translations.tray_notification_launched().to_string();
-            let _ = tray.show_info(&msg);
-            let _ = tray.run_message_loop();
+            match TrayIcon::new(tray_state.should_exit.clone()) {
+                Ok(mut tray) => {
+                    let language = tray_state.language();
+                    let translations = crate::i18n::CachedTranslations::new(language);
+                    let msg = translations.tray_notification_launched().to_string();
+                    let _ = tray.show_info(&msg);
+                    let _ = tray.run_message_loop();
+                }
+                Err(e) => {
+                    eprintln!("Failed to create tray icon: {}", e);
+                }
+            }
         });
     }
 

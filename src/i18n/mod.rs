@@ -312,6 +312,16 @@ struct TranslationCache {
     rule_props_append_placeholder: &'static str,
     rule_props_save: &'static str,
     rule_props_cancel: &'static str,
+
+    // Preset Management
+    preset_title: &'static str,
+    preset_save_btn: &'static str,
+    preset_delete_btn: &'static str,
+    preset_rename_btn: &'static str,
+    preset_name_hint: &'static str,
+    no_preset: &'static str,
+    note_label: &'static str,
+    note_hint: &'static str,
 }
 
 /// Pre-built translation tables, one per supported language. Built at
@@ -666,6 +676,16 @@ impl TranslationCache {
             ),
             rule_props_save: get_raw_translation(lang, RawKey::RulePropsSave),
             rule_props_cancel: get_raw_translation(lang, RawKey::RulePropsCancel),
+
+            // Preset Management
+            preset_title: get_raw_translation(lang, RawKey::PresetTitle),
+            preset_save_btn: get_raw_translation(lang, RawKey::PresetSaveBtn),
+            preset_delete_btn: get_raw_translation(lang, RawKey::PresetDeleteBtn),
+            preset_rename_btn: get_raw_translation(lang, RawKey::PresetRenameBtn),
+            preset_name_hint: get_raw_translation(lang, RawKey::PresetNameHint),
+            no_preset: get_raw_translation(lang, RawKey::NoPreset),
+            note_label: get_raw_translation(lang, RawKey::NoteLabel),
+            note_hint: get_raw_translation(lang, RawKey::NoteHint),
         }
     }
 }

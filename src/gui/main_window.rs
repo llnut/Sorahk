@@ -7,6 +7,9 @@ use crate::gui::theme;
 use crate::gui::widgets::{arrow_separator_width, estimate_pill_width_display};
 use crate::state::NotificationEvent;
 use eframe::egui;
+use windows::Win32::UI::WindowsAndMessaging::{
+    FindWindowW, SetForegroundWindow, ShowWindow, SW_HIDE, SW_SHOW,
+};
 
 /// Cached frame state to avoid repeated atomic operations.
 struct FrameState {
@@ -129,6 +132,14 @@ impl eframe::App for SorahkGui {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            unsafe {
+                if let Ok(hwnd) =
+                    FindWindowW(None, windows::core::w!("Sorahk - Auto Key Press Tool"))
+                {
+                    let _ = ShowWindow(hwnd, SW_SHOW);
+                    let _ = SetForegroundWindow(hwnd);
+                }
+            }
         }
 
         if self.app_state.check_and_clear_show_about_request() {
@@ -462,7 +473,13 @@ impl SorahkGui {
                         .clicked()
                     {
                         self.show_close_dialog = false;
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                        unsafe {
+                            if let Ok(hwnd) =
+                                FindWindowW(None, windows::core::w!("Sorahk - Auto Key Press Tool"))
+                            {
+                                let _ = ShowWindow(hwnd, SW_HIDE);
+                            }
+                        }
                     }
 
                     ui.add_space(12.0);
@@ -623,6 +640,48 @@ impl SorahkGui {
                     .color(c.title_primary),
             );
 
+            // Preset quick-switch dropdown in title bar
+            if !self.config.presets.is_empty() {
+                ui.add_space(12.0);
+                let current_name = if self.config.current_preset.is_empty() {
+                    t.no_preset().to_string()
+                } else {
+                    self.config.current_preset.clone()
+                };
+                let previous_preset = self.config.current_preset.clone();
+                let previous_mapping_count = self.config.mappings.len();
+                egui::ComboBox::from_id_salt("titlebar_preset_selector")
+                    .selected_text(&current_name)
+                    .width(120.0)
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_label(self.config.current_preset.is_empty(), t.no_preset()).clicked() {
+                            self.config.current_preset.clear();
+                            self.config.mappings.clear();
+                        }
+                        for preset in &self.config.presets.clone() {
+                            let is_selected = self.config.current_preset == preset.name;
+                            if ui.selectable_label(is_selected, &preset.name).clicked() {
+                                self.config.current_preset = preset.name.clone();
+                                self.config.mappings = preset.mappings.clone();
+                            }
+                        }
+                    });
+                if previous_preset != self.config.current_preset
+                    || previous_mapping_count != self.config.mappings.len()
+                {
+                    if let Err(e) = self.config.save_to_file("Config.toml") {
+                        eprintln!("Failed to save preset switch: {}", e);
+                    }
+                    if let Err(e) = self.app_state.reload_config(self.config.clone()) {
+                        eprintln!("Failed to reload config after preset switch: {}", e);
+                    }
+                    if let Some(temp_config) = &mut self.temp_config {
+                        temp_config.current_preset = self.config.current_preset.clone();
+                        temp_config.presets = self.config.presets.clone();
+                    }
+                }
+            }
+
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(10.0);
 
@@ -675,6 +734,8 @@ impl SorahkGui {
 
                     self.show_settings_dialog = true;
                     self.temp_config = Some(self.config.clone());
+                    self.preset_rename_target.clear();
+                    self.preset_rename_input.clear();
                 }
 
                 ui.add_space(8.0);
@@ -1337,6 +1398,23 @@ impl SorahkGui {
                         );
                     }
                 });
+
+                if !mapping.note.is_empty() {
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(t.note_label())
+                                .size(11.0)
+                                .color(c.fg_muted),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(&mapping.note)
+                                .size(11.0)
+                                .color(c.fg_primary),
+                        );
+                    });
+                }
             });
     }
 }

@@ -1624,6 +1624,25 @@ pub(super) fn render_mapping_list_section(
                         }
                     });
                 });
+
+                // Note edit for existing mapping
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(30.0);
+                    ui.label(
+                        egui::RichText::new(t.note_label())
+                            .size(12.0)
+                            .color(if dark_mode {
+                                egui::Color32::from_rgb(170, 170, 190)
+                            } else {
+                                egui::Color32::from_rgb(100, 100, 120)
+                            }),
+                    );
+                    let note_edit = egui::TextEdit::singleline(&mut mapping.note)
+                        .hint_text(t.note_hint())
+                        .desired_width(200.0);
+                    ui.add(note_edit);
+                });
             });
 
         ui.add_space(10.0);

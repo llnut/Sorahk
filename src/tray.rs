@@ -145,11 +145,15 @@ impl TrayIcon {
             }
         };
 
+        // Use NOTIFYICONDATA_V2_SIZE (offset of guidItem) for maximum compatibility.
+        // The full struct size with guidItem+hBalloonIcon can cause NIM_ADD failures
+        // on some Windows configurations due to cbSize mismatch.
+        let cb_size = std::mem::offset_of!(NOTIFYICONDATAW, guidItem) as u32;
         let nid = NOTIFYICONDATAW {
-            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+            cbSize: cb_size,
             hWnd: hwnd,
             uID: 1,
-            uFlags: NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP,
+            uFlags: NIF_ICON | NIF_MESSAGE | NIF_TIP,
             uCallbackMessage: WM_APP + 1,
             hIcon: initial_icon,
             ..Default::default()
@@ -169,7 +173,10 @@ impl TrayIcon {
         instance.nid.szTip[..copy_len].copy_from_slice(&tooltip_utf16[..copy_len]);
 
         unsafe {
-            let _ = Shell_NotifyIconW(NIM_ADD, &instance.nid);
+            let result = Shell_NotifyIconW(NIM_ADD, &instance.nid);
+            if !result.as_bool() {
+                eprintln!("Warning: Failed to add tray icon (Shell_NotifyIconW NIM_ADD)");
+            }
         }
 
         let _ = Self::register_aumid();
@@ -202,7 +209,7 @@ impl TrayIcon {
 
         unsafe {
             let original_flags = self.nid.uFlags;
-            self.nid.uFlags = NIF_TIP | NIF_SHOWTIP;
+            self.nid.uFlags = NIF_TIP;
             let result = Shell_NotifyIconW(NIM_MODIFY, &self.nid);
             self.nid.uFlags = original_flags;
 
@@ -349,7 +356,7 @@ impl TrayIcon {
         icon_type: NOTIFY_ICON_INFOTIP_FLAGS,
     ) -> Result<()> {
         let original_flags = self.nid.uFlags;
-        self.nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP | NIF_INFO;
+        self.nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_INFO;
         self.nid.dwInfoFlags = icon_type | NIIF_NOSOUND;
 
         let title_utf16 = self.utf16_cache.encode_title(title);
@@ -568,6 +575,8 @@ impl TrayIcon {
                 if let Some(state) = get_global_state() {
                     state.request_show_window();
                 }
+                // Direct Win32 restore for Win11 where eframe event loop may be throttled
+                Self::restore_main_window();
             }
             _ => {}
         }
@@ -604,7 +613,11 @@ impl TrayIcon {
                         let _ = sender.send(msg);
                     }
                 }
-                1020 => state.request_show_window(),
+                1020 => {
+                    state.request_show_window();
+                    // Direct Win32 restore for Win11 compatibility
+                    Self::restore_main_window();
+                }
                 1030 => {
                     state.request_show_window();
                     state.request_show_about();
@@ -685,6 +698,18 @@ impl TrayIcon {
     #[inline(always)]
     pub fn should_exit(&self) -> bool {
         self.should_exit.load(Ordering::Relaxed)
+    }
+
+    /// Restore the main eframe window directly via Win32 API.
+    /// This bypasses eframe's event loop, which may be throttled on Win11
+    /// when the window is minimized.
+    fn restore_main_window() {
+        unsafe {
+            if let Ok(main_hwnd) = FindWindowW(None, w!("Sorahk - Auto Key Press Tool")) {
+                let _ = ShowWindow(main_hwnd, SW_SHOW);
+                let _ = SetForegroundWindow(main_hwnd);
+            }
+        }
     }
 }
 
